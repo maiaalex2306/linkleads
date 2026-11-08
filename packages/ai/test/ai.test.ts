@@ -37,3 +37,11 @@ describe('buildUserMessage', () => {
     expect(msg).toContain('mencione saneamento');
   });
 });
+
+import { ClaudePostInterpreter, OpenAiPostInterpreter, createInterpreter } from '../src/index.js';
+describe('createInterpreter', () => {
+  it('escolhe o provedor', () => {
+    expect(createInterpreter({ provider: 'openai', apiKey: 'x' })).toBeInstanceOf(OpenAiPostInterpreter);
+    expect(createInterpreter({ provider: 'anthropic', apiKey: 'x' })).toBeInstanceOf(ClaudePostInterpreter);
+  });
+});

@@ -69,6 +69,15 @@ try {
   await ui.getByRole('button', { name: 'Campanhas' }).click();
   await ui.getByText('Nova campanha').waitFor();
   await ui.screenshot({ path: join(shots, 'campanhas.png'), fullPage: true });
+  await call('setProvider', 'openai');
+  await ui.getByRole('button', { name: 'Configurações da IA' }).click();
+  await ui.getByText('Sobre mim').first().waitFor();
+  await ui.screenshot({ path: join(shots, 'configuracoes.png'), fullPage: true });
+  await ui.emulateMedia({ colorScheme: 'dark' });
+  await ui.getByRole('button', { name: '← Voltar' }).click();
+  await ui.getByRole('button', { name: 'Campanhas' }).click();
+  await ui.getByText('Nova campanha').waitFor();
+  await ui.screenshot({ path: join(shots, 'campanhas-escuro.png') });
 } catch (e) {
   fail(e.stack ?? e);
 } finally {

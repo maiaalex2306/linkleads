@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DEFAULT_DAILY_LIMITS, engagementCampaign, importPeopleFromCsv, type Account } from '@linkleads/core';
+import type { AiProvider } from '@linkleads/ai';
 import type { CommentDraft } from '@linkleads/db';
 import { AccountStore } from './account-store.js';
 import { CrmRegistry } from './crm-registry.js';
@@ -152,7 +153,9 @@ ipcMain.handle('drafts:reject', (_e, id: string, draftId: number) => {
 
 // Configurações --------------------------------------------------------------
 ipcMain.handle('settings:get', () => settings.public());
-ipcMain.handle('settings:setAiKey', (_e, key: string | null) => settings.setAnthropicKey(key));
+ipcMain.handle('settings:setProvider', (_e, p: AiProvider) => settings.setProvider(p));
+ipcMain.handle('settings:setAiKey', (_e, p: AiProvider, key: string | null) => settings.setApiKey(p, key));
+ipcMain.handle('settings:setModel', (_e, p: AiProvider, model: string | null) => settings.setModel(p, model));
 ipcMain.handle('settings:setAboutMe', (_e, text: string) => settings.setAboutMe(text));
 
 app.whenReady().then(createLauncher);

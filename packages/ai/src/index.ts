@@ -1,9 +1,17 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { betaZodOutputFormat } from '@anthropic-ai/sdk/helpers/beta/zod';
+import OpenAI from 'openai';
+import { zodTextFormat } from 'openai/helpers/zod';
 import { z } from 'zod';
 import type { Person, PostSnapshot } from '@linkleads/core';
 
-export const DEFAULT_MODEL = 'claude-opus-5-5';
+export type AiProvider = 'anthropic' | 'openai';
+
+export const DEFAULT_MODELS: Record<AiProvider, string> = {
+  anthropic: 'claude-opus-5-5',
+  openai: 'gpt-5.5',
+};
+export const DEFAULT_MODEL = DEFAULT_MODELS.anthropic;
 
 /** Interpretação do post + comentário sugerido (saída estruturada da IA). */
 export const PostInterpretationSchema = z.object({
@@ -119,6 +127,37 @@ export function sanitize(r: PostInterpretation, maxChars: number): PostInterpret
   if (r.sensitive && !skipReason) skipReason = 'Tema sensível';
   if (!shouldComment) comment = '';
   return { ...r, comment, shouldComment, skipReason };
+}
+
+/** Mesma tarefa e mesmo formato de saída, via API da OpenAI (Responses + saída estruturada). */
+export class OpenAiPostInterpreter implements PostInterpreter {
+  private client: OpenAI;
+  private model: string;
+
+  constructor(opts: { apiKey?: string; model?: string } = {}) {
+    // sem apiKey explícita, o SDK lê OPENAI_API_KEY do ambiente
+    this.client = new OpenAI(opts.apiKey ? { apiKey: opts.apiKey } : {});
+    this.model = opts.model ?? DEFAULT_MODELS.openai;
+  }
+
+  async interpret(post: PostSnapshot, person: Person, settings: CommentSettings = {}): Promise<PostInterpretation> {
+    const response = await this.client.responses.parse({
+      model: this.model,
+      instructions: SYSTEM_PROMPT,
+      input: buildUserMessage(post, person, settings),
+      text: { format: zodTextFormat(PostInterpretationSchema, 'post_interpretation') },
+    });
+    const parsed = response.output_parsed;
+    if (!parsed) throw new AiRefusalError('A IA não devolveu uma interpretação válida (recusa ou formato inesperado)');
+    return sanitize(parsed, settings.maxChars ?? 400);
+  }
+}
+
+export function createInterpreter(opts: { provider: AiProvider; apiKey?: string; model?: string }): PostInterpreter {
+  const model = opts.model?.trim() || undefined;
+  return opts.provider === 'openai'
+    ? new OpenAiPostInterpreter({ apiKey: opts.apiKey, model })
+    : new ClaudePostInterpreter({ apiKey: opts.apiKey, model });
 }
 
 export { SYSTEM_PROMPT, buildUserMessage };

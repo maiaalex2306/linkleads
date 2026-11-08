@@ -13,7 +13,7 @@ injetar código na página e sem chamar API não oficial.
 linkleads/
 ├─ packages/core     # domínio: catálogo de ações, motor de campanhas, ritmo/limites, templates
 ├─ packages/db       # SQLite local por conta (CRM: pessoas, coleções, campanhas, posts, rascunhos)
-├─ packages/ai       # IA (Claude): interpreta posts e escreve comentários
+├─ packages/ai       # IA (Anthropic Claude ou OpenAI): interpreta posts e escreve comentários
 ├─ apps/desktop      # Electron: Launcher + uma instância isolada por conta
 │  └─ e2e/           # teste ponta a ponta contra um site falso local
 └─ docs/             # arquitetura, roadmap, riscos
@@ -31,7 +31,7 @@ npm run e2e        # app real (Electron) contra um site falso local (Linux: prec
 npm run dev        # abre o Launcher
 ```
 
-Testar a IA com um post (precisa de `ANTHROPIC_API_KEY`):
+Testar a IA com um post (Anthropic por padrão, ou `AI_PROVIDER=openai` com `OPENAI_API_KEY`; `AI_MODEL` troca o modelo):
 
 ```bash
 npm run ai:demo -- "Concluímos a telemetria de 120 km de rede e reduzimos as perdas em 18%." "Ana Silva" "Engenheira de Saneamento"
@@ -39,7 +39,9 @@ npm run ai:demo -- "Concluímos a telemetria de 120 km de rede e reduzimos as pe
 
 ## Como usar (Fase 1)
 
-1. **Configurações da IA**: cole a chave da API da Anthropic (fica criptografada no cofre do sistema) e escreva o "Sobre mim".
+1. **Configurações da IA**: escolha **Anthropic (Claude)** ou **OpenAI**, cole a chave (fica criptografada no cofre do
+   sistema; as variáveis `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` também funcionam), ajuste o modelo se quiser
+   (padrões: `claude-opus-5-5` e `gpt-5.5`) e escreva o "Sobre mim".
 2. **Adicione uma conta** e clique em **Iniciar**. Na janela que abrir, faça login no LinkedIn uma vez (a sessão fica só nesta máquina).
 3. **Coleções → Importar CSV**: o arquivo precisa de uma coluna com a URL do perfil (`profileUrl`, `linkedin_url` ou `url`).
    Colunas como nome, empresa e cargo são reconhecidas; as demais viram variáveis `{{custom.coluna}}`.
@@ -51,6 +53,13 @@ npm run ai:demo -- "Concluímos a telemetria de 120 km de rede e reduzimos as pe
 > Valide primeiro com uma conta própria, com volume baixo. Para ajustar sem gerar nova versão, use `<userData>/selectors.json`.
 
 Porta CDP opcional, para automação externa: `LINKLEADS_CDP_PORT=9222 npm run dev`.
+
+## Identidade visual
+
+A interface usa a **Paleta AC Partners**, a mesma de acp.tec.br e iadcrm.com.br (`assets/paleta-acp.css`), com tema claro e escuro:
+o roxo `#6816A8`/`#4A1078` marca a identidade (topo, navegação, seleção, foco), o laranja `#FF682C` fica nas ações
+principais, sempre com texto escuro `#2E1508` (texto branco sobre esse laranja reprova no contraste), e verde, ouro,
+âmbar e vermelho ficam reservados para status.
 
 ## Princípios
 

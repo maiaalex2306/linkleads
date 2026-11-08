@@ -124,7 +124,7 @@ async function campaignsView(a) {
     },
   },
     h('strong', {}, 'Nova campanha: Visitar → Curtir post → Comentar com IA'),
-    !settings.hasAiKey && h('div', { class: 'muted', style: 'color:var(--warn)' }, 'A IA ainda não está configurada (Configurações da IA). Sem ela, a etapa de comentário falha.'),
+    !settings.hasAiKey && h('div', { class: 'muted', style: 'color:var(--warn)' }, `A IA escolhida (${settings.aiProvider === 'openai' ? 'OpenAI' : 'Anthropic'}) ainda não tem chave (Configurações da IA). Sem ela, a etapa de comentário falha.`),
     h('div', { class: 'row' },
       h('label', {}, 'Nome', h('input', { name: 'name', required: true, value: 'Engajamento' })),
       h('label', {}, 'Coleção', h('select', { name: 'collectionId', required: true }, ...cols.map((c) => h('option', { value: c.id }, `${c.name} (${c.size})`)))),
@@ -193,17 +193,35 @@ async function activityView(a) {
 
 async function settingsView() {
   const s = await api.getSettings();
-  const key = h('input', { type: 'password', placeholder: s.hasAiKey ? '•••••• (já configurada)' : 'sk-ant-...', style: 'width:360px' });
+  const PROVIDERS = [
+    ['anthropic', 'Anthropic (Claude)', 'sk-ant-...', 'ANTHROPIC_API_KEY'],
+    ['openai', 'OpenAI', 'sk-...', 'OPENAI_API_KEY'],
+  ];
   const about = h('textarea', { value: s.aboutMe, placeholder: 'Ex.: Sou Alexandre, da BioSolvit. Trabalho com soluções para perdas de água e saneamento.' });
-  return h('div', { class: 'stack', style: 'max-width:640px' },
-    h('h2', {}, 'Configurações da IA'),
-    h('div', { class: 'card stack' },
-      h('strong', {}, 'Chave da API da Anthropic (Claude)'),
-      h('div', { class: 'muted' }, s.aiKeySource === 'env' ? 'Usando a variável de ambiente ANTHROPIC_API_KEY.' : 'Fica criptografada no cofre do sistema operacional, só nesta máquina.'),
+  const providerCards = PROVIDERS.map(([id, label, ph, env]) => {
+    const st = s.providers[id];
+    const key = h('input', { type: 'password', placeholder: st.keySource !== 'none' ? '•••••• (já configurada)' : ph, style: 'width:320px' });
+    const model = h('input', { value: st.model, placeholder: st.defaultModel, style: 'width:200px' });
+    const active = s.aiProvider === id;
+    return h('div', { class: 'card stack' + (active ? ' active' : '') },
+      h('div', { class: 'row' },
+        h('label', { class: 'row', style: 'display:flex;flex:1;font-size:14px' },
+          h('input', { type: 'radio', name: 'provider', checked: active, onchange: () => safe(() => api.setProvider(id), `${label} será usada nos comentários`).then(renderView) }),
+          h('strong', {}, label)),
+        h('span', { class: 'badge ' + (st.keySource === 'none' ? 'failed' : 'successful') }, st.keySource === 'none' ? 'sem chave' : st.keySource === 'env' ? `chave via ${env}` : 'chave salva'),
+      ),
       h('div', { class: 'row' }, key,
-        h('button', { class: 'primary', onclick: () => key.value && safe(() => api.setAiKey(key.value), 'Chave salva').then(renderView) }, 'Salvar'),
-        s.aiKeySource === 'app' && h('button', { onclick: () => safe(() => api.setAiKey(null), 'Chave removida').then(renderView) }, 'Remover')),
-    ),
+        h('button', { class: 'primary', onclick: () => key.value && safe(() => api.setAiKey(id, key.value), 'Chave salva').then(renderView) }, 'Salvar chave'),
+        st.keySource === 'app' && h('button', { onclick: () => safe(() => api.setAiKey(id, null), 'Chave removida').then(renderView) }, 'Remover')),
+      h('div', { class: 'row' }, h('span', { class: 'muted' }, 'Modelo'), model,
+        h('button', { onclick: () => safe(() => api.setModel(id, model.value), 'Modelo salvo').then(renderView) }, 'Salvar modelo'),
+        h('span', { class: 'muted' }, `padrão: ${st.defaultModel}`)),
+    );
+  });
+  return h('div', { class: 'stack', style: 'max-width:720px' },
+    h('h2', {}, 'Configurações da IA'),
+    h('p', { class: 'muted' }, 'Escolha qual IA interpreta os posts e escreve os comentários. As chaves ficam criptografadas no cofre do sistema operacional, só nesta máquina.'),
+    ...providerCards,
     h('div', { class: 'card stack' },
       h('strong', {}, 'Sobre mim'),
       h('div', { class: 'muted' }, 'A IA usa isto para escrever os comentários na sua voz.'),

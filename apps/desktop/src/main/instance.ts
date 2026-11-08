@@ -1,7 +1,7 @@
 import { BrowserWindow, session, type Session } from 'electron';
 import type { Account, Campaign, ExecutionResult, ProxyConfig, TickReport } from '@linkleads/core';
 import { CampaignRunner, ExecutorRegistry, resolveApproval } from '@linkleads/core';
-import { ClaudePostInterpreter, type PostInterpreter } from '@linkleads/ai';
+import { createInterpreter, type PostInterpreter } from '@linkleads/ai';
 import type { LocalCrm } from '@linkleads/db';
 import {
   commentWithAi,
@@ -91,9 +91,13 @@ export class AccountInstance {
 
   private interpreter(): PostInterpreter | null {
     if (process.env.LINKLEADS_TEST_AI_STUB) return stubInterpreter; // somente testes e2e
-    const key = this.settings.anthropicKey();
-    if (!key) return null;
-    if (this.interpreterCache?.key !== key) this.interpreterCache = { key, interpreter: new ClaudePostInterpreter({ apiKey: key }) };
+    const provider = this.settings.provider();
+    const apiKey = this.settings.apiKey(provider);
+    if (!apiKey) return null;
+    const model = this.settings.model(provider);
+    const cacheKey = `${provider}|${model}|${apiKey}`;
+    if (this.interpreterCache?.key !== cacheKey)
+      this.interpreterCache = { key: cacheKey, interpreter: createInterpreter({ provider, apiKey, model }) };
     return this.interpreterCache.interpreter;
   }
 

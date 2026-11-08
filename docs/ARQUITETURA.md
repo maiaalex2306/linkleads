@@ -67,7 +67,14 @@ Dados por conta: `<userData>/Partitions/linkleads-account-<id>/linkleads.db` (SQ
 
 ## Comentário com IA (`packages/ai`)
 
-Uma chamada ao Claude (`claude-opus-5-5`, saída estruturada e fallback automático em caso de recusa) devolve:
+Dois provedores, com o mesmo prompt e o mesmo schema (Zod), escolhidos nas Configurações:
+
+| Provedor | Classe | Chamada | Modelo padrão |
+|---|---|---|---|
+| Anthropic | `ClaudePostInterpreter` | `beta.messages.parse` + `betaZodOutputFormat`, `fallbacks: "default"` em caso de recusa | `claude-opus-5-5` |
+| OpenAI | `OpenAiPostInterpreter` | `responses.parse` + `zodTextFormat` | `gpt-5.5` |
+
+`createInterpreter({ provider, apiKey, model })` monta o provedor certo. A chamada devolve:
 
 | Campo | Uso |
 |---|---|
