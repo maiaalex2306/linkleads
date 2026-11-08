@@ -257,7 +257,7 @@ function detailStatistics(c) {
         h('tbody', {},
           ...totals.map((x) => h('tr', {},
             h('td', {}, x.action.name), h('td', {}, x.queued), h('td', {}, x.processed),
-            h('td', {}, x.success), h('td', {}, x.fail))))),
+            h('td', {}, x.success), h('td', {}, x.fail)))))),
     h('div', { class: 'muted' }, 'As métricas registram o estado interno. A confirmação de ações externas ainda depende dos critérios de verificação de cada executor.'));
 }
 
