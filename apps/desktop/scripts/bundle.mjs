@@ -41,6 +41,14 @@ await build({
 });
 
 cpSync(join(root, 'src/renderer'), join(out, 'renderer'), { recursive: true });
+// carimbo de versão (mesmo do dist/): o app mostra no topo e reinicia se uma versão nova for aberta
+{
+  const { execSync } = await import('node:child_process');
+  let commit = 'local';
+  try { commit = execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(); } catch {}
+  const builtAt = new Date().toISOString();
+  writeFileSync(join(out, 'build-info.json'), JSON.stringify({ id: `${commit}-${builtAt}`, commit, builtAt }));
+}
 
 writeFileSync(
   join(out, 'package.json'),

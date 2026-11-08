@@ -553,7 +553,18 @@ ipcMain.handle('settings:setAboutMe', (_e, text: string) => settings.setAboutMe(
 if (process.env.LINKLEADS_TEST_BASE_URL) (globalThis as Record<string, unknown>).__linkleadsTest = { advanceClock };
 
 // Uma instância só: abrir de novo (ou clicar em linkleads:// no IAD CRM) traz a janela para a frente.
-if (!process.env.LINKLEADS_TEST_BASE_URL && !app.requestSingleInstanceLock()) {
+/** Qual código está rodando (gravado na compilação). */
+const BUILD: { id: string; commit: string; builtAt: string } = (() => {
+  try {
+    return JSON.parse(readFileSync(join(here, '..', 'build-info.json'), 'utf8'));
+  } catch {
+    return { id: 'dev', commit: 'dev', builtAt: '' };
+  }
+})();
+ipcMain.handle('app:info', () => ({ version: app.getVersion(), ...BUILD }));
+
+// uma janela por vez; a nova cópia avisa qual versão é (a antiga reinicia se estiver desatualizada)
+if (!process.env.LINKLEADS_TEST_BASE_URL && !app.requestSingleInstanceLock({ build: BUILD.id })) {
   app.quit();
 }
 
@@ -571,7 +582,16 @@ function handleDeepLink(raw: string | undefined) {
     send('deeplink', link);
   }
 }
-app.on('second-instance', (_e, argv) => {
+app.on('second-instance', (_e, argv, _cwd, extra) => {
+  const newer = (extra as { build?: string } | undefined)?.build;
+  if (newer && newer !== BUILD.id && BUILD.id !== 'dev') {
+    // abriram uma versão compilada depois desta: reinicia para carregar o código novo
+    void instances.stopAll().catch(() => undefined).finally(() => {
+      app.relaunch();
+      app.exit(0);
+    });
+    return;
+  }
   handleDeepLink(findDeepLinkArg(argv));
   if (launcher && !launcher.isDestroyed()) {
     if (launcher.isMinimized()) launcher.restore();

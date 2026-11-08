@@ -62,9 +62,15 @@ async function renderAccounts() {
 }
 
 function topNav() {
+  const ver = h('span', { class: 'build-tag', title: 'Versão do código que está rodando agora' }, '');
   document.getElementById('topnav').replaceChildren(
     h('button', { class: 'link', onclick: () => { state.tab = 'settings'; renderView(); } }, 'Configurações'),
+    ver,
   );
+  api.appInfo().then((i) => {
+    const when = i.builtAt ? new Date(i.builtAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
+    ver.textContent = `versão ${i.version} · ${i.commit}${when ? ` · compilada ${when}` : ''}`;
+  }).catch(() => {});
 }
 
 // Visão da conta -------------------------------------------------------------------

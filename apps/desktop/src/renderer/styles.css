@@ -122,3 +122,5 @@ aside form.new-account input, aside form.new-account > select { width:100%; max-
 aside { overflow-x:hidden; }
 table.limits td { white-space:nowrap; }
 .live .q.card { padding:10px 12px; box-shadow:none; gap:4px; display:flex; flex-direction:column; }
+
+.build-tag { margin-left:16px; font-size:12px; opacity:.75; color:var(--inverso); }
