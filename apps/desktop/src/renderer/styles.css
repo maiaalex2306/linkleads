@@ -190,3 +190,60 @@ button.big { font-size:16px; padding:12px 22px; border-radius:12px; }
 .rline { display:flex; gap:12px; padding:4px 0; border-bottom:1px dashed var(--line); }
 .rline span { width:140px; flex:none; }
 .gfoot { margin-top:8px; font-size:13px; }
+
+
+/* ===== LINKLEADS: Launcher / workspace de conta / campanha ===== */
+#layout.is-launcher { grid-template-columns:260px minmax(0,1fr); }
+#layout.is-launcher #accounts { background:var(--card); }
+#layout.is-launcher main { background:var(--bg); }
+.launcher-page { max-width:1400px; margin:0 auto; gap:18px; }
+.workspace-title { display:flex; justify-content:space-between; align-items:center; gap:20px; flex-wrap:wrap; }
+.workspace-title h2 { color:var(--fg); font-size:24px; margin:6px 0; font-weight:750; letter-spacing:-.3px; }
+.workspace-title p { max-width:680px; margin:0; line-height:1.6; }
+.workspace-metrics { display:grid; grid-template-columns:repeat(4,minmax(110px,1fr)); gap:10px; }
+.workspace-metric { padding:16px 18px; background:var(--card); border:1px solid var(--line); border-radius:12px; display:grid; gap:6px; min-width:0; }
+.workspace-metric strong { font-size:26px; line-height:1.2; font-weight:750; color:var(--brand-dark); font-variant-numeric:tabular-nums; }
+.workspace-metric small { font-size:11px; }
+.launcher-cards { display:grid; gap:14px; grid-template-columns:repeat(auto-fill,minmax(340px,1fr)); align-items:stretch; }
+.launcher-account { display:grid; gap:18px; padding:22px; box-shadow:var(--shadow); }
+.launcher-account .row { flex-wrap:nowrap; align-items:flex-start; gap:12px; }
+.account-avatar { background:var(--brand-soft); color:var(--brand); width:44px; height:44px; flex:none; border-radius:12px; display:grid; place-items:center; font-size:20px; font-weight:700; }
+.account-title { min-width:0; flex:1; display:grid; gap:4px; }
+.account-title strong { font-size:16px; overflow-wrap:anywhere; }
+.account-title .muted { overflow-wrap:anywhere; }
+.workspace-state { display:inline-flex; align-items:center; border:1px solid var(--line); border-radius:999px; font-size:11px; padding:4px 9px; color:var(--muted); white-space:nowrap; font-weight:600; }
+.workspace-state.on { color:var(--ok); border-color:color-mix(in srgb,var(--ok) 50%,var(--line)); }
+.workspace-state.paused { color:var(--warn); border-color:color-mix(in srgb,var(--warn) 45%,var(--line)); }
+.launcher-actions { display:flex; flex-wrap:wrap; align-items:center; gap:10px; }
+.launcher-actions button { padding:9px 14px; }
+.workspace-back { margin-bottom:12px; text-align:left; }
+#accounts { background:var(--card); }
+#accounts .acc { width:100%; text-align:left; background:transparent; color:var(--fg); border:1px solid transparent; border-left:3px solid transparent; }
+#accounts .acc:hover { background:var(--brand-soft); }
+#accounts .acc.sel { background:var(--brand-soft); border-left-color:var(--brand); }
+.work-nav { display:grid; gap:4px; margin-top:8px; }
+.sidebar-heading { text-transform:uppercase; letter-spacing:.05em; font-weight:700; font-size:11px; color:var(--muted); display:flex; justify-content:space-between; padding:8px 9px; }
+.sidebar-divider { border-top:1px solid var(--line); margin:10px 0 4px; }
+button.workspace-sidebar-link { display:grid; justify-items:start; gap:1px; width:100%; text-align:left; border:0; border-left:3px solid transparent; padding:9px 10px; background:transparent; font-size:12px; border-radius:5px; }
+button.workspace-sidebar-link:hover,button.workspace-sidebar-link.selected { color:var(--brand-dark); border-left-color:var(--brand); background:var(--brand-soft); }
+button.workspace-sidebar-link .campaign-side-name { font-weight:650; max-width:100%; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.workspace-campaign { gap:15px; }
+.workspace-campaign .workspace-title h2 { font-size:22px; }
+.cw-tabs { border-bottom:1px solid var(--line); display:flex; gap:6px; overflow-x:auto; padding-top:4px; }
+.cw-tabs button { border:none; border-radius:0; background:transparent; padding:10px 14px; flex:none; border-bottom:3px solid transparent; }
+.cw-tabs button.selected { color:var(--brand); font-weight:700; border-bottom-color:var(--brand); }
+.workspace-filter { display:flex; align-items:center; flex-wrap:wrap; gap:7px; }
+.workspace-filter button { font-size:12px; border-radius:22px; padding:6px 12px; }
+.workspace-filter button.selected { background:var(--brand-soft); color:var(--brand); border-color:var(--brand); font-weight:600; }
+.workspace-table-scroll { max-width:100%; overflow-x:auto; }
+.workspace-table-scroll td { font-size:12px; }
+.workflow-track { display:flex; flex-direction:column; align-items:flex-start; gap:14px; }
+.workflow-node { width:min(100%,620px); padding:16px 18px; }
+.workflow-node:not(:last-child)::after { content:'↓'; display:block; position:relative; top:34px; margin-top:-20px; left:16px; color:var(--brand); font-weight:700; }
+.workflow-num { width:32px; height:32px; border-radius:9px; display:grid; place-items:center; background:var(--brand-soft); color:var(--brand-dark); font-weight:700; flex:none; }
+.workflow-counts { display:flex; gap:16px; flex-wrap:wrap; font-size:12px; color:var(--muted); border-top:1px solid var(--line); padding-top:10px; }
+.workspace-progress { display:grid; gap:6px; }
+.workspace-progress .bar { height:8px; }
+.workspace-progress .bar i { border-radius:5px; background:var(--brand); }
+@media(max-width:1100px){ .workspace-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.launcher-cards{grid-template-columns:1fr} }
+@media(max-width:780px){#layout,#layout.is-launcher{grid-template-columns:1fr;height:auto;min-height:calc(100vh - 51px)} #accounts{max-height:260px;border-right:0;border-bottom:1px solid var(--line)} main{min-height:calc(100vh - 300px);padding:14px} .workspace-title h2{font-size:20px} .launcher-account .row{flex-wrap:wrap} .launcher-account .workspace-state{margin-left:55px}}

@@ -95,8 +95,8 @@ async function launcherView(accounts) {
         h('div', { class: 'launcher-actions' },
           h('button', { class: 'primary', onclick: () => openAccountWorkspace(a.id) }, 'Abrir campanhas'),
           h('button', { onclick: async () => {
-            const ok = await safe(() => api.openBrowser(a.id));
-            if (ok !== undefined) await refresh();
+            await safe(() => api.openBrowser(a.id));
+            await refresh();
           } }, a.running ? 'Mostrar LinkedIn' : 'Abrir LinkedIn · sem executar'))))),
     h('div', { class: 'card muted' },
       'Abertura da conta, navegador LinkedIn e execução de campanhas são operações separadas. Contas pausadas permanecem pausadas.'));
@@ -279,8 +279,8 @@ async function campaignDetailView(a) {
       h('div', {}, h('div', { class: 'kind' }, 'CAMPANHA · ' + a.label), h('h2', {}, c.name)),
       h('div', { class: 'row' },
         h('button', { onclick: async () => {
-          const r = await safe(() => api.setCampaignActive(a.id, c.id, !c.active));
-          if (r !== undefined) await refresh();
+          await safe(() => api.setCampaignActive(a.id, c.id, !c.active));
+          await refresh();
         } }, c.active ? 'Pausar campanha' : 'Ativar campanha'),
         h('button', { onclick: () => safe(() => api.exportCsv(a.id, { campaignId: c.id, name: c.name })) }, 'Exportar CSV'))),
     h('div', { class: 'cw-tabs' },

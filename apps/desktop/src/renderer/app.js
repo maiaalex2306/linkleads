@@ -68,7 +68,7 @@ async function renderAccounts() {
   addBtn.textContent = state.newAccountOpen ? 'Fechar' : '+ Adicionar conta';
   listBox.replaceChildren(
     ...list.map((a) =>
-      h('div', { class: 'acc' + (a.id === state.accountId && state.screen === 'workspace' ? ' sel' : ''), onclick: () => openAccountWorkspace(a.id) },
+      h('button', { class: 'acc' + (a.id === state.accountId && state.screen === 'workspace' ? ' sel' : ''), onclick: () => openAccountWorkspace(a.id) },
         h('span', { class: 'dot' + (a.paused ? ' paused' : a.running ? ' on' : '') }),
         h('div', { class: 'grow' }, a.label, h('div', { class: 'muted' }, a.paused ? 'pausada' : a.running ? 'em execução' : 'parada')),
       )),
