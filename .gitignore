@@ -1,0 +1,10 @@
+node_modules/
+dist/
+out/
+release/
+*.tsbuildinfo
+*.db
+*.db-wal
+*.db-shm
+.env
+.DS_Store

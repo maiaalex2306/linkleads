@@ -1,0 +1,20 @@
+{
+  "name": "linkleads",
+  "version": "0.1.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "description": "LinkLeads — app desktop de prospecção B2B com automação de ritmo humano, multi-conta e CRM local.",
+  "workspaces": ["packages/*", "apps/*"],
+  "scripts": {
+    "build": "npm run build -w @linkleads/core -w @linkleads/db",
+    "test": "npm test -w @linkleads/core -w @linkleads/db",
+    "typecheck": "tsc -b packages/core packages/db",
+    "dev": "npm run dev -w @linkleads/desktop"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8",
+    "@types/node": "^22.10.0"
+  },
+  "engines": { "node": ">=22" }
+}

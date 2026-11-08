@@ -1,0 +1,6 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "rootDir": "src", "outDir": "dist", "composite": false, "declaration": false, "lib": ["ES2022", "DOM"] },
+  "include": ["src/main", "src/preload"],
+  "references": [{ "path": "../../packages/core" }, { "path": "../../packages/db" }]
+}
