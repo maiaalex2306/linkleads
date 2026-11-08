@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { appendFileSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync, renameSync } from 'node:fs';
 import { basename, join } from 'node:path';
 
 /**
@@ -41,7 +41,7 @@ export function safeRoute(raw: string): string {
   try {
     const u = new URL(raw);
     return u.hostname + u.pathname
-      .replace(/\/(?:in|pub|company)\/[^/]+/gi, '/$1/[id]')
+      .replace(/\/(in|pub|company)\/[^/]+/gi, '/$1/[id]')
       .replace(/\/feed\/update\/[^/]+/gi, '/feed/update/[id]')
       .replace(/\/posts\/[^/]+/gi, '/posts/[id]')
       .slice(0, 180);
@@ -157,24 +157,26 @@ export class TraceJournal {
   /** Concatena arquivos mais recentes numa exportação JSONL, no máximo 50 MiB. */
   export(destination: string, accountId?: string): TraceExport {
     if (!this.root) throw new Error('TRACE não configurado');
-    const folder = this.folder(accountId);
-    if (!existsSync(folder)) throw new Error('Ainda não existem eventos TRACE para esta conta');
-    const all = readdirSync(folder).filter((f) => /^trace-\d{8}-\d{3}\.jsonl$/.test(f)).sort();
+    const paths = [...new Set([accountId || 'system', 'system'])].flatMap((id) => {
+      const folder = this.folder(id);
+      if (!existsSync(folder)) return [];
+      return readdirSync(folder).filter((f) => /^trace-\d{8}-\d{3}\.jsonl$/.test(f))
+        .map((f) => join(folder, f));
+    });
     const included: string[] = [];
     let bytes = 0;
-    for (const f of all.slice().reverse()) {
-      const len = statSync(join(folder, f)).size;
+    for (const path of paths.sort((a, b) => b.localeCompare(a))) {
+      const len = statSync(path).size;
       if (bytes + len > MAX_EXPORTED_BYTES) break;
-      included.unshift(f);
+      included.unshift(path);
       bytes += len;
     }
     if (!included.length) throw new Error('Não há eventos TRACE disponíveis para exportação');
     // Não escreva uma exportação parcialmente concluída no caminho final.
     const tmp = destination + '.partial';
     try {
-      const { writeFileSync, renameSync } = requireFs();
       writeFileSync(tmp, '', { mode: 0o600 });
-      for (const f of included) appendFileSync(tmp, readFileSync(join(folder, f)));
+      for (const file of included) appendFileSync(tmp, readFileSync(file));
       renameSync(tmp, destination);
       return { file: basename(destination), files: included.length, bytes };
     } catch (e) {
@@ -184,9 +186,4 @@ export class TraceJournal {
   }
 }
 
-// Mantido fora dos módulos Electron: testes unitários executam em Node.
-function requireFs() {
-  return { writeFileSync: requireWriteFile, renameSync: requireRename };
-}
-import { writeFileSync as requireWriteFile, renameSync as requireRename } from 'node:fs';
 export const trace = new TraceJournal();

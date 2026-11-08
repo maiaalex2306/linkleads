@@ -1,8 +1,35 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
-const invoke = (channel: string) => (...args: unknown[]) => ipcRenderer.invoke(channel, ...args);
+let requestSeq = 0;
+const NOISE = new Set(['accounts:list', 'instance:live', 'app:info', 'accounts:stats', 'update:status']);
+const invoke = (channel: string) => (...args: unknown[]) => {
+  if (NOISE.has(channel)) return ipcRenderer.invoke(channel, ...args);
+  const requestId = String(++requestSeq);
+  const accountId = typeof args[0] === 'string' &&
+    /^(accounts:(?:set|remove|check)|instance:|campaigns:|collections:|inbox:|drafts:|companies:|signals:|deliveries:|export:)/.test(channel)
+    ? args[0] : undefined;
+  const start = Date.now();
+  ipcRenderer.send('trace:ipc', { channel, phase: 'start', requestId, accountId });
+  return ipcRenderer.invoke(channel, ...args).then(
+    (result: unknown) => {
+      const ok = result && typeof result === 'object' && 'ok' in result ? result.ok !== false : true;
+      ipcRenderer.send('trace:ipc', { channel, phase: 'finish', requestId, accountId, ok, durationMs: Date.now() - start });
+      return result;
+    },
+    (error: unknown) => {
+      ipcRenderer.send('trace:ipc', {
+        channel, phase: 'error', requestId, accountId, durationMs: Date.now() - start,
+        errorName: error instanceof Error ? error.name : 'Error',
+        message: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    },
+  );
+};
 
 contextBridge.exposeInMainWorld('linkleads', {
+  traceUiEvent: (data: unknown) => ipcRenderer.send('trace:ui', data),
+  exportTrace: invoke('trace:export'),
   listAccounts: invoke('accounts:list'),
   createAccount: invoke('accounts:create'),
   updateAccount: invoke('accounts:update'),

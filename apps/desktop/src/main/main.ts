@@ -43,8 +43,11 @@ import { toCsv } from '@linkleads/integrations';
 import { writeFileSync } from 'node:fs';
 import { InstanceManager } from './instance-manager.js';
 import { Settings } from './settings.js';
+import { trace } from './trace.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
+trace.configure(join(app.getPath('userData'), 'traces'));
+trace.record('lifecycle', 'process_start', { mode: process.env.LINKLEADS_TEST_BASE_URL ? 'test' : 'production' });
 
 // Testes e2e em Linux sem chaveiro do sistema: armazenamento básico para o safeStorage funcionar.
 if (process.env.LINKLEADS_TEST_BASE_URL && process.platform === 'linux') app.commandLine.appendSwitch('password-store', 'basic');
@@ -79,11 +82,11 @@ const integrationSettings = new IntegrationSettings();
 const hub = new IntegrationHub(
   integrationSettings,
   () => accounts.list().map((a) => ({ account: a, crm: crms.get(a) })),
-  (accountId, line) => send('log', { accountId, line, at: new Date().toISOString() }),
+  (accountId, line) => { trace.record('runtime', 'log', { message: line }, { accountId }); send('log', { accountId, line, at: new Date().toISOString() }); },
 );
 const instances = new InstanceManager(crms, settings, {
   getLogin: (accountId) => accounts.getLogin(accountId),
-  onLog: (accountId, line) => send('log', { accountId, line, at: new Date().toISOString() }),
+  onLog: (accountId, line) => { trace.record('runtime', 'log', { message: line }, { accountId }); send('log', { accountId, line, at: new Date().toISOString() }); },
   onAccountChanged: (account) => {
     accounts.save(account);
     send('accounts:changed');
@@ -93,7 +96,7 @@ const instances = new InstanceManager(crms, settings, {
 const team = new TeamSync({
   accounts: () => accounts.list().map((a) => ({ account: instances.get(a.id)?.account ?? a, crm: crms.get(a), running: instances.isRunning(a.id) })),
   log: (line) => {
-    for (const a of accounts.list()) send('log', { accountId: a.id, line, at: new Date().toISOString() });
+    for (const a of accounts.list()) { trace.record('team', 'log', { message: line }, { accountId: a.id }); send('log', { accountId: a.id, line, at: new Date().toISOString() }); }
   },
   onSelectorsUpdated: () => instances.all().forEach((i) => i.reloadSelectors()),
 });
@@ -114,8 +117,47 @@ function createLauncher() {
     webPreferences: { preload: join(here, '../preload/preload.cjs'), contextIsolation: true, sandbox: true },
   });
   attachContextMenu(launcher.webContents);
+  launcher.webContents.on('did-navigate', (_e, url) => trace.record('ui', 'navigate', { location: url }));
   void launcher.loadFile(join(here, '../renderer/index.html'));
 }
+
+// TRACE da interface: somente metadados (jamais valores digitados).
+ipcMain.on('trace:ipc', (event, data: unknown) => {
+  if (!launcher || event.sender !== launcher.webContents || !data || typeof data !== 'object') return;
+  const d = data as Record<string, unknown>;
+  const channel = String(d.channel ?? '').slice(0, 90);
+  const phase = String(d.phase ?? '').slice(0, 20);
+  if (!/^[a-z]+:[a-zA-Z]+$/.test(channel) || !['start', 'finish', 'error'].includes(phase)) return;
+  trace.record('ui', 'ipc_' + phase, {
+    channel, phase, durationMs: d.durationMs, ok: d.ok, errorName: d.errorName, message: d.message,
+  }, {
+    accountId: typeof d.accountId === 'string' ? d.accountId : undefined,
+    requestId: typeof d.requestId === 'string' ? d.requestId : undefined,
+  }, phase === 'error' ? 'error' : 'info');
+});
+ipcMain.on('trace:ui', (event, data: unknown) => {
+  if (!launcher || event.sender !== launcher.webContents || !data || typeof data !== 'object') return;
+  const d = data as Record<string, unknown>;
+  const kind = typeof d.action === 'string' && /^(click|change|submit|renderer_error|unhandled_rejection)$/.test(d.action) ? d.action : null;
+  if (!kind) return;
+  trace.record('ui', kind, {
+    control: d.control, field: d.field, view: d.view, mode: d.mode,
+    message: d.message, errorName: d.errorName,
+  }, { accountId: typeof d.accountId === 'string' ? d.accountId : undefined },
+  kind.endsWith('error') || kind === 'unhandled_rejection' ? 'error' : 'info');
+});
+ipcMain.handle('trace:export', async (_event, id?: string) => {
+  if (id) account(id);
+  const selected = await dialog.showSaveDialog(launcher!, {
+    title: 'Exportar TRACE de diagnóstico',
+    defaultPath: 'linkleads-trace-' + new Date().toISOString().slice(0, 10) + '.jsonl',
+    filters: [{ name: 'TRACE JSONL', extensions: ['jsonl'] }],
+  });
+  if (selected.canceled || !selected.filePath) return { canceled: true };
+  const exported = trace.export(selected.filePath, id);
+  trace.record('trace', 'export', { file: exported.file, count: exported.files }, { accountId: id });
+  return { canceled: false, ...exported };
+});
 
 // Contas e instâncias ---------------------------------------------------------
 ipcMain.handle('accounts:list', () => accounts.list().map((a) => ({ ...publicAccount(a), ...accounts.loginInfo(a.id), running: instances.isRunning(a.id) })));
@@ -617,7 +659,14 @@ app.on('open-url', (event, url) => {
 });
 ipcMain.handle('deeplink:last', () => lastDeepLink);
 
+process.on('uncaughtExceptionMonitor', (error) => trace.error('process', 'uncaught_exception', error));
+process.on('unhandledRejection', (reason) => trace.error('process', 'unhandled_rejection', reason));
+app.on('render-process-gone', (_event, _webContents, details) =>
+  trace.record('process', 'renderer_gone', { reason: details.reason, code: details.exitCode }, {}, 'error'));
+app.on('before-quit', () => trace.record('lifecycle', 'process_exit'));
+
 app.whenReady().then(() => {
+  trace.record('lifecycle', 'ready');
   migrateDefaultHours();
   registerProtocol();
   // só nos testes e2e em Linux sem chaveiro (o switch password-store=basic já foi aplicado acima)
