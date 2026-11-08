@@ -4,7 +4,7 @@
 |---|---|---|
 | **0. Base** ✅ | Monorepo, motor de campanhas, ritmo e limites, SQLite por conta, Launcher, instância isolada, input humano | Testes verdes |
 | **1. Captura + engajamento** 🟡 | ✅ Importação de CSV e coleções · ✅ VisitAndExtract e "Salvar perfil aberto" · ✅ Curtir o post mais recente · ✅ Comentário com IA (interpreta o post, decide se comenta, fila de aprovação) · ✅ Telas de coleções, campanhas, aprovações e atividade · ✅ Teste e2e · ⬜ Validar seletores numa conta real · ⬜ Coleta de busca e Sales Navigator | 30 dias sem restrição nas contas piloto |
-| **2. Sequências** | SendInvite, MessageToPerson, DetectReplies, WithdrawInvite, editor de campanhas, inbox, seletores remotos versionados | Aceite ≥ 30% e zero mensagens enviadas a quem já respondeu |
+| **2. Sequências** 🟡 | ✅ SendInvite (nota por modelo ou IA, com aprovação) · ✅ CheckConnection (re-checagem diária, desistência e retirada) · ✅ WithdrawInvite · ✅ MessageToPerson (lê a conversa antes de enviar) · ✅ Varredura do inbox com classificação de respostas pela IA · ✅ Esperas entre etapas · ✅ Editor de etapas · ✅ Inbox · ✅ Saúde da conta e freio por taxa de aceite · ✅ Interruptor geral · ✅ E2E da sequência · ⬜ Validar seletores numa conta real · ⬜ Seletores servidos remotamente | Aceite ≥ 30% e zero mensagens enviadas a quem já respondeu |
 | **3. IA** | ICP Detection, mensagens personalizadas com aprovação, classificação de respostas, AI Reply | — |
 | **4. Dados e integrações** | Enriquecimento (e-mail e telefone), webhooks, HubSpot, Pipedrive, Salesforce, Google Sheets, exportação CSV | — |
 | **5. Escala** | Cloud DB opcional, workspaces de equipe, webhooks de entrada, instalador assinado e auto-update | — |

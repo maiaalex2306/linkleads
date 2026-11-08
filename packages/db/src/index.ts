@@ -13,7 +13,35 @@ import type {
   UsageSnapshot,
 } from '@linkleads/core';
 
-export const SCHEMA_VERSION = 1;
+/**
+ * Migrações aditivas aplicadas sobre o schema base (schema.sql = versão 1).
+ * Nunca edite uma migração publicada: acrescente outra.
+ */
+const MIGRATIONS: Array<{ version: number; sql: string }> = [
+  {
+    version: 2,
+    sql: `
+      ALTER TABLE campaign_action_people ADD COLUMN not_before INTEGER;
+      ALTER TABLE comment_drafts ADD COLUMN kind TEXT NOT NULL DEFAULT 'comment';
+      ALTER TABLE messages ADD COLUMN ai_summary TEXT;
+      ALTER TABLE messages ADD COLUMN handled INTEGER NOT NULL DEFAULT 0;
+      CREATE TABLE IF NOT EXISTS invites (
+        person_id TEXT PRIMARY KEY REFERENCES people(id) ON DELETE CASCADE,
+        note TEXT,
+        status TEXT NOT NULL CHECK (status IN ('pending','accepted','withdrawn','not_accepted')),
+        sent_at TEXT NOT NULL DEFAULT (datetime('now')),
+        resolved_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_invites_sent ON invites (sent_at);
+    `,
+  },
+  {
+    version: 3,
+    sql: `ALTER TABLE campaign_actions ADD COLUMN wait_hours REAL;`,
+  },
+];
+
+export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.version;
 
 // carregado via require: o Vite (testes) ainda não resolve o builtin node:sqlite
 const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite');
@@ -26,7 +54,21 @@ export function openAccountDb(path: string): DatabaseSync {
   const db = new DatabaseSync(path);
   db.exec(SCHEMA_SQL);
   const row = db.prepare('SELECT version FROM schema_version').get() as { version: number } | undefined;
-  if (!row) db.prepare('INSERT INTO schema_version (version) VALUES (?)').run(SCHEMA_VERSION);
+  if (!row) db.prepare('INSERT INTO schema_version (version) VALUES (1)').run();
+  let version = row?.version ?? 1;
+  for (const m of MIGRATIONS) {
+    if (m.version <= version) continue;
+    db.exec('BEGIN');
+    try {
+      db.exec(m.sql);
+      db.prepare('UPDATE schema_version SET version = ?').run(m.version);
+      db.exec('COMMIT');
+      version = m.version;
+    } catch (e) {
+      db.exec('ROLLBACK');
+      throw e;
+    }
+  }
   return db;
 }
 
@@ -83,13 +125,14 @@ export class SqliteCampaignStore implements CampaignStore {
     return r ? rowToPerson(r) : undefined;
   }
 
-  listQueued(_campaignId: string, actionId: string, limit: number): Person[] {
+  listQueued(_campaignId: string, actionId: string, limit: number, now: Date = new Date()): Person[] {
     const rows = this.db
       .prepare(
         `SELECT p.* FROM campaign_action_people cap JOIN people p ON p.id = cap.person_id
-         WHERE cap.action_id = ? AND cap.status = 'queued' ORDER BY cap.seq LIMIT ?`,
+         WHERE cap.action_id = ? AND cap.status = 'queued' AND COALESCE(cap.not_before, 0) <= ?
+         ORDER BY cap.seq LIMIT ?`,
       )
-      .all(actionId, limit < 0 ? -1 : limit) as Row[];
+      .all(actionId, now.getTime(), limit < 0 ? -1 : limit) as Row[];
     return rows.map(rowToPerson);
   }
 
@@ -107,13 +150,22 @@ export class SqliteCampaignStore implements CampaignStore {
         .run(campaignId, actionId, personId, status, reason ?? null);
   }
 
-  enqueue(campaignId: string, actionId: string, personId: string): void {
+  enqueue(campaignId: string, actionId: string, personId: string, notBefore?: Date): void {
     this.db
       .prepare(
-        `INSERT OR IGNORE INTO campaign_action_people (campaign_id, action_id, person_id, status, seq)
-         VALUES (?, ?, ?, 'queued', (SELECT COALESCE(MAX(seq), 0) + 1 FROM campaign_action_people))`,
+        `INSERT OR IGNORE INTO campaign_action_people (campaign_id, action_id, person_id, status, seq, not_before)
+         VALUES (?, ?, ?, 'queued', (SELECT COALESCE(MAX(seq), 0) + 1 FROM campaign_action_people), ?)`,
       )
-      .run(campaignId, actionId, personId);
+      .run(campaignId, actionId, personId, notBefore?.getTime() ?? null);
+  }
+
+  requeue(campaignId: string, actionId: string, personId: string, notBefore: Date): void {
+    this.db
+      .prepare(
+        `UPDATE campaign_action_people SET status = 'queued', reason = 'RETRY_LATER', not_before = ?, updated_at = datetime('now')
+         WHERE action_id = ? AND person_id = ?`,
+      )
+      .run(notBefore.getTime(), actionId, personId);
   }
 
   getUsage(_accountId: string, now: Date): UsageSnapshot {
@@ -157,8 +209,11 @@ export class SqliteCampaignStore implements CampaignStore {
   }
 }
 
+export type DraftKind = 'comment' | 'invite_note' | 'message';
+
 export interface CommentDraft {
   id: number;
+  kind: DraftKind;
   campaignId: string;
   actionId: string;
   personId: string;
@@ -256,16 +311,16 @@ export class LocalCrm extends SqliteCampaignStore {
         )
         .run(c.id, c.name, c.active ? 1 : 0, JSON.stringify(c.exclusions ?? []));
       const up = this.db.prepare(
-        `INSERT INTO campaign_actions (id, campaign_id, position, type, name, description, cool_down_ms, max_results, settings_json, exclusions_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO campaign_actions (id, campaign_id, position, type, name, description, cool_down_ms, max_results, settings_json, exclusions_json, wait_hours)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET position=excluded.position, type=excluded.type, name=excluded.name,
            description=excluded.description, cool_down_ms=excluded.cool_down_ms, max_results=excluded.max_results,
-           settings_json=excluded.settings_json, exclusions_json=excluded.exclusions_json`,
+           settings_json=excluded.settings_json, exclusions_json=excluded.exclusions_json, wait_hours=excluded.wait_hours`,
       );
       // libera posições para reordenação
       this.db.prepare('UPDATE campaign_actions SET position = -1 - position WHERE campaign_id = ?').run(c.id);
       c.actions.forEach((a, i) =>
-        up.run(a.id, c.id, i, a.type, a.name, a.description ?? null, a.coolDown, a.maxResults, JSON.stringify(a.settings), JSON.stringify(a.exclusions ?? [])),
+        up.run(a.id, c.id, i, a.type, a.name, a.description ?? null, a.coolDown, a.maxResults, JSON.stringify(a.settings), JSON.stringify(a.exclusions ?? []), a.waitHours ?? null),
       );
       this.db.prepare('DELETE FROM campaign_actions WHERE campaign_id = ? AND position < 0').run(c.id);
       this.db.exec('COMMIT');
@@ -288,6 +343,7 @@ export class LocalCrm extends SqliteCampaignStore {
         maxResults: Number(a.max_results),
         settings: JSON.parse(a.settings_json as string),
         exclusions: JSON.parse(a.exclusions_json as string),
+        ...(a.wait_hours != null ? { waitHours: Number(a.wait_hours) } : {}),
       }),
     );
     return { id, accountId, name: c.name as string, active: Boolean(c.active), exclusions: JSON.parse(c.exclusions_json as string), actions };
@@ -380,14 +436,28 @@ export class LocalCrm extends SqliteCampaignStore {
     };
   }
 
-  saveDraft(d: { campaignId: string; actionId: string; personId: string; postUrl: string; comment: string; interpretation: unknown }): void {
+  /** Rascunho aguardando aprovação. `postUrl` é o post (comentário) ou '' (convite/mensagem). */
+  saveDraft(d: {
+    kind?: DraftKind;
+    campaignId: string;
+    actionId: string;
+    personId: string;
+    postUrl: string;
+    comment: string;
+    interpretation: unknown;
+  }): void {
     this.db
       .prepare(
-        `INSERT INTO comment_drafts (campaign_id, action_id, person_id, post_url, comment, interpretation_json) VALUES (?, ?, ?, ?, ?, ?)
-         ON CONFLICT(action_id, person_id) DO UPDATE SET post_url=excluded.post_url, comment=excluded.comment,
+        `INSERT INTO comment_drafts (kind, campaign_id, action_id, person_id, post_url, comment, interpretation_json) VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(action_id, person_id) DO UPDATE SET kind=excluded.kind, post_url=excluded.post_url, comment=excluded.comment,
            interpretation_json=excluded.interpretation_json, status='pending', error=NULL, decided_at=NULL`,
       )
-      .run(d.campaignId, d.actionId, d.personId, d.postUrl, d.comment, JSON.stringify(d.interpretation));
+      .run(d.kind ?? 'comment', d.campaignId, d.actionId, d.personId, d.postUrl, d.comment, JSON.stringify(d.interpretation));
+  }
+
+  /** Rascunho já aprovado e ainda não usado para esta pessoa/etapa (texto final aprovado). */
+  approvedDraft(actionId: string, personId: string): CommentDraft | undefined {
+    return this.listDrafts('approved').find((d) => d.actionId === actionId && d.personId === personId);
   }
 
   listDrafts(status: CommentDraft['status'] = 'pending'): CommentDraft[] {
@@ -401,6 +471,7 @@ export class LocalCrm extends SqliteCampaignStore {
         .all(status) as Row[]
     ).map((r) => ({
       id: Number(r.id),
+      kind: ((r.kind as string) ?? 'comment') as DraftKind,
       campaignId: r.campaign_id as string,
       actionId: r.action_id as string,
       personId: r.person_id as string,
@@ -425,6 +496,185 @@ export class LocalCrm extends SqliteCampaignStore {
       .prepare(`UPDATE comment_drafts SET status = ?, comment = COALESCE(?, comment), error = ?, decided_at = datetime('now') WHERE id = ?`)
       .run(patch.status, patch.comment ?? null, patch.error ?? null, id);
   }
+}
+
+export interface InviteRow {
+  personId: string;
+  note: string | null;
+  status: 'pending' | 'accepted' | 'withdrawn' | 'not_accepted';
+  sentAt: string;
+  resolvedAt: string | null;
+}
+
+export interface MessageRow {
+  id: string;
+  personId: string;
+  direction: 'in' | 'out';
+  body: string;
+  sentAt: string;
+  aiLabel: string | null;
+  aiSummary: string | null;
+  handled: boolean;
+}
+
+export interface InboxEntry {
+  personId: string;
+  name: string;
+  publicId?: string;
+  company?: string;
+  headline?: string;
+  lastInbound: MessageRow;
+  unhandled: number;
+}
+
+/**
+ * Id estável de uma mensagem: pessoa + direção + texto + ocorrência (1ª, 2ª… vez que o mesmo texto aparece).
+ * Não usa o horário: na tela ele vem sem data ("10:42") e mudaria a cada leitura.
+ */
+export function messageId(personId: string, direction: 'in' | 'out', body: string, occurrence = 0): string {
+  let h = 2166136261;
+  for (const ch of `${personId}|${direction}|${occurrence}|${body.replace(/\s+/g, ' ').trim()}`) {
+    h ^= ch.charCodeAt(0);
+    h = Math.imul(h, 16777619);
+  }
+  return `m${(h >>> 0).toString(36)}`;
+}
+
+/** Convites, mensagens e inbox. */
+export class OutreachCrm extends LocalCrm {
+  recordInvite(personId: string, note: string | null, now = new Date()): void {
+    this.db
+      .prepare(
+        `INSERT INTO invites (person_id, note, status, sent_at) VALUES (?, ?, 'pending', ?)
+         ON CONFLICT(person_id) DO UPDATE SET note=excluded.note, status='pending', sent_at=excluded.sent_at, resolved_at=NULL`,
+      )
+      .run(personId, note, now.toISOString());
+  }
+
+  resolveInvite(personId: string, status: 'accepted' | 'withdrawn' | 'not_accepted', now = new Date()): void {
+    this.db
+      .prepare(`UPDATE invites SET status = ?, resolved_at = ? WHERE person_id = ?`)
+      .run(status, now.toISOString(), personId);
+  }
+
+  getInvite(personId: string): InviteRow | undefined {
+    const r = this.db.prepare('SELECT * FROM invites WHERE person_id = ?').get(personId) as Row | undefined;
+    return r
+      ? { personId, note: (r.note as string) ?? null, status: r.status as InviteRow['status'], sentAt: r.sent_at as string, resolvedAt: (r.resolved_at as string) ?? null }
+      : undefined;
+  }
+
+  /** Convites enviados e aceitos nos últimos N dias (para o freio por taxa de aceite). */
+  inviteStats(days = 30, now = new Date()): { sent: number; accepted: number; pending: number } {
+    const since = new Date(now.getTime() - days * 86_400_000).toISOString();
+    const r = this.db
+      .prepare(
+        `SELECT COUNT(*) AS sent, SUM(status = 'accepted') AS accepted, SUM(status = 'pending') AS pending
+         FROM invites WHERE sent_at >= ?`,
+      )
+      .get(since) as Row;
+    return { sent: Number(r.sent), accepted: Number(r.accepted ?? 0), pending: Number(r.pending ?? 0) };
+  }
+
+  /**
+   * Taxa de aceite só entre convites "maduros" (enviados há pelo menos `minAgeDays`), para o freio
+   * automático não disparar com convites recém-enviados que ainda nem tiveram chance de ser aceitos.
+   */
+  inviteAcceptance(minAgeDays = 14, windowDays = 60, now = new Date()): { matured: number; accepted: number } {
+    const until = new Date(now.getTime() - minAgeDays * 86_400_000).toISOString();
+    const since = new Date(now.getTime() - windowDays * 86_400_000).toISOString();
+    const r = this.db
+      .prepare(`SELECT COUNT(*) AS n, SUM(status = 'accepted') AS a FROM invites WHERE sent_at >= ? AND sent_at <= ?`)
+      .get(since, until) as Row;
+    return { matured: Number(r.n), accepted: Number(r.a ?? 0) };
+  }
+
+  /** Grava mensagens lidas da conversa (deduplicadas). Retorna as novas recebidas. */
+  syncMessages(personId: string, msgs: Array<{ direction: 'in' | 'out'; body: string; sentAt: string }>): MessageRow[] {
+    const ins = this.db.prepare(
+      `INSERT OR IGNORE INTO messages (id, person_id, direction, body, sent_at) VALUES (?, ?, ?, ?, ?)`,
+    );
+    const seen = new Map<string, number>();
+    const fresh: MessageRow[] = [];
+    for (const m of msgs) {
+      const k = `${m.direction}|${m.body.replace(/\s+/g, ' ').trim()}`;
+      const occurrence = seen.get(k) ?? 0;
+      seen.set(k, occurrence + 1);
+      const id = messageId(personId, m.direction, m.body, occurrence);
+      if (Number(ins.run(id, personId, m.direction, m.body, m.sentAt).changes) && m.direction === 'in')
+        fresh.push({ id, personId, direction: 'in', body: m.body, sentAt: m.sentAt, aiLabel: null, aiSummary: null, handled: false });
+    }
+    return fresh;
+  }
+
+  /** Interpretação do post mais recente já analisado pela IA (para personalizar mensagens). */
+  lastPostInterpretation(personId: string): { summary: string; mainPoint: string; authorWork: string } | undefined {
+    const r = this.db
+      .prepare(`SELECT interpretation_json FROM posts WHERE person_id = ? AND interpretation_json IS NOT NULL ORDER BY seen_at DESC LIMIT 1`)
+      .get(personId) as Row | undefined;
+    if (!r) return undefined;
+    const j = JSON.parse(r.interpretation_json as string) as Record<string, string>;
+    return { summary: j.summary ?? '', mainPoint: j.mainPoint ?? '', authorWork: j.authorWork ?? '' };
+  }
+
+  /** Registra uma mensagem enviada agora (como a próxima ocorrência desse texto). */
+  recordOutbound(personId: string, body: string, now = new Date()): void {
+    const existing = this.thread(personId).filter((m) => m.direction === 'out').map((m) => ({ direction: 'out' as const, body: m.body, sentAt: m.sentAt }));
+    this.syncMessages(personId, [...existing, { direction: 'out', body, sentAt: now.toISOString() }]);
+  }
+
+  thread(personId: string): MessageRow[] {
+    return (this.db.prepare('SELECT * FROM messages WHERE person_id = ? ORDER BY sent_at').all(personId) as Row[]).map(toMessage);
+  }
+
+  hasInbound(personId: string): boolean {
+    return !!this.db.prepare(`SELECT 1 FROM messages WHERE person_id = ? AND direction = 'in' LIMIT 1`).get(personId);
+  }
+
+  labelMessage(id: string, label: string, summary: string): void {
+    this.db.prepare('UPDATE messages SET ai_label = ?, ai_summary = ? WHERE id = ?').run(label, summary, id);
+  }
+
+  markHandled(personId: string): void {
+    this.db.prepare(`UPDATE messages SET handled = 1 WHERE person_id = ? AND direction = 'in'`).run(personId);
+  }
+
+  /** Pessoas que responderam, mais recentes primeiro. */
+  inbox(onlyUnhandled = false): InboxEntry[] {
+    const rows = this.db
+      .prepare(
+        `SELECT m.*, p.first_name, p.last_name, p.public_id, p.company, p.headline,
+           (SELECT COUNT(*) FROM messages x WHERE x.person_id = m.person_id AND x.direction = 'in' AND x.handled = 0) AS unhandled
+         FROM messages m JOIN people p ON p.id = m.person_id
+         WHERE m.direction = 'in' AND m.sent_at = (SELECT MAX(sent_at) FROM messages y WHERE y.person_id = m.person_id AND y.direction = 'in')
+         ORDER BY m.sent_at DESC`,
+      )
+      .all() as Row[];
+    return rows
+      .map((r) => ({
+        personId: r.person_id as string,
+        name: [r.first_name, r.last_name].filter(Boolean).join(' ') || (r.public_id as string),
+        publicId: (r.public_id as string) ?? undefined,
+        company: (r.company as string) ?? undefined,
+        headline: (r.headline as string) ?? undefined,
+        lastInbound: toMessage(r),
+        unhandled: Number(r.unhandled),
+      }))
+      .filter((e) => !onlyUnhandled || e.unhandled > 0);
+  }
+}
+
+function toMessage(r: Row): MessageRow {
+  return {
+    id: r.id as string,
+    personId: r.person_id as string,
+    direction: r.direction as 'in' | 'out',
+    body: r.body as string,
+    sentAt: r.sent_at as string,
+    aiLabel: (r.ai_label as string) ?? null,
+    aiSummary: (r.ai_summary as string) ?? null,
+    handled: Boolean(r.handled),
+  };
 }
 
 function stripEmpty<T extends object>(o: T): Partial<T> {

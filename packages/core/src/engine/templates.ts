@@ -39,3 +39,73 @@ export function engagementCampaign(o: EngagementCampaignOptions): Campaign {
     ],
   };
 }
+
+/** Texto de uma etapa: modelo fixo (com {{variáveis}} e {spintax}) ou gerado por IA. */
+export interface MessageSource {
+  /** modelo com variáveis/spintax; usado quando `ai` é falso (e como base/estilo quando verdadeiro) */
+  template?: string;
+  /** gerar com IA a partir do perfil e do último post */
+  ai?: boolean;
+  /** objetivo da mensagem, para a IA (ex.: "agradecer a conexão e perguntar sobre o projeto X") */
+  goal?: string;
+  /** 'manual' = cada texto da IA espera aprovação; 'auto' = envia sozinho */
+  approval?: 'manual' | 'auto';
+}
+
+export interface FollowUpStep extends MessageSource {
+  /** dias de espera desde a etapa anterior */
+  waitDays: number;
+}
+
+export interface OutreachSequenceOptions {
+  id: string;
+  accountId: string;
+  name: string;
+  invite: MessageSource & { sendWithoutNote?: boolean };
+  /** dias para aguardar o aceite antes de desistir */
+  acceptTimeoutDays?: number;
+  /** retirar o convite ao desistir (protege a reputação da conta) */
+  withdrawOnTimeout?: boolean;
+  messages: FollowUpStep[];
+  tone?: 'profissional' | 'caloroso' | 'consultivo';
+  extraInstructions?: string;
+}
+
+/**
+ * Sequência clássica: visitar → convite com nota → aguardar aceite → mensagens com espera.
+ * Antes de cada mensagem, o executor lê a conversa: se a pessoa respondeu, a sequência para.
+ */
+export function outreachSequence(o: OutreachSequenceOptions): Campaign {
+  const common = { tone: o.tone ?? 'profissional', extraInstructions: o.extraInstructions ?? '' };
+  return {
+    id: o.id,
+    accountId: o.accountId,
+    name: o.name,
+    active: false,
+    actions: [
+      { id: `${o.id}-visit`, type: 'VisitAndExtract', name: 'Visitar e extrair perfil', coolDown: 0, maxResults: -1, settings: {} },
+      {
+        id: `${o.id}-invite`, type: 'SendInvite', name: 'Enviar convite', coolDown: 0, maxResults: -1, waitHours: 2,
+        settings: { ...common, ...o.invite, kind: 'invite_note' },
+      },
+      {
+        id: `${o.id}-accept`, type: 'CheckConnection', name: 'Aguardar aceite', coolDown: 0, maxResults: -1, waitHours: 24,
+        settings: { timeoutDays: o.acceptTimeoutDays ?? 21, withdrawOnTimeout: o.withdrawOnTimeout ?? true, recheckHours: 24 },
+      },
+      ...o.messages.map((m, i) => ({
+        id: `${o.id}-msg${i + 1}`,
+        type: 'MessageToPerson',
+        name: i === 0 ? 'Mensagem 1 (após aceite)' : `Follow-up ${i}`,
+        coolDown: 0,
+        maxResults: -1,
+        waitHours: Math.max(0, m.waitDays) * 24 || (i === 0 ? 4 : 0),
+        settings: { ...common, ...m, kind: 'message', step: i + 1, total: o.messages.length },
+      })),
+    ],
+  };
+}
+
+/** Taxa de aceite dos convites (para o freio automático). */
+export function acceptanceRate(sent: number, accepted: number): number | undefined {
+  return sent > 0 ? accepted / sent : undefined;
+}

@@ -100,3 +100,70 @@ export function commentPublished(sel: Record<string, readonly string[]>, snippet
     Array.from(document.querySelectorAll(c)).some((el) => norm((el as HTMLElement).innerText ?? '').includes(target)),
   );
 }
+
+export interface ThreadEvent {
+  fromOther: boolean;
+  body: string;
+  time: string | null;
+}
+
+/** Mensagens visíveis na conversa aberta, em ordem. */
+export function readThread(sel: Record<string, readonly string[]>): ThreadEvent[] {
+  const events = sel.msgEvent!.flatMap((c) => Array.from(document.querySelectorAll(c)));
+  const seen = new Set<Element>();
+  const out: ThreadEvent[] = [];
+  let lastTime: string | null = null;
+  for (const ev of events) {
+    if (seen.has(ev)) continue;
+    seen.add(ev);
+    const timeEl = sel.msgTime!.map((c) => ev.querySelector(c)).find(Boolean) as HTMLElement | undefined;
+    const t = timeEl?.getAttribute('datetime') ?? timeEl?.textContent?.trim() ?? null;
+    if (t) lastTime = t;
+    const bodyEl = sel.msgBody!.map((c) => ev.querySelector(c)).find(Boolean) as HTMLElement | undefined;
+    const body = bodyEl?.innerText?.replace(/\s+/g, ' ').trim();
+    if (!body) continue;
+    const fromOther = sel.msgFromOther!.some((c) => ev.matches(c) || !!ev.querySelector(c));
+    out.push({ fromOther, body, time: lastTime });
+  }
+  return out;
+}
+
+/** Texto atual do editor de mensagem. */
+export function messageEditorText(sel: Record<string, readonly string[]>): string {
+  for (const c of sel.msgEditor!) {
+    const el = document.querySelector(c) as HTMLElement | null;
+    if (el) return el.innerText.replace(/\s+/g, ' ').trim();
+  }
+  return '';
+}
+
+export interface ConversationItem {
+  index: number;
+  unread: boolean;
+  text: string;
+}
+
+export function listConversations(sel: Record<string, readonly string[]>, limit: number): ConversationItem[] {
+  const items = sel.convItem!.flatMap((c) => Array.from(document.querySelectorAll(c))).slice(0, limit);
+  return items.map((it, index) => ({
+    index,
+    unread: sel.convUnread!.some((c) => !!it.querySelector(c)),
+    text: ((it as HTMLElement).innerText ?? '').replace(/\s+/g, ' ').trim().slice(0, 200),
+  }));
+}
+
+/** Caixa da i-ésima conversa da lista (para clicar). */
+export function conversationBox(sel: Record<string, readonly string[]>, index: number): { x: number; y: number; width: number; height: number } | null {
+  const it = sel.convItem!.flatMap((c) => Array.from(document.querySelectorAll(c)))[index];
+  if (!it) return null;
+  const r = it.getBoundingClientRect();
+  return { x: r.x, y: r.y, width: r.width, height: r.height };
+}
+
+export function threadProfileHref(sel: Record<string, readonly string[]>): string | null {
+  for (const c of sel.msgThreadProfileLink!) {
+    const a = document.querySelector(c) as HTMLAnchorElement | null;
+    if (a?.href) return a.href;
+  }
+  return null;
+}

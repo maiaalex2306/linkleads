@@ -31,21 +31,58 @@ export const DEFAULT_SELECTORS = {
   commentSubmit: ['button.comments-comment-box__submit-button--cr', 'button.comments-comment-box__submit-button', 'form.comments-comment-box__form button[type="submit"]'],
   commentItemText: ['.comments-comment-item__main-content', '.comments-comment-entity .update-components-text', 'article.comments-comment-entity'],
   emptyActivity: ['.artdeco-empty-state', '.pv-recent-activity-detail__no-content'],
+  // perfil: botões de ação (filtrados por rótulo, ver LABELS)
+  profileActions: ['main section .pv-top-card-v2-ctas button', 'main .pvs-profile-actions button', 'main section:first-of-type button'],
+  menuItems: ['.artdeco-dropdown__content [role="button"]', 'div[role="menu"] [role="menuitem"]', '.artdeco-dropdown__item'],
+  modal: ['div[role="dialog"]', '.artdeco-modal'],
+  modalButtons: ['div[role="dialog"] button', '.artdeco-modal button'],
+  inviteNote: ['div[role="dialog"] textarea[name="message"]', 'textarea#custom-message', '.artdeco-modal textarea'],
+  inviteEmail: ['div[role="dialog"] input[type="email"]', 'input#email'],
+  // conversa (janela de mensagem)
+  msgEditor: ['.msg-form__contenteditable[contenteditable="true"]', '.msg-form [contenteditable="true"]'],
+  msgSend: ['button.msg-form__send-button', 'button.msg-form__send-btn', 'form.msg-form button[type="submit"]'],
+  msgEvent: ['li.msg-s-message-list__event', '.msg-s-message-list__event'],
+  msgFromOther: ['.msg-s-event-listitem--other'],
+  msgBody: ['.msg-s-event-listitem__body', '.msg-s-event__content'],
+  msgTime: ['time', '.msg-s-message-group__timestamp'],
+  msgClose: ['button.msg-overlay-bubble-header__control--close-btn', '.msg-overlay-bubble-header button[aria-label*="Close"]', '.msg-overlay-bubble-header button[aria-label*="Fechar"]'],
+  msgThreadProfileLink: ['a.msg-thread__link-to-profile', '.msg-entity-lockup__entity-title a[href*="/in/"]', '.msg-thread a[href*="/in/"]'],
+  // inbox
+  convItem: ['li.msg-conversation-listitem', '.msg-conversations-container__convo-item'],
+  convUnread: ['.msg-conversation-card__unread-count', '.notification-badge--show', '.msg-conversation-listitem__unread'],
+  convLink: ['a.msg-conversation-listitem__link', '.msg-conversation-listitem__link'],
   // sinais de bloqueio / sessão
   checkpoint: ['form#captcha-challenge', '#challenge', 'iframe[src*="captcha"]'],
   loggedOut: ['form.login__form', 'a[href*="/login"].nav__button-secondary', '.authwall-join-form'],
 } as const;
 
+/**
+ * Rótulos (regex, sem diferenciar maiúsculas) usados para achar botões pelo texto ou aria-label.
+ * Inglês e português; acrescente idiomas aqui ou em selectors.json → "labels".
+ */
+export const DEFAULT_LABELS = {
+  connect: '^(connect|conectar(-se)?)$|invite .+ to connect|convidar .+ para (se )?conectar',
+  pending: '^(pending|pendente)$|withdraw invitation|retirar convite|pendente',
+  message: '^(message|mensagem|enviar mensagem)$|^message ',
+  more: '^(more|mais)$|more actions|mais a[cç][oõ]es',
+  addNote: 'add a note|adicionar (uma )?nota',
+  sendInvite: '^(send|enviar)$|send invitation|enviar convite|send now|enviar agora',
+  sendWithoutNote: 'send without a note|enviar sem (uma )?nota',
+  withdraw: '^(withdraw|retirar)$',
+} as const;
+export type LabelKey = keyof typeof DEFAULT_LABELS;
+
 export type SelectorKey = Exclude<keyof typeof DEFAULT_SELECTORS, 'version'>;
-export type SelectorMap = Record<SelectorKey, readonly string[]> & { version: string };
+export type SelectorMap = Record<SelectorKey, readonly string[]> & { version: string; labels: Record<LabelKey, string> };
 
 export function loadSelectors(): SelectorMap {
   const file = join(app.getPath('userData'), 'selectors.json');
-  if (!existsSync(file)) return DEFAULT_SELECTORS as unknown as SelectorMap;
+  const base = { ...DEFAULT_SELECTORS, labels: { ...DEFAULT_LABELS } } as unknown as SelectorMap;
+  if (!existsSync(file)) return base;
   try {
     const override = JSON.parse(readFileSync(file, 'utf8')) as Partial<SelectorMap>;
-    return { ...(DEFAULT_SELECTORS as unknown as SelectorMap), ...override };
+    return { ...base, ...override, labels: { ...base.labels, ...override.labels } };
   } catch {
-    return DEFAULT_SELECTORS as unknown as SelectorMap;
+    return base;
   }
 }

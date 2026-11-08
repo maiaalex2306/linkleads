@@ -13,7 +13,7 @@
     "test": "npm test -w @linkleads/core -w @linkleads/db -w @linkleads/ai",
     "typecheck": "tsc -b packages/core packages/db packages/ai && npm run typecheck -w @linkleads/desktop",
     "dev": "npm run dev -w @linkleads/desktop",
-    "e2e": "npm run build && xvfb-run -a node apps/desktop/e2e/run.mjs",
+    "e2e": "npm run build && xvfb-run -a node apps/desktop/e2e/run.mjs && xvfb-run -a node apps/desktop/e2e/sequence.mjs",
     "ai:demo": "node packages/ai/demo.mjs"
   },
   "devDependencies": {

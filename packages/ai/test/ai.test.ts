@@ -38,10 +38,11 @@ describe('buildUserMessage', () => {
   });
 });
 
-import { ClaudePostInterpreter, OpenAiPostInterpreter, createInterpreter } from '../src/index.js';
+import { AnthropicLlm, OpenAiLlm, createInterpreter } from '../src/index.js';
 describe('createInterpreter', () => {
   it('escolhe o provedor', () => {
-    expect(createInterpreter({ provider: 'openai', apiKey: 'x' })).toBeInstanceOf(OpenAiPostInterpreter);
-    expect(createInterpreter({ provider: 'anthropic', apiKey: 'x' })).toBeInstanceOf(ClaudePostInterpreter);
+    expect(createInterpreter({ provider: 'openai', apiKey: 'x' }).llm).toBeInstanceOf(OpenAiLlm);
+    expect(createInterpreter({ provider: 'anthropic', apiKey: 'x', model: ' ' }).llm).toMatchObject({ model: 'claude-opus-5-5' });
+    expect(createInterpreter({ provider: 'anthropic', apiKey: 'x' }).llm).toBeInstanceOf(AnthropicLlm);
   });
 });

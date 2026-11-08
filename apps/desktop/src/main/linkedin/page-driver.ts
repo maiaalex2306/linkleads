@@ -1,6 +1,6 @@
 import type { WebContents } from 'electron';
 import { HumanInput } from '../human-input.js';
-import type { SelectorKey, SelectorMap } from './selectors.js';
+import type { LabelKey, SelectorKey, SelectorMap } from './selectors.js';
 
 /** Mundo JS isolado: lê o DOM sem ser visível aos scripts da página e sem alterá-la. */
 const ISOLATED_WORLD = 1987;
@@ -36,6 +36,13 @@ export class PageDriver {
   async read<T, A extends unknown[]>(fn: (...args: A) => T, ...args: A): Promise<T> {
     const code = `(${fn.toString()})(...${JSON.stringify(args)})`;
     return (await this.wc.executeJavaScriptInIsolatedWorld(ISOLATED_WORLD, [{ code }])) as T;
+  }
+
+  /** Tecla especial (Enter, Escape…) via evento nativo. */
+  async press(keyCode: 'Enter' | 'Escape' | 'Tab'): Promise<void> {
+    this.wc.sendInputEvent({ type: 'keyDown', keyCode });
+    await new Promise((r) => setTimeout(r, 60 + Math.random() * 80));
+    this.wc.sendInputEvent({ type: 'keyUp', keyCode });
   }
 
   async goto(url: string, readyKey?: SelectorKey, timeoutMs = 30_000): Promise<void> {
@@ -79,9 +86,16 @@ export class PageDriver {
    * Caixa (coordenadas da viewport) de um elemento. `scope` restringe a busca a um container
    * identificado por atributo data-urn; `nth` escolhe a ocorrência.
    */
-  box(key: SelectorKey, scope?: { urn: string; containerKey: SelectorKey }): Promise<Box | null> {
+  box(key: SelectorKey, scope?: { urn: string; containerKey: SelectorKey }, label?: LabelKey): Promise<Box | null> {
     return this.read(
-      (cands: readonly string[], containerCands: readonly string[] | null, urn: string | null) => {
+      (cands: readonly string[], containerCands: readonly string[] | null, urn: string | null, labelRe: string | null) => {
+        const re = labelRe ? new RegExp(labelRe, 'i') : null;
+        const matches = (el: Element) => {
+          if (!re) return true;
+          const t = `${el.getAttribute('aria-label') ?? ''}`.trim();
+          const txt = ((el as HTMLElement).innerText ?? el.textContent ?? '').replace(/\s+/g, ' ').trim();
+          return re.test(t) || re.test(txt);
+        };
         let root: ParentNode = document;
         if (urn && containerCands) {
           const container = containerCands
@@ -91,8 +105,8 @@ export class PageDriver {
           root = container;
         }
         for (const c of cands) {
-          const el = root.querySelector(c) as HTMLElement | null;
-          if (el) {
+          for (const el of Array.from(root.querySelectorAll(c)) as HTMLElement[]) {
+            if (!matches(el)) continue;
             const r = el.getBoundingClientRect();
             if (r.width > 0 && r.height > 0) return { x: r.x, y: r.y, width: r.width, height: r.height };
           }
@@ -102,13 +116,35 @@ export class PageDriver {
       this.sel[key],
       scope ? this.sel[scope.containerKey] : null,
       scope?.urn ?? null,
+      label ? this.sel.labels[label] : null,
     );
   }
 
+  /** Existe um elemento visível de `key` cujo texto/aria-label casa com o rótulo? */
+  async hasLabeled(key: SelectorKey, label: LabelKey): Promise<boolean> {
+    return (await this.box(key, undefined, label)) !== null;
+  }
+
+  /** Clica no primeiro elemento de `key` com o rótulo. */
+  async clickLabeled(key: SelectorKey, label: LabelKey): Promise<boolean> {
+    const p = await this.scrollIntoView(key, undefined, label);
+    if (!p) return false;
+    await this.input.click(p.x, p.y);
+    return true;
+  }
+
+  async waitLabeled(key: SelectorKey, label: LabelKey, timeoutMs = 8_000): Promise<boolean> {
+    return this.waitUntil(() => this.hasLabeled(key, label), timeoutMs, 400);
+  }
+
   /** Rola como um humano até o elemento ficar visível; devolve o ponto de clique. */
-  async scrollIntoView(key: SelectorKey, scope?: { urn: string; containerKey: SelectorKey }): Promise<{ x: number; y: number } | null> {
+  async scrollIntoView(
+    key: SelectorKey,
+    scope?: { urn: string; containerKey: SelectorKey },
+    label?: LabelKey,
+  ): Promise<{ x: number; y: number } | null> {
     for (let i = 0; i < 25; i++) {
-      const b = await this.box(key, scope);
+      const b = await this.box(key, scope, label);
       if (!b) return null;
       const { vh, scrollY, maxScroll } = await this.read(() => ({
         vh: window.innerHeight,

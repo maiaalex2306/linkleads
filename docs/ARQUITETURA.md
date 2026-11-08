@@ -91,3 +91,36 @@ VisitAndExtract ─► LikePosts (post próprio mais recente, ≤ N dias, prova:
                 ─► CommentPost ─┬─ manual: rascunho → tela Aprovações → publicar → prova: comentário visível
                                 └─ auto:   publicar → prova: comentário visível
 ```
+
+## Sequências (Fase 2)
+
+```
+VisitAndExtract ─► SendInvite ─► CheckConnection ─► MessageToPerson (1) ─► MessageToPerson (follow-ups)…
+                  (+2h)          (+24h; re-checa     (após aceite)          (+N dias cada)
+                                  a cada 24h)
+```
+
+- **Espera entre etapas**: `ActionConfig.waitHours`. Quando a pessoa conclui uma etapa, entra na próxima com `not_before = agora + espera`.
+- **Re-tentativa**: um executor pode devolver `RETRY_LATER` (com `retryAfterMs`). A pessoa volta para a fila daquela etapa, sem gastar orçamento.
+- **Prova de efeito real**: convite → o perfil mostra "Pendente" após recarregar; retirada → "Pendente" some; mensagem → o texto aparece como a última mensagem enviada na conversa.
+- **Nunca enviar a quem respondeu**: (1) antes de cada mensagem, o app abre a conversa e sincroniza o histórico. Se houver qualquer mensagem recebida, a pessoa é bloqueada (`REPLIED`). (2) A cada 30 min, o app varre as conversas não lidas do inbox, classifica as respostas com a IA e bloqueia as pessoas (`REPLIED` ou `OPTED_OUT`). Abrir a conversa a marca como lida, como faria uma pessoa.
+- **Mensagens deduplicadas** por pessoa + direção + texto + ocorrência, sem depender do horário exibido na tela.
+- **Freio**: taxa de aceite abaixo de 25% entre convites com 14+ dias (mínimo de 30) pausa a conta. `THROTTLED` (checkpoint, sessão caída) também pausa.
+- **Interruptor geral**: `Settings.disabledActions` desliga tipos de ação no motor e nas aprovações.
+- **Migrações do banco**: `schema.sql` é a versão 1. As versões seguintes ficam em `MIGRATIONS` (aditivas, aplicadas ao abrir o banco).
+
+## IA nas sequências (`packages/ai/src/outreach.ts`)
+
+| Função | Saída |
+|---|---|
+| `writeOutreachMessage` | Nota de convite (≤ 300) ou mensagem (≤ 1200), a partir do perfil, do último post interpretado, do histórico da conversa, do objetivo da etapa e do modelo do usuário. Pode recusar (`shouldSend=false`) se só conseguir algo genérico. |
+| `classifyReply` | `interessado`, `objecao`, `agora_nao`, `indicou_outro`, `opt_out` ou `neutro`, mais resumo, pessoa indicada e próximo passo. |
+| `looksLikeOptOut` | Regra local, sem IA, para "não tenho interesse", "pare de enviar" etc. |
+
+Tudo passa por `LlmClient.structured()`, implementado para Anthropic (`AnthropicLlm`) e OpenAI (`OpenAiLlm`).
+
+## Testes ponta a ponta
+
+`npm run e2e` abre o app Electron real contra `apps/desktop/e2e/fake-site.mjs`, um site local que imita perfil, atividade, post,
+convite, mensagens e inbox, e ignora cliques sintéticos (`isTrusted`). A IA usa um stub determinístico
+(`LINKLEADS_TEST_AI_STUB`), e o relógio do app pode ser adiantado só em modo de teste, para simular dias de espera.

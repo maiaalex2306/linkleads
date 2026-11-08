@@ -1,3 +1,5 @@
+/* global window */
+const api = window.linkleads;
 /* global document */
 /** Cria elementos sem innerHTML (todo texto vai por textContent). */
 function h(tag, props, ...children) {

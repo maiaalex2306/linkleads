@@ -20,6 +20,10 @@ export type FailureReason =
   | 'AWAITING_APPROVAL'   // aguardando aprovação humana (ex.: comentário da IA)
   | 'AI_SKIPPED'          // IA decidiu não agir (tema sensível, nada a comentar)
   | 'NO_POST'             // perfil sem post recente elegível
+  | 'RETRY_LATER'         // ainda não dá para concluir (ex.: convite pendente); volta para a fila
+  | 'NOT_ACCEPTED'        // convite não aceito dentro do prazo
+  | 'ALREADY_CONNECTED'   // já é conexão (convite desnecessário)
+  | 'NOT_CONNECTED'       // mensagem exige conexão de 1º grau
   | 'ERROR';
 
 export type AccountTier = 'basic' | 'premium' | 'sales_navigator' | 'recruiter';
@@ -77,6 +81,8 @@ export interface ActionConfig<S = Record<string, unknown>> {
   settings: S;
   /** pessoas excluídas só desta ação (public ids) */
   exclusions?: string[];
+  /** espera (horas) entre concluir a etapa anterior e executar esta */
+  waitHours?: number;
 }
 
 export interface Campaign {

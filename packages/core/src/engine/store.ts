@@ -3,8 +3,8 @@ import type { UsageSnapshot } from './pacing.js';
 
 /** Persistência necessária ao motor. Implementada em SQLite por @linkleads/db. */
 export interface CampaignStore {
-  /** pessoas com status `queued` na ação (na ordem de entrada) */
-  listQueued(campaignId: string, actionId: string, limit: number): Person[];
+  /** pessoas com status `queued` na ação, já liberadas (notBefore <= now), na ordem de entrada */
+  listQueued(campaignId: string, actionId: string, limit: number, now?: Date): Person[];
   setStatus(
     campaignId: string,
     actionId: string,
@@ -12,8 +12,10 @@ export interface CampaignStore {
     status: PersonActionStatus,
     reason?: FailureReason,
   ): void;
-  /** coloca a pessoa como `queued` na ação seguinte */
-  enqueue(campaignId: string, actionId: string, personId: string): void;
+  /** coloca a pessoa como `queued` na ação (opcionalmente só a partir de `notBefore`) */
+  enqueue(campaignId: string, actionId: string, personId: string, notBefore?: Date): void;
+  /** devolve para a fila, a ser tentada de novo a partir de `notBefore` */
+  requeue(campaignId: string, actionId: string, personId: string, notBefore: Date): void;
   getUsage(accountId: string, now: Date): UsageSnapshot;
   recordUsage(accountId: string, key: BudgetKey, now: Date): void;
   /** exclusão global: respondeu, pediu para parar, lista de bloqueio */
@@ -25,7 +27,7 @@ export interface CampaignStore {
 /** Implementação em memória — usada em testes e no modo de simulação. */
 export class InMemoryCampaignStore implements CampaignStore {
   people = new Map<string, Person>();
-  statuses = new Map<string, { status: PersonActionStatus; reason?: FailureReason; order: number }>();
+  statuses = new Map<string, { status: PersonActionStatus; reason?: FailureReason; order: number; notBefore?: number }>();
   usage = new Map<string, number>();
   blocked = new Map<string, FailureReason>();
   invitesLast7Days = 0;
@@ -38,10 +40,10 @@ export class InMemoryCampaignStore implements CampaignStore {
     this.people.set(p.id, p);
   }
 
-  listQueued(campaignId: string, actionId: string, limit: number): Person[] {
+  listQueued(campaignId: string, actionId: string, limit: number, now: Date = new Date()): Person[] {
     const prefix = `${campaignId}|${actionId}|`;
     return [...this.statuses.entries()]
-      .filter(([k, v]) => k.startsWith(prefix) && v.status === 'queued')
+      .filter(([k, v]) => k.startsWith(prefix) && v.status === 'queued' && (v.notBefore ?? 0) <= now.getTime())
       .sort((a, b) => a[1].order - b[1].order)
       .slice(0, limit < 0 ? undefined : limit)
       .map(([k]) => this.people.get(k.slice(prefix.length))!)
@@ -50,11 +52,17 @@ export class InMemoryCampaignStore implements CampaignStore {
 
   setStatus(c: string, a: string, p: string, status: PersonActionStatus, reason?: FailureReason) {
     const prev = this.statuses.get(this.key(c, a, p));
-    this.statuses.set(this.key(c, a, p), { status, reason, order: prev?.order ?? this.seq++ });
+    this.statuses.set(this.key(c, a, p), { status, reason, order: prev?.order ?? this.seq++, notBefore: prev?.notBefore });
   }
 
-  enqueue(c: string, a: string, p: string) {
-    if (!this.statuses.has(this.key(c, a, p))) this.setStatus(c, a, p, 'queued');
+  enqueue(c: string, a: string, p: string, notBefore?: Date) {
+    if (this.statuses.has(this.key(c, a, p))) return;
+    this.statuses.set(this.key(c, a, p), { status: 'queued', order: this.seq++, notBefore: notBefore?.getTime() });
+  }
+
+  requeue(c: string, a: string, p: string, notBefore: Date) {
+    const prev = this.statuses.get(this.key(c, a, p));
+    this.statuses.set(this.key(c, a, p), { status: 'queued', reason: 'RETRY_LATER', order: prev?.order ?? this.seq++, notBefore: notBefore.getTime() });
   }
 
   statusOf(c: string, a: string, p: string) {

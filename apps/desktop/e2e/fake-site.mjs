@@ -1,12 +1,12 @@
 // Site falso que imita a estrutura de perfil/atividade/post para testes e2e (sem rede externa).
 import { createServer } from 'node:http';
 
-const state = { liked: false, comments: [] };
+const state = { liked: false, comments: [], connection: 'none', inviteNote: null, invites: 0, withdrawals: 0, messages: [], unread: false };
 const URN = 'urn:li:activity:7001';
 const page = (body, script = '') => `<!doctype html><html><head><meta charset="utf-8"><style>
   body{font-family:sans-serif;margin:0} main{padding:20px} .spacer{height:900px}
   button{padding:8px 14px;margin:4px} [contenteditable]{border:1px solid #999;min-height:40px;padding:6px}
-</style></head><body><main>${body}</main><script>${script}</script></body></html>`;
+</style></head><body><main>${body}</main><script>window.__thread = ${JSON.stringify(typeof threadHtml === 'function' ? threadHtml() : '')};${script}</script></body></html>`;
 
 const postHtml = (withEditor) => `
 <div class="feed-shared-update-v2" data-urn="${URN}">
@@ -32,6 +32,79 @@ const commentScript = likeScript + `document.querySelector('.comments-comment-bo
   a.innerHTML = '<span class="comments-comment-item__main-content"></span>'; a.firstChild.textContent = text;
   document.getElementById('comments').append(a); document.querySelector('[contenteditable]').innerText = ''; });`;
 
+const esc = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+const threadHtml = () => `
+  <div class="msg-overlay-conversation-bubble">
+    <header class="msg-overlay-bubble-header"><a class="msg-thread__link-to-profile" href="/in/ana-silva/">Ana Silva</a>
+      <button class="msg-overlay-bubble-header__control--close-btn" aria-label="Close your conversation">x</button></header>
+    <ul class="msg-s-message-list">${state.messages.map((m) => `<li class="msg-s-message-list__event">
+      <div class="msg-s-event-listitem ${m.from === 'them' ? 'msg-s-event-listitem--other' : ''}"><p class="msg-s-event-listitem__body">${esc(m.body)}</p></div></li>`).join('')}</ul>
+    <form class="msg-form" onsubmit="return false"><div class="msg-form__contenteditable" contenteditable="true"></div>
+      <button type="submit" class="msg-form__send-button">Send</button></form>
+  </div>`;
+
+function profileHtml() {
+  const c = state.connection;
+  const btn = c === 'connected' ? '<button aria-label="Message Ana Silva">Message</button>'
+    : c === 'pending' ? '<button aria-label="Pending, click to withdraw invitation sent to Ana Silva">Pending</button>'
+    : '<button aria-label="Invite Ana Silva to connect">Connect</button>';
+  return `<section><div class="pv-text-details__left-panel"><h1 class="text-heading-xlarge">Ana Silva</h1>
+    <div class="text-body-medium break-words">Engenheira de Saneamento na Águas do Vale</div>
+    <span class="text-body-small inline t-black--light break-words">Campinas, SP</span></div>
+    <span class="dist-value">${c === 'connected' ? '1st' : '2nd'}</span>
+    <div class="pv-top-card-v2-ctas">${btn}<button aria-label="More actions">More</button></div></section>
+    <div id="modal-root"></div><div id="overlay-root"></div><div class="spacer"></div>`;
+}
+
+const profileScript = String.raw`
+const root = document.getElementById('modal-root');
+const post = (u, b) => fetch(u, { method: 'POST', body: b || '' });
+function modal(inner) { root.innerHTML = '<div role="dialog" class="artdeco-modal">' + inner + '</div>'; }
+document.querySelector('.pv-top-card-v2-ctas').addEventListener('click', (e) => {
+  if (!e.isTrusted) return;
+  const b = e.target.closest('button'); if (!b) return;
+  const t = b.textContent.trim();
+  if (t === 'Connect') modal('<p>Add a note to your invitation?</p><button>Add a note</button><button>Send without a note</button>');
+  if (t === 'Pending') modal('<p>Withdraw invitation?</p><button>Withdraw</button><button>Cancel</button>');
+  if (t === 'Message') { document.getElementById('overlay-root').innerHTML = window.__thread; wireThread(); }
+});
+root.addEventListener('click', async (e) => {
+  if (!e.isTrusted) return;
+  const b = e.target.closest('button'); if (!b) return;
+  const t = b.textContent.trim();
+  if (t === 'Add a note') modal('<textarea name="message" maxlength="300"></textarea><button>Send</button>');
+  if (t === 'Send') { await post('/api/invite', root.querySelector('textarea').value); root.innerHTML = ''; }
+  if (t === 'Send without a note') { await post('/api/invite', ''); root.innerHTML = ''; }
+  if (t === 'Withdraw') { await post('/api/withdraw'); root.innerHTML = ''; }
+});
+function wireThread() {
+  const ov = document.getElementById('overlay-root');
+  ov.querySelector('.msg-form__send-button').addEventListener('click', async (e) => {
+    if (!e.isTrusted) return;
+    const ed = ov.querySelector('[contenteditable]'); const text = ed.innerText.trim();
+    await post('/api/message', text);
+    const li = document.createElement('li'); li.className = 'msg-s-message-list__event';
+    li.innerHTML = '<div class="msg-s-event-listitem"><p class="msg-s-event-listitem__body"></p></div>';
+    li.querySelector('p').textContent = text; ov.querySelector('ul').append(li); ed.innerText = '';
+  });
+  ov.querySelector('.msg-overlay-bubble-header__control--close-btn').addEventListener('click', () => (ov.innerHTML = ''));
+}`;
+
+function inboxHtml() {
+  const has = state.messages.length > 0;
+  return `<ul class="msg-conversations-container">${has ? `<li class="msg-conversation-listitem"><a class="msg-conversation-listitem__link" href="#">
+    Ana Silva ${state.unread ? '<span class="msg-conversation-card__unread-count">1</span>' : ''}</a></li>` : ''}</ul>
+    <div id="overlay-root"></div>`;
+}
+const inboxScript = String.raw`
+document.addEventListener('click', async (e) => {
+  if (!e.isTrusted) return;
+  if (e.target.closest('.msg-conversation-listitem')) {
+    await fetch('/api/read', { method: 'POST' });
+    document.getElementById('overlay-root').innerHTML = window.__thread;
+  }
+});`;
+
 export function startFakeSite(port = 0) {
   const server = createServer((req, res) => {
     const url = decodeURIComponent(req.url ?? '/');
@@ -41,6 +114,12 @@ export function startFakeSite(port = 0) {
       req.on('data', (c) => (body += c));
       req.on('end', () => {
         if (url === '/api/like') state.liked = true;
+        if (url === '/api/invite') { state.connection = 'pending'; state.inviteNote = body || null; state.invites++; }
+        if (url === '/api/withdraw') { state.connection = 'none'; state.withdrawals++; }
+        if (url === '/api/message') state.messages.push({ from: 'me', body });
+        if (url === '/api/read') state.unread = false;
+        if (url === '/test/accept') state.connection = 'connected';
+        if (url === '/test/reply') { state.messages.push({ from: 'them', body }); state.unread = true; }
         if (url === '/api/comment') state.comments.push(body.replace(/</g, '&lt;'));
         res.end('ok');
       });
@@ -48,11 +127,8 @@ export function startFakeSite(port = 0) {
     }
     if (url.startsWith('/feed/update/')) return html(postHtml(true), commentScript);
     if (url === '/in/ana-silva/recent-activity/all/') return html(`<div class="spacer"></div>${postHtml(false)}<div class="spacer"></div>`, likeScript);
-    if (url === '/in/ana-silva/')
-      return html(`<section><div class="pv-text-details__left-panel"><h1 class="text-heading-xlarge">Ana Silva</h1>
-        <div class="text-body-medium break-words">Engenheira de Saneamento na Águas do Vale</div>
-        <span class="text-body-small inline t-black--light break-words">Campinas, SP</span></div>
-        <span class="dist-value">2nd</span></section><div class="spacer"></div>`);
+    if (url === '/in/ana-silva/') return html(profileHtml(), profileScript);
+    if (url === '/messaging/') return html(inboxHtml(), inboxScript);
     if (url.startsWith('/feed')) return html('<h1>Feed</h1>');
     res.writeHead(404); res.end(page('<div class="not-found__container">Not found</div>'));
   });

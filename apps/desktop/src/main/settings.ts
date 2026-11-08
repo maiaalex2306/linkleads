@@ -12,6 +12,8 @@ interface StoredSettings {
   aiModels?: Partial<Record<AiProvider, string>>;
   /** apresentação do usuário, usada pela IA para escrever como ele */
   aboutMe?: string;
+  /** interruptor geral: tipos de ação desligados (ex.: SendInvite, DetectReplies) */
+  disabledActions?: string[];
   /** legado (v0.1): chave da Anthropic */
   anthropicKeyEnc?: string;
 }
@@ -28,6 +30,7 @@ export interface PublicSettings {
   /** o provedor escolhido tem chave? */
   hasAiKey: boolean;
   aboutMe: string;
+  disabledActions: string[];
 }
 
 export class Settings {
@@ -89,6 +92,18 @@ export class Settings {
     this.write({ ...s, aiModels: models });
   }
 
+  disabledActions(): string[] {
+    return this.read().disabledActions ?? [];
+  }
+
+  setActionEnabled(type: string, enabled: boolean): void {
+    const s = this.read();
+    const set = new Set(s.disabledActions ?? []);
+    if (enabled) set.delete(type);
+    else set.add(type);
+    this.write({ ...s, disabledActions: [...set] });
+  }
+
   aboutMe(): string {
     return this.read().aboutMe ?? '';
   }
@@ -106,6 +121,12 @@ export class Settings {
     });
     const providers = { anthropic: status('anthropic'), openai: status('openai') };
     const aiProvider = this.provider();
-    return { aiProvider, providers, hasAiKey: providers[aiProvider].keySource !== 'none', aboutMe: this.aboutMe() };
+    return {
+      aiProvider,
+      providers,
+      hasAiKey: providers[aiProvider].keySource !== 'none',
+      aboutMe: this.aboutMe(),
+      disabledActions: s.disabledActions ?? [],
+    };
   }
 }

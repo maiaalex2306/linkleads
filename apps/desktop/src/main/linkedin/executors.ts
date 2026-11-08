@@ -1,27 +1,39 @@
 import type { ActionExecutor, ExecutionContext, ExecutionResult, Person, PostSnapshot } from '@linkleads/core';
 import { getActionDefinition, parseRelativeAgeDays, publicIdFromUrl } from '@linkleads/core';
-import type { CommentSettings, PostInterpreter } from '@linkleads/ai';
-import type { LocalCrm } from '@linkleads/db';
+import type { CommentSettings, LlmClient, PostInterpreter } from '@linkleads/ai';
+import type { OutreachCrm } from '@linkleads/db';
 import { commentPublished, editorText, extractPosts, extractProfile, likeState, type PostExtract } from './dom-scripts.js';
 import { BlockedError, type PageDriver } from './page-driver.js';
 
 /** LINKLEADS_TEST_BASE_URL aponta para o site falso dos testes e2e; nunca usar em produção. */
 export const BASE = process.env.LINKLEADS_TEST_BASE_URL ?? 'https://www.linkedin.com';
-const profileUrl = (p: Person) => `${BASE}/in/${encodeURIComponent(p.publicId ?? p.id)}/`;
+/** Slug do perfil a partir de um link da própria página (/in/<slug>), em qualquer host. */
+export function profileSlug(href: string): string | undefined {
+  try {
+    const m = new URL(href).pathname.match(/^\/(?:in|pub)\/([^/?#]+)/);
+    return m ? decodeURIComponent(m[1]!).toLowerCase() : undefined;
+  } catch {
+    return publicIdFromUrl(href);
+  }
+}
+
+export const profileUrl = (p: Person) => `${BASE}/in/${encodeURIComponent(p.publicId ?? p.id)}/`;
 const activityUrl = (p: Person) => `${BASE}/in/${encodeURIComponent(p.publicId ?? p.id)}/recent-activity/all/`;
 const postUrl = (urn: string) => `${BASE}/feed/update/${urn}/`;
 
 export interface ExecutorDeps {
   driver: PageDriver;
-  crm: LocalCrm;
+  crm: OutreachCrm;
   /** null quando a IA não está configurada */
   interpreter: () => PostInterpreter | null;
+  llm: () => LlmClient | null;
+  aboutMe: () => string;
   /** serializa o uso do navegador entre o agendador e ações manuais */
   withBrowser: <T>(fn: () => Promise<T>) => Promise<T>;
 }
 
 /** Converte bloqueio da plataforma em THROTTLED (o motor pausa a conta). */
-async function guard(fn: () => Promise<ExecutionResult>): Promise<ExecutionResult> {
+export async function guard(fn: () => Promise<ExecutionResult>): Promise<ExecutionResult> {
   try {
     return await fn();
   } catch (e) {
@@ -45,7 +57,7 @@ function degreeOf(label: string | null): 1 | 2 | 3 | undefined {
 async function captureOpenProfile(d: ExecutorDeps, base?: Person): Promise<ExecutionResult> {
   const data = await d.driver.read(extractProfile, d.driver.sel as unknown as Record<string, readonly string[]>);
   if (!data.name) return { ok: false, reason: 'NO_REAL_EFFECT', message: 'Nome do perfil não encontrado na página' };
-  const publicId = publicIdFromUrl(data.url) ?? base?.publicId;
+  const publicId = profileSlug(data.url) ?? base?.publicId;
   if (!publicId) return { ok: false, reason: 'NOT_FOUND', message: 'A página aberta não é um perfil' };
   const existing = d.crm.findByPublicId(publicId);
   const person: Person = {
@@ -95,7 +107,7 @@ export function pickPost(posts: PostExtract[], publicId: string, s: LikeSettings
   return posts.find((p) => {
     if (!p.text && !p.hasMedia) return false;
     if (p.isReshare && !s.includeReshares) return false;
-    const actor = p.actorHref ? publicIdFromUrl(p.actorHref) : undefined;
+    const actor = p.actorHref ? profileSlug(p.actorHref) : undefined;
     if (actor && actor !== publicId.toLowerCase()) return false;
     const age = p.age ? parseRelativeAgeDays(p.age) : undefined;
     return age === undefined || age <= maxAge;

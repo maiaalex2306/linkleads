@@ -54,7 +54,7 @@ try {
 
   const shots = process.env.SHOT_DIR ?? tmp;
   await ui.reload();
-  await ui.getByRole('button', { name: 'Aprovações' }).click();
+  await ui.getByRole('button', { name: /Aprovações/ }).click();
   await ui.getByText('Aprovar e publicar').waitFor();
   await ui.screenshot({ path: join(shots, 'aprovacoes.png') });
 
@@ -70,7 +70,7 @@ try {
   await ui.getByText('Nova campanha').waitFor();
   await ui.screenshot({ path: join(shots, 'campanhas.png'), fullPage: true });
   await call('setProvider', 'openai');
-  await ui.getByRole('button', { name: 'Configurações da IA' }).click();
+  await ui.getByRole('button', { name: 'Configurações' }).click();
   await ui.getByText('Sobre mim').first().waitFor();
   await ui.screenshot({ path: join(shots, 'configuracoes.png'), fullPage: true });
   await ui.emulateMedia({ colorScheme: 'dark' });

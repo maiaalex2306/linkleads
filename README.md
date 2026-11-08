@@ -49,6 +49,20 @@ npm run ai:demo -- "Concluímos a telemetria de 120 km de rede e reduzimos as pe
 5. **Aprovações**: para cada post, a IA mostra o que entendeu (resumo, ponto central, trabalho do autor) e sugere
    o comentário. Edite se quiser e clique em **Aprovar e publicar**. O modo automático também existe, mas não é o padrão.
 
+## Como usar (Fase 2: sequências)
+
+1. **Campanhas → Nova campanha → Sequência de prospecção**:
+   visitar → **convite** (sem nota, modelo fixo ou nota escrita pela IA) → **aguardar aceite** (checa 1x/dia; desiste após N dias e
+   retira o convite) → **mensagem 1** → **follow-ups** (cada um com sua espera em dias, modelo fixo ou IA com um objetivo).
+2. Textos da IA vão para **Aprovações** (padrão) ou saem sozinhos, se você escolher "Enviar automaticamente".
+3. **Quem responde sai de todas as sequências**: o app lê a conversa antes de cada mensagem e varre o inbox a cada 30 min.
+   A aba **Inbox** mostra as respostas com o rótulo da IA (interessado, objeção, agora não, indicou outra pessoa, pediu
+   para parar) e o próximo passo sugerido. "Pediu para parar" bloqueia a pessoa para sempre.
+4. **Editar etapas** muda textos e esperas de uma campanha em andamento. **+ adicionar coleção** coloca mais gente na fila.
+5. **Saúde da conta** (no topo): uso do dia × limite, convites na semana (teto de 100) e taxa de aceite. Abaixo de 25%
+   (convites com 14+ dias), a conta é pausada sozinha.
+6. **Configurações → Interruptor geral**: desliga um tipo de ação (convites, mensagens, inbox…) em todas as contas na hora.
+
 > ⚠️ Os seletores do LinkedIn (`apps/desktop/src/main/linkedin/selectors.ts`) ainda não foram validados numa conta real.
 > Valide primeiro com uma conta própria, com volume baixo. Para ajustar sem gerar nova versão, use `<userData>/selectors.json`.
 

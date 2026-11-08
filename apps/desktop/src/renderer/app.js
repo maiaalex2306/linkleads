@@ -1,11 +1,11 @@
 /* global window, document, h, toast, safe */
-const api = window.linkleads;
 const state = { accountId: null, tab: 'collections', logs: [] };
 
 const REASONS = {
   NO_REAL_EFFECT: 'sem efeito confirmado', EXCLUDED: 'excluída', REPLIED: 'respondeu', OPTED_OUT: 'pediu para parar',
   NOT_FOUND: 'perfil não encontrado', LIMIT_REACHED: 'limite', THROTTLED: 'plataforma bloqueou', ERROR: 'erro',
-  AWAITING_APPROVAL: 'aguardando aprovação', AI_SKIPPED: 'IA decidiu não comentar', NO_POST: 'sem post recente', ICP_REJECTED: 'fora do ICP',
+  AWAITING_APPROVAL: 'aguardando aprovação', AI_SKIPPED: 'IA decidiu não agir', NO_POST: 'sem post recente', ICP_REJECTED: 'fora do ICP',
+  RETRY_LATER: 'aguardando (checa de novo)', NOT_ACCEPTED: 'convite não aceito', ALREADY_CONNECTED: 'já era conexão', NOT_CONNECTED: 'não é conexão',
 };
 const STATUS = { queued: 'na fila', processed: 'em andamento', successful: 'concluída', failed: 'falhou' };
 
@@ -46,7 +46,7 @@ async function renderAccounts() {
 
 function topNav() {
   document.getElementById('topnav').replaceChildren(
-    h('button', { class: 'link', onclick: () => { state.tab = 'settings'; renderView(); } }, 'Configurações da IA'),
+    h('button', { class: 'link', onclick: () => { state.tab = 'settings'; renderView(); } }, 'Configurações'),
   );
 }
 
@@ -58,7 +58,13 @@ async function renderView() {
   const a = accounts.find((x) => x.id === state.accountId);
   if (!a) return view.replaceChildren(h('p', { class: 'muted' }, 'Adicione uma conta para começar.'));
 
-  const tabs = [['collections', 'Coleções'], ['campaigns', 'Campanhas'], ['approvals', 'Aprovações'], ['activity', 'Atividade']];
+  const stats = await api.accountStats(a.id);
+  const tabs = [
+    ['collections', 'Coleções'], ['campaigns', 'Campanhas'],
+    ['approvals', `Aprovações${stats.pendingApprovals ? ` (${stats.pendingApprovals})` : ''}`],
+    ['inbox', `Inbox${stats.unhandledReplies ? ` (${stats.unhandledReplies})` : ''}`],
+    ['activity', 'Atividade'],
+  ];
   const header = h('div', {},
     h('div', { class: 'row' },
       h('h2', { style: 'margin:0;flex:1' }, a.label),
@@ -73,9 +79,10 @@ async function renderView() {
       h('button', { onclick: () => window.confirm(`Remover a conta "${a.label}" e seus dados locais?`) && safe(() => api.removeAccount(a.id)).then(() => { state.accountId = null; refresh(); }) }, 'Remover'),
     ),
     h('div', { class: 'muted' }, `${a.tier} · ${a.workingHours.start}–${a.workingHours.end} (${a.workingHours.timezone}) · ${a.proxy ? 'proxy ' + a.proxy.host : 'sem proxy'}`),
+    healthBar(stats),
     h('div', { class: 'tabs' }, ...tabs.map(([k, l]) => h('button', { class: state.tab === k ? 'sel' : '', onclick: () => { state.tab = k; renderView(); } }, l))),
   );
-  const body = await ({ collections: collectionsView, campaigns: campaignsView, approvals: approvalsView, activity: activityView }[state.tab] || collectionsView)(a);
+  const body = await ({ collections: collectionsView, campaigns: campaignsView, approvals: approvalsView, inbox: inboxView, activity: activityView }[state.tab] || collectionsView)(a);
   view.replaceChildren(header, body);
 }
 
@@ -110,126 +117,24 @@ async function collectionsView(a) {
   return out;
 }
 
-async function campaignsView(a) {
-  const [cols, camps, settings] = await Promise.all([api.listCollections(a.id), api.listCampaigns(a.id), api.getSettings()]);
-  const form = h('form', {
-    class: 'card stack', onsubmit: async (e) => {
-      e.preventDefault();
-      const f = new FormData(e.target);
-      const r = await safe(() => api.createEngagementCampaign(a.id, {
-        name: f.get('name'), collectionId: f.get('collectionId'), commentMode: f.get('commentMode'), tone: f.get('tone'),
-        extraInstructions: f.get('extraInstructions'), maxPostAgeDays: Number(f.get('maxPostAgeDays')),
-      }));
-      if (r) { toast(`Campanha criada com ${r.enqueued} pessoas na fila. Ative-a para começar.`); renderView(); }
-    },
-  },
-    h('strong', {}, 'Nova campanha: Visitar → Curtir post → Comentar com IA'),
-    !settings.hasAiKey && h('div', { class: 'muted', style: 'color:var(--warn)' }, `A IA escolhida (${settings.aiProvider === 'openai' ? 'OpenAI' : 'Anthropic'}) ainda não tem chave (Configurações da IA). Sem ela, a etapa de comentário falha.`),
-    h('div', { class: 'row' },
-      h('label', {}, 'Nome', h('input', { name: 'name', required: true, value: 'Engajamento' })),
-      h('label', {}, 'Coleção', h('select', { name: 'collectionId', required: true }, ...cols.map((c) => h('option', { value: c.id }, `${c.name} (${c.size})`)))),
-      h('label', {}, 'Comentários', h('select', { name: 'commentMode' }, h('option', { value: 'manual' }, 'Eu aprovo cada um (recomendado)'), h('option', { value: 'auto' }, 'Publicar automaticamente'))),
-      h('label', {}, 'Tom', h('select', { name: 'tone' }, h('option', { value: 'profissional' }, 'Profissional'), h('option', { value: 'consultivo' }, 'Consultivo'), h('option', { value: 'caloroso' }, 'Caloroso'))),
-      h('label', {}, 'Post de até (dias)', h('input', { name: 'maxPostAgeDays', type: 'number', min: 1, max: 365, value: '30', style: 'width:90px' })),
-    ),
-    h('label', {}, 'Instruções extras para a IA (opcional)', h('textarea', { name: 'extraInstructions', placeholder: 'Ex.: quando fizer sentido, conecte com eficiência hídrica e saneamento.' })),
-    h('div', {}, h('button', { class: 'primary', disabled: !cols.length }, 'Criar campanha')),
-  );
-
-  const list = camps.map((c) => {
-    const counts = {};
-    for (const p of c.people) counts[p.status] = (counts[p.status] || 0) + 1;
-    return h('div', { class: 'card stack' },
-      h('div', { class: 'row' },
-        h('strong', { style: 'flex:1' }, c.name),
-        h('span', { class: 'muted' }, Object.entries(counts).map(([s, n]) => `${n} ${STATUS[s]}`).join(' · ') || 'vazia'),
-        h('button', { class: c.active ? '' : 'primary', onclick: () => safe(() => api.setCampaignActive(a.id, c.id, !c.active)).then(renderView) }, c.active ? 'Pausar' : 'Ativar'),
-      ),
-      h('div', { class: 'muted' }, c.actions.map((x) => x.name).join(' → ')),
-      h('table', {}, h('tr', {}, h('th', {}, 'Pessoa'), h('th', {}, 'Empresa'), h('th', {}, 'Etapa'), h('th', {}, 'Situação')),
-        ...c.people.slice(0, 200).map((p) => h('tr', {}, h('td', {}, p.name), h('td', {}, p.company || '—'), h('td', {}, p.actionName),
-          h('td', {}, h('span', { class: 'badge ' + p.status }, STATUS[p.status]), p.reason ? h('span', { class: 'muted' }, ' ' + (REASONS[p.reason] || p.reason)) : '')))),
-    );
-  });
-  return h('div', { class: 'stack' }, form, ...list);
-}
-
-async function approvalsView(a) {
-  const drafts = await api.listDrafts(a.id, 'pending');
-  if (!drafts.length) return h('p', { class: 'muted' }, 'Nenhum comentário aguardando aprovação.');
-  return h('div', { class: 'stack' },
-    h('p', { class: 'muted' }, 'A IA leu cada post e sugeriu um comentário. Edite se quiser e aprove para publicar.' + (a.running ? '' : ' Inicie a conta para publicar.')),
-    ...drafts.map((d) => {
-      const it = d.interpretation || {};
-      const text = h('textarea', { value: d.comment });
-      return h('div', { class: 'card stack' },
-        h('div', { class: 'row' }, h('strong', { style: 'flex:1' }, d.personName), h('span', { class: 'muted' }, d.createdAt)),
-        h('div', { class: 'post' }, d.postText || '(texto do post indisponível)'),
-        h('div', { class: 'ai' },
-          h('div', {}, h('b', {}, 'O que a IA entendeu: '), it.summary || '—'),
-          h('div', {}, h('b', {}, 'Ponto central: '), it.mainPoint || '—'),
-          h('div', {}, h('b', {}, 'Trabalho do autor: '), it.authorWork || '—'),
-          h('div', {}, h('b', {}, 'Tipo/temas: '), [it.postType, ...(it.topics || [])].filter(Boolean).join(', ') || '—'),
-        ),
-        h('label', {}, 'Comentário', text),
-        h('div', { class: 'row' },
-          h('button', { class: 'primary', disabled: !a.running, onclick: async (e) => {
-            e.target.disabled = true;
-            const r = await safe(() => api.approveDraft(a.id, d.id, text.value));
-            toast(r && r.ok ? 'Comentário publicado' : `Não publicado: ${(r && r.message) || 'erro'}`);
-            renderView();
-          } }, 'Aprovar e publicar'),
-          h('button', { onclick: () => safe(() => api.rejectDraft(a.id, d.id), 'Descartado').then(renderView) }, 'Descartar'),
-        ),
-      );
-    }),
+/** Saúde da conta: uso do dia vs. limite e taxa de aceite. */
+function healthBar(st) {
+  const LABEL = { invites: 'Convites', messages: 'Mensagens', profile_visits: 'Visitas', engagement: 'Engajamento' };
+  const acc = st.acceptance.matured ? Math.round((100 * st.acceptance.accepted) / st.acceptance.matured) : null;
+  return h('div', { class: 'health' },
+    ...Object.entries(st.today).map(([k, v]) =>
+      h('div', { class: 'meter' }, h('span', { class: 'muted' }, LABEL[k] + ' hoje'),
+        h('strong', {}, `${v.used}/${v.limit}`),
+        h('div', { class: 'bar' }, h('i', { style: `width:${v.limit ? Math.min(100, (100 * v.used) / v.limit) : 0}%` })))),
+    h('div', { class: 'meter' }, h('span', { class: 'muted' }, 'Convites 7 dias'), h('strong', {}, `${st.invitesLast7Days}/100`)),
+    h('div', { class: 'meter' + (acc != null && acc < 25 ? ' bad' : '') }, h('span', { class: 'muted' }, 'Taxa de aceite'),
+      h('strong', {}, acc == null ? '—' : `${acc}%`), h('span', { class: 'muted' }, acc == null ? 'convites com 14+ dias' : `${st.acceptance.accepted}/${st.acceptance.matured}`)),
   );
 }
 
 async function activityView(a) {
   const lines = state.logs.filter((l) => l.accountId === a.id).slice(-300).reverse();
   return h('div', { class: 'card log' }, lines.length ? lines.map((l) => `${l.at.slice(11, 19)}  ${l.line}\n`) : 'Sem atividade nesta sessão.');
-}
-
-async function settingsView() {
-  const s = await api.getSettings();
-  const PROVIDERS = [
-    ['anthropic', 'Anthropic (Claude)', 'sk-ant-...', 'ANTHROPIC_API_KEY'],
-    ['openai', 'OpenAI', 'sk-...', 'OPENAI_API_KEY'],
-  ];
-  const about = h('textarea', { value: s.aboutMe, placeholder: 'Ex.: Sou Alexandre, da BioSolvit. Trabalho com soluções para perdas de água e saneamento.' });
-  const providerCards = PROVIDERS.map(([id, label, ph, env]) => {
-    const st = s.providers[id];
-    const key = h('input', { type: 'password', placeholder: st.keySource !== 'none' ? '•••••• (já configurada)' : ph, style: 'width:320px' });
-    const model = h('input', { value: st.model, placeholder: st.defaultModel, style: 'width:200px' });
-    const active = s.aiProvider === id;
-    return h('div', { class: 'card stack' + (active ? ' active' : '') },
-      h('div', { class: 'row' },
-        h('label', { class: 'row', style: 'display:flex;flex:1;font-size:14px' },
-          h('input', { type: 'radio', name: 'provider', checked: active, onchange: () => safe(() => api.setProvider(id), `${label} será usada nos comentários`).then(renderView) }),
-          h('strong', {}, label)),
-        h('span', { class: 'badge ' + (st.keySource === 'none' ? 'failed' : 'successful') }, st.keySource === 'none' ? 'sem chave' : st.keySource === 'env' ? `chave via ${env}` : 'chave salva'),
-      ),
-      h('div', { class: 'row' }, key,
-        h('button', { class: 'primary', onclick: () => key.value && safe(() => api.setAiKey(id, key.value), 'Chave salva').then(renderView) }, 'Salvar chave'),
-        st.keySource === 'app' && h('button', { onclick: () => safe(() => api.setAiKey(id, null), 'Chave removida').then(renderView) }, 'Remover')),
-      h('div', { class: 'row' }, h('span', { class: 'muted' }, 'Modelo'), model,
-        h('button', { onclick: () => safe(() => api.setModel(id, model.value), 'Modelo salvo').then(renderView) }, 'Salvar modelo'),
-        h('span', { class: 'muted' }, `padrão: ${st.defaultModel}`)),
-    );
-  });
-  return h('div', { class: 'stack', style: 'max-width:720px' },
-    h('h2', {}, 'Configurações da IA'),
-    h('p', { class: 'muted' }, 'Escolha qual IA interpreta os posts e escreve os comentários. As chaves ficam criptografadas no cofre do sistema operacional, só nesta máquina.'),
-    ...providerCards,
-    h('div', { class: 'card stack' },
-      h('strong', {}, 'Sobre mim'),
-      h('div', { class: 'muted' }, 'A IA usa isto para escrever os comentários na sua voz.'),
-      about,
-      h('div', {}, h('button', { class: 'primary', onclick: () => safe(() => api.setAboutMe(about.value), 'Salvo') }, 'Salvar')),
-    ),
-    h('button', { class: 'link', onclick: () => { state.tab = 'collections'; renderView(); } }, '← Voltar'),
-  );
 }
 
 async function refresh() {

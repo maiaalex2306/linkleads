@@ -24,6 +24,7 @@ export interface TickReport {
   processed: number;
   successful: number;
   awaitingApproval: number;
+  retryLater: number;
   failed: Array<{ personId: string; actionId: string; reason: FailureReason }>;
 }
 
@@ -50,7 +51,7 @@ export class CampaignRunner {
   }
 
   async tick(campaign: Campaign, account: Account, signal?: AbortSignal): Promise<TickReport> {
-    const report: TickReport = { processed: 0, successful: 0, awaitingApproval: 0, failed: [] };
+    const report: TickReport = { processed: 0, successful: 0, awaitingApproval: 0, retryLater: 0, failed: [] };
     if (!campaign.active) return { ...report, skipped: 'inactive' };
     if (account.paused) return { ...report, skipped: 'paused' };
     if (!isWithinWorkingHours(this.now(), account.workingHours))
@@ -76,7 +77,7 @@ export class CampaignRunner {
       }
       if (limit === 0) continue;
 
-      const people = store.listQueued(campaign.id, action.id, limit);
+      const people = store.listQueued(campaign.id, action.id, limit, this.now());
       const actionExclusions = new Set(action.exclusions ?? []);
       let ranAny = false;
 
@@ -123,6 +124,13 @@ export class CampaignRunner {
           store.recordUsage(account.id, def.budget, this.now());
         }
 
+        if (!result.ok && result.reason === 'RETRY_LATER') {
+          // ex.: convite ainda pendente — volta para a fila e tenta de novo mais tarde
+          store.requeue(campaign.id, action.id, person.id, new Date(this.now().getTime() + (result.retryAfterMs ?? 24 * 3_600_000)));
+          report.retryLater++;
+          continue;
+        }
+
         if (!result.ok && result.reason === 'AWAITING_APPROVAL') {
           // fica em `processed` até o usuário aprovar (ver resolveApproval)
           store.setStatus(campaign.id, action.id, person.id, 'processed', 'AWAITING_APPROVAL');
@@ -133,7 +141,7 @@ export class CampaignRunner {
         if (result.ok) {
           store.setStatus(campaign.id, action.id, person.id, 'successful');
           report.successful++;
-          if (next) store.enqueue(campaign.id, next.id, person.id);
+          if (next) store.enqueue(campaign.id, next.id, person.id, notBeforeFor(next, this.now()));
         } else {
           fail(result.reason);
           if (result.reason === 'THROTTLED') {
@@ -174,14 +182,20 @@ export function resolveApproval(
   actionId: string,
   personId: string,
   outcome: { executed: true } | { executed: false; reason: FailureReason },
+  now: Date = new Date(),
 ): void {
   const idx = campaign.actions.findIndex((a) => a.id === actionId);
   if (idx < 0) throw new Error(`Ação ${actionId} não pertence à campanha`);
   if (outcome.executed) {
     store.setStatus(campaign.id, actionId, personId, 'successful');
     const next = campaign.actions[idx + 1];
-    if (next) store.enqueue(campaign.id, next.id, personId);
+    if (next) store.enqueue(campaign.id, next.id, personId, notBeforeFor(next, now));
   } else {
     store.setStatus(campaign.id, actionId, personId, 'failed', outcome.reason);
   }
+}
+
+/** Momento a partir do qual a pessoa pode entrar na etapa `next` (espera configurada). */
+export function notBeforeFor(next: { waitHours?: number }, now: Date): Date | undefined {
+  return next.waitHours ? new Date(now.getTime() + next.waitHours * 3_600_000) : undefined;
 }
