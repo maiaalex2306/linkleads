@@ -11,6 +11,10 @@ Objetivo: confirmar, na sua conta e no seu computador, que cada parte funciona n
 
 Pelo código-fonte (recomendado agora, evita os alertas de app não assinado). Requer Node.js 22.13 ou mais recente e Git.
 
+> **Windows (PowerShell):** rode um comando por vez. O PowerShell 5, que vem no Windows, não aceita `&&`.
+> Para definir variáveis use `$env:NOME="valor"` (ex.: `$env:ANTHROPIC_API_KEY="sua-chave"`), em linha separada,
+> antes do comando.
+
 ```bash
 git clone https://github.com/maiaalex2306/linkleads.git
 ```
@@ -56,6 +60,8 @@ pode ir por `selectors.json` ou pelo servidor da equipe).
 
 Com a sua chave (troque os textos pelos de um post real):
 
+macOS/Linux:
+
 ```bash
 ANTHROPIC_API_KEY=sua-chave npm run ai:demo -- "texto de um post real" "Nome" "Título"
 ```
@@ -63,6 +69,18 @@ ANTHROPIC_API_KEY=sua-chave npm run ai:demo -- "texto de um post real" "Nome" "T
 ```bash
 AI_PROVIDER=openai OPENAI_API_KEY=sua-chave npm run ai:demo -- "texto de um post real" "Nome" "Título"
 ```
+
+Windows (PowerShell), uma linha por vez:
+
+```powershell
+$env:ANTHROPIC_API_KEY="sua-chave"
+```
+
+```powershell
+npm run ai:demo -- "texto de um post real" "Nome" "Título"
+```
+
+Para testar a OpenAI no PowerShell: `$env:AI_PROVIDER="openai"` e `$env:OPENAI_API_KEY="sua-chave"`, depois o mesmo `npm run ai:demo`.
 
 ✅ Passa se: a interpretação faz sentido, o comentário é específico e profissional e, num post sensível (ex.:
 demissão), a IA decide **não** comentar.
