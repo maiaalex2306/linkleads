@@ -1,7 +1,7 @@
 import type { ActionExecutor, ExecutionContext, ExecutionResult, Person, PostSnapshot } from '@linkleads/core';
-import { getActionDefinition, parseRelativeAgeDays, publicIdFromUrl } from '@linkleads/core';
+import { detectJobChange, getActionDefinition, parseRelativeAgeDays, publicIdFromUrl } from '@linkleads/core';
 import type { CommentSettings, LlmClient, PostInterpreter } from '@linkleads/ai';
-import type { OutreachCrm } from '@linkleads/db';
+import type { DecisionCrm } from '@linkleads/db';
 import { commentPublished, editorText, extractPosts, extractProfile, likeState, type PostExtract } from './dom-scripts.js';
 import { BlockedError, type PageDriver } from './page-driver.js';
 
@@ -23,7 +23,9 @@ const postUrl = (urn: string) => `${BASE}/feed/update/${urn}/`;
 
 export interface ExecutorDeps {
   driver: PageDriver;
-  crm: OutreachCrm;
+  crm: DecisionCrm;
+  /** oferta, ICP e temas de sinais (Configurações) */
+  decision: () => { offer: string; icp: string; icpThreshold: number; signalTopics: string[] };
   /** null quando a IA não está configurada */
   interpreter: () => PostInterpreter | null;
   llm: () => LlmClient | null;
@@ -70,6 +72,20 @@ async function captureOpenProfile(d: ExecutorDeps, base?: Person): Promise<Execu
     connectionDegree: degreeOf(data.degree) ?? base?.connectionDegree,
   };
   person.id = existing?.id ?? base?.id ?? publicId;
+  // sinal: mudou de empresa/cargo desde a última leitura
+  const before = existing ?? d.crm.getPerson(person.id);
+  const change = before ? detectJobChange(before, person) : undefined;
+  if (change) {
+    const label = { company: 'Mudou de empresa', position: 'Mudou de cargo', headline: 'Atualizou o título' }[change.field];
+    d.crm.addSignal({
+      type: 'job_change',
+      personId: person.id,
+      title: `${label}: ${change.to}`,
+      detail: `Antes: ${change.from}`,
+      url: data.url,
+      dedupeKey: `job_change:${person.id}:${change.field}:${change.to.toLowerCase()}`,
+    });
+  }
   d.crm.upsertPerson(person);
   return { ok: true, data: { person } };
 }

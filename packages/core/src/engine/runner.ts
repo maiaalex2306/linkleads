@@ -119,8 +119,9 @@ export class CampaignRunner {
           if (!verified) result = { ok: false, reason: 'NO_REAL_EFFECT' };
         }
 
-        if (def.budget && (result.ok || result.reason === 'NO_REAL_EFFECT')) {
-          // tentativa conta no orçamento mesmo sem prova — evita repetir e estourar limites
+
+        if (def.budget && (result.ok || result.reason === 'NO_REAL_EFFECT' || result.reason === 'RETRY_LATER')) {
+          // conta no orçamento: sucesso, tentativa sem prova (evita repetir) e trabalho feito antes de voltar à fila
           store.recordUsage(account.id, def.budget, this.now());
         }
 

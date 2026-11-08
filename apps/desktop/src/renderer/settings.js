@@ -10,6 +10,8 @@ const ACTION_SWITCHES = [
   ['DetectReplies', 'Ler inbox (detectar respostas)'],
   ['LikePosts', 'Curtir posts'],
   ['CommentPost', 'Comentar posts'],
+  ['IcpFilter', 'Filtro de ICP (IA)'],
+  ['MonitorSignals', 'Monitorar sinais'],
 ];
 
 async function settingsView() {
@@ -40,6 +42,11 @@ async function settingsView() {
     );
   });
   const disabled = new Set(s.disabledActions);
+  const dec = s.decision;
+  const offer = h('textarea', { value: dec.offer, placeholder: 'Ex.: telemetria e gestão de perdas de água para companhias de saneamento' });
+  const icp = h('textarea', { value: dec.icp, placeholder: 'Ex.: diretores e gerentes de operações, engenharia e perdas em companhias de saneamento e indústrias com alto consumo de água, no Brasil.' });
+  const threshold = h('input', { type: 'number', min: 0, max: 100, value: String(dec.icpThreshold), style: 'width:80px' });
+  const topics = h('input', { value: dec.signalTopics.join(', '), placeholder: 'perdas de água, telemetria, saneamento, eficiência hídrica', style: 'width:100%' });
   return h('div', { class: 'stack', style: 'max-width:720px' },
     h('h2', {}, 'Configurações'),
     h('p', { class: 'muted' }, 'Escolha qual IA interpreta posts, escreve convites e mensagens e classifica respostas. As chaves ficam criptografadas no cofre do sistema operacional, só nesta máquina.'),
@@ -49,6 +56,16 @@ async function settingsView() {
       h('div', { class: 'muted' }, 'A IA usa isto para escrever na sua voz.'),
       about,
       h('div', {}, h('button', { class: 'primary', onclick: () => safe(() => api.setAboutMe(about.value), 'Salvo') }, 'Salvar')),
+    ),
+    h('div', { class: 'card stack' },
+      h('strong', {}, 'Oferta, ICP e sinais'),
+      h('label', {}, 'O que você vende', offer),
+      h('label', {}, 'Perfil de cliente ideal (ICP), usado no filtro antes do convite', icp),
+      h('div', { class: 'row' }, h('span', { class: 'muted' }, 'Nota mínima do ICP'), threshold, h('span', { class: 'muted' }, 'de 0 a 100')),
+      h('label', {}, 'Temas que viram sinais (posts e vagas), separados por vírgula', topics),
+      h('div', {}, h('button', { class: 'primary', onclick: () => safe(() => api.setDecision({
+        offer: offer.value, icp: icp.value, icpThreshold: Number(threshold.value), signalTopics: topics.value.split(','),
+      }), 'Salvo') }, 'Salvar')),
     ),
     h('div', { class: 'card stack' },
       h('strong', {}, 'Interruptor geral'),

@@ -51,6 +51,14 @@ export const DEFAULT_SELECTORS = {
   convItem: ['li.msg-conversation-listitem', '.msg-conversations-container__convo-item'],
   convUnread: ['.msg-conversation-card__unread-count', '.notification-badge--show', '.msg-conversation-listitem__unread'],
   convLink: ['a.msg-conversation-listitem__link', '.msg-conversation-listitem__link'],
+  // empresa: pessoas e vagas
+  companyPeopleCard: ['li.org-people-profile-card__profile-card-spacing', '.org-people-profile-card', 'ul.display-flex li.grid'],
+  companyPeopleName: ['.org-people-profile-card__profile-title', '.artdeco-entity-lockup__title'],
+  companyPeopleHeadline: ['.artdeco-entity-lockup__subtitle', '.lt-line-clamp--multi-line'],
+  companyPeopleLink: ['a[href*="/in/"]'],
+  companyJobCard: ['.job-card-container', '.org-jobs-recently-posted-jobs-module__job-card', 'li.jobs-search-results__list-item'],
+  companyJobTitle: ['.job-card-list__title', '.job-card-container__link', 'a[href*="/jobs/view/"]'],
+  companyNotFound: ['.not-found__container', '.org-page-not-found'],
   // sinais de bloqueio / sessão
   checkpoint: ['form#captcha-challenge', '#challenge', 'iframe[src*="captcha"]'],
   loggedOut: ['form.login__form', 'a[href*="/login"].nav__button-secondary', '.authwall-join-form'],

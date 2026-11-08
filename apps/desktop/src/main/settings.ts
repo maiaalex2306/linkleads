@@ -12,6 +12,14 @@ interface StoredSettings {
   aiModels?: Partial<Record<AiProvider, string>>;
   /** apresentação do usuário, usada pela IA para escrever como ele */
   aboutMe?: string;
+  /** o que o usuário vende (contexto para papéis no comitê e resumos) */
+  offer?: string;
+  /** descrição do perfil de cliente ideal (ICP) */
+  icp?: string;
+  /** nota mínima (0–100) para passar no filtro de ICP */
+  icpThreshold?: number;
+  /** temas que transformam posts e vagas em sinais (ex.: "perdas de água", "telemetria") */
+  signalTopics?: string[];
   /** interruptor geral: tipos de ação desligados (ex.: SendInvite, DetectReplies) */
   disabledActions?: string[];
   /** legado (v0.1): chave da Anthropic */
@@ -31,6 +39,7 @@ export interface PublicSettings {
   hasAiKey: boolean;
   aboutMe: string;
   disabledActions: string[];
+  decision: { offer: string; icp: string; icpThreshold: number; signalTopics: string[] };
 }
 
 export class Settings {
@@ -92,6 +101,23 @@ export class Settings {
     this.write({ ...s, aiModels: models });
   }
 
+  decision(): { offer: string; icp: string; icpThreshold: number; signalTopics: string[] } {
+    const s = this.read();
+    return { offer: s.offer ?? '', icp: s.icp ?? '', icpThreshold: s.icpThreshold ?? 60, signalTopics: s.signalTopics ?? [] };
+  }
+
+  setDecision(d: { offer?: string; icp?: string; icpThreshold?: number; signalTopics?: string[] }): void {
+    const s = this.read();
+    if (d.icpThreshold != null && (d.icpThreshold < 0 || d.icpThreshold > 100)) throw new Error('Nota mínima deve ficar entre 0 e 100');
+    this.write({
+      ...s,
+      ...(d.offer != null ? { offer: d.offer } : {}),
+      ...(d.icp != null ? { icp: d.icp } : {}),
+      ...(d.icpThreshold != null ? { icpThreshold: d.icpThreshold } : {}),
+      ...(d.signalTopics ? { signalTopics: d.signalTopics.map((t) => t.trim()).filter(Boolean) } : {}),
+    });
+  }
+
   disabledActions(): string[] {
     return this.read().disabledActions ?? [];
   }
@@ -127,6 +153,7 @@ export class Settings {
       hasAiKey: providers[aiProvider].keySource !== 'none',
       aboutMe: this.aboutMe(),
       disabledActions: s.disabledActions ?? [],
+      decision: this.decision(),
     };
   }
 }

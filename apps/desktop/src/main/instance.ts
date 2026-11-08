@@ -2,7 +2,7 @@ import { BrowserWindow, session, type Session } from 'electron';
 import type { Account, Campaign, ExecutionResult, ProxyConfig, TickReport } from '@linkleads/core';
 import { CampaignRunner, ExecutorRegistry, resolveApproval, shouldAutoBrake } from '@linkleads/core';
 import { LlmPostInterpreter, createLlm, type LlmClient } from '@linkleads/ai';
-import type { CommentDraft, OutreachCrm } from '@linkleads/db';
+import type { CommentDraft, DecisionCrm } from '@linkleads/db';
 import {
   BASE,
   commentWithAi,
@@ -22,6 +22,7 @@ import {
   withdrawInvite,
   type InboxScanResult,
 } from './linkedin/outreach-executors.js';
+import { accountSummary, classifyCommittee, icpFilter, mapCompany, monitorSignals, type MapCompanyResult } from './linkedin/decision-executors.js';
 import { PageDriver } from './linkedin/page-driver.js';
 import { loadSelectors } from './linkedin/selectors.js';
 import { now } from './clock.js';
@@ -43,6 +44,13 @@ const stubLlm: LlmClient = {
         shouldSend: true, skipReason: '', hook: 'telemetria',
       },
       reply_classification: { label: 'interessado', summary: 'Quer conversar', referredPerson: '', suggestedNextStep: 'Propor reunião' },
+      buying_role: /Diretor|Diretora/.test(req.user)
+        ? { role: 'decisor', confidence: 0.9, seniority: 'diretoria', reason: 'Diretoria da área' }
+        : /Compras|Suprimentos/.test(req.user)
+          ? { role: 'compras', confidence: 0.8, seniority: 'gerencia', reason: 'Área de suprimentos' }
+          : { role: 'influenciador_tecnico', confidence: 0.7, seniority: 'tecnico', reason: 'Perfil técnico' },
+      icp_score: /Estagi/.test(req.user) ? { score: 20, reason: 'Estágio, sem poder de compra' } : { score: 85, reason: 'Área de saneamento' },
+      account_summary: { summary: 'A ACME tem o decisor conectado e interessado.', gaps: ['Jurídico não mapeado'], nextSteps: ['Agendar reunião com o decisor'] },
     };
     return req.schema.parse(out[req.name]);
   },
@@ -73,13 +81,13 @@ export class AccountInstance {
   private deps: ExecutorDeps;
   private loop?: NodeJS.Timeout;
   private busy: Promise<unknown> = Promise.resolve();
-  private ticking = false;
+  private currentTick?: Promise<TickReport[]>;
   private lastInboxScan = 0;
   private llmCache?: { key: string; llm: LlmClient };
 
   constructor(
     readonly account: Account,
-    readonly crm: OutreachCrm,
+    readonly crm: DecisionCrm,
     private settings: Settings,
     private events: InstanceEvents,
   ) {
@@ -109,6 +117,7 @@ export class AccountInstance {
         return llm ? new LlmPostInterpreter(llm) : null;
       },
       aboutMe: () => this.settings.aboutMe(),
+      decision: () => this.settings.decision(),
       withBrowser: (fn) => this.withBrowser(fn),
     };
     this.executors
@@ -118,11 +127,15 @@ export class AccountInstance {
       .register(sendInvite(this.deps))
       .register(checkConnection(this.deps))
       .register(withdrawInvite(this.deps))
-      .register(messageToPerson(this.deps));
+      .register(messageToPerson(this.deps))
+      .register(icpFilter(this.deps))
+      .register(monitorSignals(this.deps));
     this.runner = new CampaignRunner({
       store: crm,
       executors: this.executors,
       now,
+      // em testes e2e, intervalos curtos entre pessoas; em produção, o padrão humano (20 s a 3 min)
+      ...(process.env.LINKLEADS_TEST_BASE_URL ? { delayRange: [200, 600] as [number, number] } : {}),
       isKilled: (type) => this.settings.disabledActions().includes(type),
     });
 
@@ -185,10 +198,22 @@ export class AccountInstance {
   }
 
   /** Roda um ciclo: inbox → freio → campanhas ativas. */
-  async tickAll(opts: { forceInbox?: boolean } = {}): Promise<TickReport[]> {
-    if (this.ticking) return [];
-    this.ticking = true;
+  async tickAll(opts: { forceInbox?: boolean; waitIfBusy?: boolean } = {}): Promise<TickReport[]> {
+    // "Rodar agora" durante um ciclo automático: espera terminar e roda em seguida
+    while (this.currentTick) {
+      if (!opts.waitIfBusy) return [];
+      await this.currentTick.catch(() => undefined);
+    }
+    this.currentTick = this.runTick(opts);
     try {
+      return await this.currentTick;
+    } finally {
+      this.currentTick = undefined;
+    }
+  }
+
+  private async runTick(opts: { forceInbox?: boolean }): Promise<TickReport[]> {
+    {
       if (this.account.paused) {
         this.log('Conta pausada: nada a fazer.');
         return [];
@@ -218,8 +243,6 @@ export class AccountInstance {
         }
       }
       return reports;
-    } finally {
-      this.ticking = false;
     }
   }
 
@@ -233,6 +256,33 @@ export class AccountInstance {
   stopScheduler(): void {
     if (this.loop) clearInterval(this.loop);
     this.loop = undefined;
+  }
+
+  /** Mapeia o comitê da empresa (busca de pessoas + vagas) e pede à IA os papéis. */
+  async mapCompany(companyId: string): Promise<MapCompanyResult & { classified: number }> {
+    if (this.account.paused) throw new Error('A conta está pausada');
+    const company = this.crm.getCompany(companyId);
+    if (!company) throw new Error('Empresa não encontrada');
+    const res = await this.withBrowser(() => mapCompany(this.deps, company));
+    if (!res.ok) {
+      if (res.reason === 'THROTTLED') this.pause('a plataforma sinalizou limite ou verificação.');
+      throw new Error(res.message ?? res.reason);
+    }
+    const r = res.data as unknown as MapCompanyResult;
+    this.log(`${company.name}: ${r.found} pessoa(s) encontrada(s), ${r.added} nova(s); ${r.jobs} vaga(s), ${r.hiringSignals} sinal(is) de contratação`);
+    let classified = 0;
+    if (this.llm()) {
+      const c = await classifyCommittee(this.deps, companyId);
+      classified = c.classified;
+      if (c.classified || c.failed) this.log(`${company.name}: IA propôs o papel de ${c.classified} pessoa(s)${c.failed ? `, ${c.failed} falha(s)` : ''}`);
+    }
+    return { ...r, classified };
+  }
+
+  async summarizeCompany(companyId: string) {
+    const r = await accountSummary(this.deps, companyId);
+    this.log(`Resumo da conta gerado (${this.crm.getCompany(companyId)?.name ?? companyId})`);
+    return r;
   }
 
   saveCurrentProfile(): Promise<ExecutionResult> {

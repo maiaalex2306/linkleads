@@ -2,6 +2,10 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import type { DatabaseSync as DatabaseSyncT } from 'node:sqlite';
 import type {
+  BuyingRole,
+  Company,
+  Signal,
+  SignalType,
   ActionConfig,
   BudgetKey,
   Campaign,
@@ -38,6 +42,47 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
   {
     version: 3,
     sql: `ALTER TABLE campaign_actions ADD COLUMN wait_hours REAL;`,
+  },
+  {
+    version: 4,
+    sql: `
+      CREATE TABLE IF NOT EXISTS companies (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        slug TEXT UNIQUE,
+        industry TEXT, size TEXT, location TEXT, notes TEXT,
+        role_keywords_json TEXT NOT NULL DEFAULT '[]',
+        mapped_at TEXT,
+        summary TEXT, summary_at TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE TABLE IF NOT EXISTS company_people (
+        company_id TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        person_id TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+        buying_role TEXT,
+        role_confidence REAL,
+        role_reason TEXT,
+        role_confirmed INTEGER NOT NULL DEFAULT 0,
+        source TEXT,
+        added_at TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (company_id, person_id)
+      );
+      CREATE TABLE IF NOT EXISTS signals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        type TEXT NOT NULL,
+        person_id TEXT REFERENCES people(id) ON DELETE CASCADE,
+        company_id TEXT REFERENCES companies(id) ON DELETE CASCADE,
+        title TEXT NOT NULL,
+        detail TEXT,
+        url TEXT,
+        dedupe_key TEXT UNIQUE,
+        detected_at TEXT NOT NULL DEFAULT (datetime('now')),
+        seen INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE INDEX IF NOT EXISTS idx_signals_detected ON signals (detected_at);
+      ALTER TABLE people ADD COLUMN icp_score REAL;
+      ALTER TABLE people ADD COLUMN icp_reason TEXT;
+    `,
   },
 ];
 
@@ -679,4 +724,214 @@ function toMessage(r: Row): MessageRow {
 
 function stripEmpty<T extends object>(o: T): Partial<T> {
   return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined && v !== '')) as Partial<T>;
+}
+
+export interface CommitteeMember {
+  personId: string;
+  name: string;
+  publicId?: string;
+  headline?: string;
+  role: BuyingRole | null;
+  roleConfidence: number | null;
+  roleReason: string | null;
+  roleConfirmed: boolean;
+  /** situação de relacionamento */
+  invite: 'pending' | 'accepted' | 'withdrawn' | 'not_accepted' | null;
+  connected: boolean;
+  replied: boolean;
+  lastReplyLabel: string | null;
+  icpScore: number | null;
+}
+
+export interface CompanyRow extends Company {
+  mappedAt: string | null;
+  summary: string | null;
+  summaryAt: string | null;
+  members: number;
+}
+
+/** Empresas-alvo, comitê de compra, sinais e ICP. */
+export class DecisionCrm extends OutreachCrm {
+  saveCompany(c: Company): void {
+    this.db
+      .prepare(
+        `INSERT INTO companies (id, name, slug, industry, size, location, notes, role_keywords_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET name=excluded.name, slug=excluded.slug, industry=excluded.industry, size=excluded.size,
+           location=excluded.location, notes=excluded.notes, role_keywords_json=excluded.role_keywords_json`,
+      )
+      .run(c.id, c.name, c.slug ?? null, c.industry ?? null, c.size ?? null, c.location ?? null, c.notes ?? null, JSON.stringify(c.roleKeywords));
+  }
+
+  private toCompany(r: Row): CompanyRow {
+    return {
+      id: r.id as string,
+      name: r.name as string,
+      slug: (r.slug as string) ?? undefined,
+      industry: (r.industry as string) ?? undefined,
+      size: (r.size as string) ?? undefined,
+      location: (r.location as string) ?? undefined,
+      notes: (r.notes as string) ?? undefined,
+      roleKeywords: JSON.parse(r.role_keywords_json as string),
+      mappedAt: (r.mapped_at as string) ?? null,
+      summary: (r.summary as string) ?? null,
+      summaryAt: (r.summary_at as string) ?? null,
+      members: Number(r.members ?? 0),
+    };
+  }
+
+  listCompanies(): CompanyRow[] {
+    return (
+      this.db
+        .prepare(`SELECT c.*, (SELECT COUNT(*) FROM company_people cp WHERE cp.company_id = c.id) AS members FROM companies c ORDER BY c.name`)
+        .all() as Row[]
+    ).map((r) => this.toCompany(r));
+  }
+
+  getCompany(id: string): CompanyRow | undefined {
+    const r = this.db
+      .prepare(`SELECT c.*, (SELECT COUNT(*) FROM company_people cp WHERE cp.company_id = c.id) AS members FROM companies c WHERE id = ?`)
+      .get(id) as Row | undefined;
+    return r ? this.toCompany(r) : undefined;
+  }
+
+  removeCompany(id: string): void {
+    this.db.prepare('DELETE FROM companies WHERE id = ?').run(id);
+  }
+
+  markMapped(companyId: string, now = new Date()): void {
+    this.db.prepare('UPDATE companies SET mapped_at = ? WHERE id = ?').run(now.toISOString(), companyId);
+  }
+
+  saveSummary(companyId: string, summary: string, now = new Date()): void {
+    this.db.prepare('UPDATE companies SET summary = ?, summary_at = ? WHERE id = ?').run(summary, now.toISOString(), companyId);
+  }
+
+  /** Vincula pessoas à empresa (sem sobrescrever papel já confirmado). Retorna quantas são novas. */
+  addCompanyPeople(companyId: string, people: Person[], source: string): number {
+    let added = 0;
+    const ins = this.db.prepare(`INSERT OR IGNORE INTO company_people (company_id, person_id, source) VALUES (?, ?, ?)`);
+    this.db.exec('BEGIN');
+    try {
+      for (const p of people) {
+        const existing = p.publicId ? this.findByPublicId(p.publicId) : undefined;
+        const merged: Person = existing ? { ...existing, ...Object.fromEntries(Object.entries(p).filter(([, v]) => v != null && v !== '')), id: existing.id } : p;
+        this.upsertPerson(merged);
+        added += Number(ins.run(companyId, merged.id, source).changes);
+      }
+      this.db.exec('COMMIT');
+    } catch (e) {
+      this.db.exec('ROLLBACK');
+      throw e;
+    }
+    return added;
+  }
+
+  setRole(companyId: string, personId: string, role: BuyingRole, opts: { confidence?: number; reason?: string; confirmed: boolean }): void {
+    this.db
+      .prepare(
+        `UPDATE company_people SET buying_role = ?, role_confidence = ?, role_reason = COALESCE(?, role_reason), role_confirmed = ?
+         WHERE company_id = ? AND person_id = ?`,
+      )
+      .run(role, opts.confidence ?? null, opts.reason ?? null, opts.confirmed ? 1 : 0, companyId, personId);
+  }
+
+  /** Pessoas sem papel proposto ainda (para a IA classificar). */
+  unclassifiedMembers(companyId: string): Person[] {
+    return (
+      this.db
+        .prepare(`SELECT p.* FROM company_people cp JOIN people p ON p.id = cp.person_id WHERE cp.company_id = ? AND cp.buying_role IS NULL`)
+        .all(companyId) as Row[]
+    ).map(rowToPerson);
+  }
+
+  committee(companyId: string): CommitteeMember[] {
+    const rows = this.db
+      .prepare(
+        `SELECT cp.*, p.first_name, p.last_name, p.public_id, p.headline, p.connection_degree, p.icp_score,
+           i.status AS invite_status,
+           (SELECT COUNT(*) FROM messages m WHERE m.person_id = p.id AND m.direction = 'in') AS inbound,
+           (SELECT m.ai_label FROM messages m WHERE m.person_id = p.id AND m.direction = 'in' AND m.ai_label IS NOT NULL ORDER BY m.sent_at DESC LIMIT 1) AS last_label
+         FROM company_people cp JOIN people p ON p.id = cp.person_id LEFT JOIN invites i ON i.person_id = p.id
+         WHERE cp.company_id = ? ORDER BY cp.role_confirmed DESC, cp.role_confidence DESC`,
+      )
+      .all(companyId) as Row[];
+    return rows.map((r) => ({
+      personId: r.person_id as string,
+      name: [r.first_name, r.last_name].filter(Boolean).join(' ') || (r.public_id as string),
+      publicId: (r.public_id as string) ?? undefined,
+      headline: (r.headline as string) ?? undefined,
+      role: (r.buying_role as BuyingRole) ?? null,
+      roleConfidence: r.role_confidence == null ? null : Number(r.role_confidence),
+      roleReason: (r.role_reason as string) ?? null,
+      roleConfirmed: Boolean(r.role_confirmed),
+      invite: (r.invite_status as CommitteeMember['invite']) ?? null,
+      connected: Number(r.connection_degree) === 1 || r.invite_status === 'accepted',
+      replied: Number(r.inbound) > 0,
+      lastReplyLabel: (r.last_label as string) ?? null,
+      icpScore: r.icp_score == null ? null : Number(r.icp_score),
+    }));
+  }
+
+  /** Empresa(s) da pessoa (para dar contexto à IA e ao painel). */
+  companiesOf(personId: string): CompanyRow[] {
+    return (
+      this.db
+        .prepare(`SELECT c.*, 0 AS members FROM company_people cp JOIN companies c ON c.id = cp.company_id WHERE cp.person_id = ?`)
+        .all(personId) as Row[]
+    ).map((r) => this.toCompany(r));
+  }
+
+  setIcpScore(personId: string, score: number, reason: string): void {
+    this.db.prepare('UPDATE people SET icp_score = ?, icp_reason = ? WHERE id = ?').run(score, reason, personId);
+  }
+
+  /** Registra um sinal (idempotente por `dedupeKey`). Retorna true se for novo. */
+  addSignal(s: { type: SignalType; personId?: string; companyId?: string; title: string; detail?: string; url?: string; dedupeKey: string }, now = new Date()): boolean {
+    const r = this.db
+      .prepare(
+        `INSERT OR IGNORE INTO signals (type, person_id, company_id, title, detail, url, dedupe_key, detected_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(s.type, s.personId ?? null, s.companyId ?? null, s.title, s.detail ?? null, s.url ?? null, s.dedupeKey, now.toISOString());
+    return Number(r.changes) > 0;
+  }
+
+  listSignals(opts: { companyId?: string; personId?: string; onlyUnseen?: boolean; limit?: number } = {}): Array<Signal & { personName?: string; companyName?: string }> {
+    const where: string[] = [];
+    const args: (string | number)[] = [];
+    if (opts.companyId) {
+      where.push(`(s.company_id = ? OR s.person_id IN (SELECT person_id FROM company_people WHERE company_id = ?))`);
+      args.push(opts.companyId, opts.companyId);
+    }
+    if (opts.personId) {
+      where.push('s.person_id = ?');
+      args.push(opts.personId);
+    }
+    if (opts.onlyUnseen) where.push('s.seen = 0');
+    args.push(opts.limit ?? 200);
+    return (
+      this.db
+        .prepare(
+          `SELECT s.*, p.first_name, p.last_name, p.public_id, c.name AS company_name FROM signals s
+           LEFT JOIN people p ON p.id = s.person_id LEFT JOIN companies c ON c.id = s.company_id
+           ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY s.detected_at DESC LIMIT ?`,
+        )
+        .all(...args) as Row[]
+    ).map((r) => ({
+      id: Number(r.id),
+      type: r.type as SignalType,
+      personId: (r.person_id as string) ?? undefined,
+      companyId: (r.company_id as string) ?? undefined,
+      title: r.title as string,
+      detail: (r.detail as string) ?? undefined,
+      url: (r.url as string) ?? undefined,
+      detectedAt: r.detected_at as string,
+      seen: Boolean(r.seen),
+      personName: [r.first_name, r.last_name].filter(Boolean).join(' ') || ((r.public_id as string) ?? undefined),
+      companyName: (r.company_name as string) ?? undefined,
+    }));
+  }
+
+  markSignalSeen(id: number): void {
+    this.db.prepare('UPDATE signals SET seen = 1 WHERE id = ?').run(id);
+  }
 }

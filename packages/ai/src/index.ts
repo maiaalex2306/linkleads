@@ -4,6 +4,7 @@ import { AnthropicLlm, DEFAULT_MODELS, OpenAiLlm, createLlm, type AiProvider, ty
 
 export * from './llm.js';
 export * from './outreach.js';
+export * from './decision.js';
 export const DEFAULT_MODEL = DEFAULT_MODELS.anthropic;
 
 /** Interpretação do post + comentário sugerido (saída estruturada da IA). */

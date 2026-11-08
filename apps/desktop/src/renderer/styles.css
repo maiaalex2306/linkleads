@@ -87,3 +87,14 @@ input[type=radio], input[type=checkbox] { accent-color:var(--brand); }
 .thread { display:grid; gap:6px; margin-top:6px; }
 .bubble { padding:6px 10px; border-radius:10px; max-width:80%; font-size:13px; white-space:pre-wrap; }
 .bubble.out { justify-self:end; background:var(--brand-soft); } .bubble.in { justify-self:start; background:var(--accent-soft); color:var(--soft-ink); }
+
+.coverage { display:grid; grid-template-columns:repeat(auto-fill, minmax(140px, 1fr)); gap:8px; }
+.cov { border:1px solid var(--line); border-radius:10px; padding:8px 10px; display:grid; gap:2px; font-size:13px; }
+.cov .covstate { font-size:12px; font-weight:600; }
+.cov.replied { border-color:var(--ok); } .cov.replied .covstate { color:var(--ok); }
+.cov.connected { border-color:var(--brand); } .cov.connected .covstate { color:var(--brand); }
+.cov.mapped .covstate { color:var(--muted); }
+.cov.missing { border-style:dashed; } .cov.missing .covstate { color:var(--risk); }
+.signal { border-left:3px solid var(--accent); padding:6px 10px; display:grid; gap:2px; background:var(--bg); border-radius:0 8px 8px 0; }
+.signal.seen { border-left-color:var(--line); opacity:.75; }
+.ai.summary { white-space:pre-wrap; font-size:13px; }

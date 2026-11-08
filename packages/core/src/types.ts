@@ -121,3 +121,44 @@ export interface PostSnapshot {
   hasMedia: boolean;
   alreadyLiked?: boolean;
 }
+
+/** Papéis no comitê de compra (buying group). */
+export const BUYING_ROLES = ['decisor', 'influenciador_tecnico', 'usuario', 'compras', 'juridico', 'patrocinador', 'fora_do_comite'] as const;
+export type BuyingRole = (typeof BUYING_ROLES)[number];
+
+export const BUYING_ROLE_LABELS: Record<BuyingRole, string> = {
+  decisor: 'Decisor',
+  influenciador_tecnico: 'Influenciador técnico',
+  usuario: 'Usuário',
+  compras: 'Compras',
+  juridico: 'Jurídico',
+  patrocinador: 'Patrocinador',
+  fora_do_comite: 'Fora do comitê',
+};
+
+export interface Company {
+  id: string;
+  name: string;
+  /** slug da página da empresa (/company/<slug>/) */
+  slug?: string;
+  industry?: string;
+  size?: string;
+  location?: string;
+  /** cargos-chave para mapear o comitê (palavras de busca) */
+  roleKeywords: string[];
+  notes?: string;
+}
+
+export type SignalType = 'job_change' | 'topic_post' | 'hiring' | 'company_post';
+
+export interface Signal {
+  id: number;
+  type: SignalType;
+  personId?: string;
+  companyId?: string;
+  title: string;
+  detail?: string;
+  url?: string;
+  detectedAt: string;
+  seen: boolean;
+}

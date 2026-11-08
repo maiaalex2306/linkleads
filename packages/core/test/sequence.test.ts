@@ -67,3 +67,27 @@ describe('sequência com espera e re-tentativa', () => {
     expect(sent).toEqual([ids[3], ids[4]]);
   });
 });
+
+describe('monitoramento recorrente', () => {
+  it('volta para a fila a cada N dias e consome orçamento de visitas', async () => {
+    const { monitorCampaign } = await import('../src/index.js');
+    const campaign = { ...monitorCampaign({ id: 'mon', accountId: 'acc', name: 'Mon', everyDays: 7 }), active: true };
+    const store = new InMemoryCampaignStore();
+    store.addPerson({ id: 'p1' });
+    store.enqueue('mon', campaign.actions[0]!.id, 'p1');
+    let visits = 0;
+    const executors = new ExecutorRegistry().register({
+      type: 'MonitorSignals',
+      execute: async () => { visits++; return { ok: false, reason: 'RETRY_LATER', retryAfterMs: 7 * 86_400_000 }; },
+    });
+    let now = new Date('2026-11-09T13:00:00Z');
+    const runner = new CampaignRunner({ store, executors, now: () => now, sleep: async () => {} });
+    await runner.tick(campaign, account);
+    await runner.tick(campaign, account);
+    expect(visits).toBe(1);
+    expect(store.getUsage('acc').today.profile_visits).toBe(1);
+    now = new Date(now.getTime() + 7 * 86_400_000);
+    await runner.tick(campaign, account);
+    expect(visits).toBe(2);
+  });
+});

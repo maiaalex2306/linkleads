@@ -86,12 +86,13 @@ function sequenceForm(a, cols, settings) {
   const timeout = h('input', { type: 'number', min: 3, max: 60, value: '21', style: 'width:70px' });
   const withdraw = h('input', { type: 'checkbox', checked: true });
   const extra = h('textarea', { placeholder: 'Ex.: somos da BioSolvit; quando fizer sentido, conecte com eficiência hídrica.' });
+  const icpFilter = h('input', { type: 'checkbox', checked: !!settings.decision.icp });
 
   return h('form', {
     class: 'stack', onsubmit: async (e) => {
       e.preventDefault();
       const r = await safe(() => api.createSequenceCampaign(a.id, {
-        name: name.value, collectionId: collection.value, tone: tone.value, extraInstructions: extra.value,
+        name: name.value, collectionId: collection.value, tone: tone.value, extraInstructions: extra.value, icpFilter: icpFilter.checked,
         invite: invite.read(), acceptTimeoutDays: Number(timeout.value), withdrawOnTimeout: withdraw.checked,
         messages: steps.map((s) => s.read()),
       }));
@@ -100,7 +101,9 @@ function sequenceForm(a, cols, settings) {
   },
     !settings.hasAiKey && h('div', { class: 'muted', style: 'color:var(--warn)' }, 'A IA escolhida ainda não tem chave (Configurações da IA). Etapas "personalizadas pela IA" vão falhar até lá.'),
     h('div', { class: 'row' }, h('label', {}, 'Nome', name), h('label', {}, 'Coleção', collection), h('label', {}, 'Tom', tone)),
-    h('div', { class: 'step' }, h('div', { class: 'head' }, h('span', { class: 'num' }, '1'), h('strong', {}, 'Visitar o perfil'), h('span', { class: 'muted' }, 'aquece o lead e atualiza os dados')),),
+    h('div', { class: 'step' }, h('div', { class: 'head' }, h('span', { class: 'num' }, '1'), h('strong', {}, 'Visitar o perfil'), h('span', { class: 'muted' }, 'aquece o lead e atualiza os dados')),
+      h('label', { class: 'row', style: 'display:flex' }, icpFilter, 'Filtrar pelo ICP com IA antes do convite',
+        h('span', { class: 'muted' }, settings.decision.icp ? `(nota mínima ${settings.decision.icpThreshold})` : '(defina o ICP em Configurações)'))),
     h('div', { class: 'step' },
       h('div', { class: 'head' }, h('span', { class: 'num' }, '2'), h('strong', { style: 'flex:1' }, 'Convite de conexão'), h('span', { class: 'muted' }, 'nota de até 300 caracteres')),
       invite.el),

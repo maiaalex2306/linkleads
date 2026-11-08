@@ -63,6 +63,8 @@ async function renderView() {
     ['collections', 'Coleções'], ['campaigns', 'Campanhas'],
     ['approvals', `Aprovações${stats.pendingApprovals ? ` (${stats.pendingApprovals})` : ''}`],
     ['inbox', `Inbox${stats.unhandledReplies ? ` (${stats.unhandledReplies})` : ''}`],
+    ['companies', 'Empresas'],
+    ['signals', `Sinais${stats.unseenSignals ? ` (${stats.unseenSignals})` : ''}`],
     ['activity', 'Atividade'],
   ];
   const header = h('div', {},
@@ -82,7 +84,7 @@ async function renderView() {
     healthBar(stats),
     h('div', { class: 'tabs' }, ...tabs.map(([k, l]) => h('button', { class: state.tab === k ? 'sel' : '', onclick: () => { state.tab = k; renderView(); } }, l))),
   );
-  const body = await ({ collections: collectionsView, campaigns: campaignsView, approvals: approvalsView, inbox: inboxView, activity: activityView }[state.tab] || collectionsView)(a);
+  const body = await ({ collections: collectionsView, campaigns: campaignsView, approvals: approvalsView, inbox: inboxView, companies: companiesView, signals: signalsView, activity: activityView }[state.tab] || collectionsView)(a);
   view.replaceChildren(header, body);
 }
 

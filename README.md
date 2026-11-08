@@ -63,6 +63,21 @@ npm run ai:demo -- "Concluímos a telemetria de 120 km de rede e reduzimos as pe
    (convites com 14+ dias), a conta é pausada sozinha.
 6. **Configurações → Interruptor geral**: desliga um tipo de ação (convites, mensagens, inbox…) em todas as contas na hora.
 
+## Como usar (Fase 3: orientado à decisão)
+
+1. **Configurações → Oferta, ICP e sinais**: o que você vende, a descrição do seu cliente ideal, a nota mínima do ICP
+   e os temas que viram sinais (ex.: "perdas de água, telemetria").
+2. **Empresas → Nova empresa-alvo**: nome, URL da página da empresa e cargos-chave. **Mapear comitê** busca essas pessoas
+   na página "Pessoas" da empresa, lê as vagas abertas e pede à IA o papel de cada um (decisor, influenciador técnico,
+   usuário, compras, jurídico, patrocinador). Você confirma ou corrige o papel.
+3. **Cobertura do comitê**: por papel, quantos estão mapeados, conectados e responderam, e quais papéis faltam.
+4. **Colocar na campanha** (por papel) e **Monitorar sinais do comitê**: o monitoramento relê perfis e posts toda semana.
+   **Sinais** (mudança de cargo, post sobre os temas, vaga aberta) aparecem na empresa e na aba Sinais como tarefas,
+   sem disparar mensagens sozinhos.
+5. **Filtrar pelo ICP com IA antes do convite** (opção da sequência): quem fica abaixo da nota mínima sai antes de receber
+   convite, o que protege a taxa de aceite.
+6. **Resumo da conta (IA)**: antes de uma reunião, tudo o que o LinkedIn revelou sobre o comitê, com lacunas e próximos passos.
+
 > ⚠️ Os seletores do LinkedIn (`apps/desktop/src/main/linkedin/selectors.ts`) ainda não foram validados numa conta real.
 > Valide primeiro com uma conta própria, com volume baixo. Para ajustar sem gerar nova versão, use `<userData>/selectors.json`.
 

@@ -9,6 +9,10 @@ import {
   engagementCampaign,
   importPeopleFromCsv,
   outreachSequence,
+  monitorCampaign,
+  committeeCoverage,
+  BUYING_ROLES,
+  type BuyingRole,
   type Account,
   type BudgetKey,
   type Campaign,
@@ -92,7 +96,7 @@ ipcMain.handle('accounts:remove', async (_e, id: string) => {
 
 ipcMain.handle('instance:start', (_e, id: string) => void instances.start(account(id)));
 ipcMain.handle('instance:stop', (_e, id: string) => instances.stop(id));
-ipcMain.handle('instance:runNow', (_e, id: string) => instances.require(id).tickAll());
+ipcMain.handle('instance:runNow', (_e, id: string) => instances.require(id).tickAll({ waitIfBusy: true }));
 ipcMain.handle('instance:saveCurrentProfile', async (_e, id: string) => {
   const r = await instances.require(id).saveCurrentProfile();
   return r.ok ? { ok: true, person: r.data?.person } : { ok: false, message: r.message ?? r.reason };
@@ -183,6 +187,82 @@ ipcMain.handle('campaigns:setActive', (_e, id: string, campaignId: string, activ
   crms.get(account(id)).setCampaignActive(campaignId, active);
 });
 
+// Empresas-alvo e comitê ------------------------------------------------------
+function companySlug(input: string): string | undefined {
+  const m = input.trim().match(/\/company\/([^/?#]+)/i);
+  if (m) return decodeURIComponent(m[1]!).toLowerCase();
+  return /^[a-z0-9-]+$/i.test(input.trim()) ? input.trim().toLowerCase() : undefined;
+}
+
+ipcMain.handle('companies:list', (_e, id: string) => crms.get(account(id)).listCompanies());
+
+ipcMain.handle('companies:save', (_e, id: string, input: { id?: string; name: string; url: string; roleKeywords: string[]; notes?: string }) => {
+  const slug = companySlug(input.url);
+  if (!slug) throw new Error('Informe a URL da página da empresa (…/company/nome-da-empresa/)');
+  if (!input.name.trim()) throw new Error('Informe o nome da empresa');
+  const companyId = input.id ?? randomUUID();
+  crms.get(account(id)).saveCompany({
+    id: companyId,
+    name: input.name.trim(),
+    slug,
+    roleKeywords: input.roleKeywords.map((k) => k.trim()).filter(Boolean),
+    notes: input.notes,
+  });
+  return companyId;
+});
+
+ipcMain.handle('companies:remove', (_e, id: string, companyId: string) => crms.get(account(id)).removeCompany(companyId));
+
+ipcMain.handle('companies:detail', (_e, id: string, companyId: string) => {
+  const crm = crms.get(account(id));
+  const company = crm.getCompany(companyId);
+  if (!company) throw new Error('Empresa não encontrada');
+  const members = crm.committee(companyId);
+  const coverage = committeeCoverage(
+    members.filter((m) => m.role && m.role !== 'fora_do_comite').map((m) => ({ role: m.role!, connected: m.connected, replied: m.replied })),
+  );
+  return { company, members, coverage, signals: crm.listSignals({ companyId, limit: 50 }) };
+});
+
+ipcMain.handle('companies:map', (_e, id: string, companyId: string) => instances.require(id).mapCompany(companyId));
+ipcMain.handle('companies:summary', (_e, id: string, companyId: string) => instances.require(id).summarizeCompany(companyId));
+ipcMain.handle('companies:setRole', (_e, id: string, companyId: string, personId: string, role: BuyingRole) => {
+  if (!(BUYING_ROLES as readonly string[]).includes(role)) throw new Error('Papel inválido');
+  crms.get(account(id)).setRole(companyId, personId, role, { confidence: 1, confirmed: true });
+});
+
+/** Coloca membros do comitê (opcionalmente só alguns papéis) na fila de uma campanha. */
+ipcMain.handle('companies:enqueue', (_e, id: string, companyId: string, campaignId: string, roles?: BuyingRole[]) => {
+  const crm = crms.get(account(id));
+  const campaign = crm.loadCampaign(campaignId, id);
+  if (!campaign?.actions[0]) throw new Error('Campanha não encontrada');
+  const members = crm.committee(companyId).filter((m) => m.role !== 'fora_do_comite' && (!roles?.length || (m.role && roles.includes(m.role))));
+  let n = 0;
+  for (const m of members) {
+    const before = crm.campaignPeople(campaign).some((p) => p.personId === m.personId);
+    if (!before) { crm.enqueue(campaign.id, campaign.actions[0].id, m.personId); n++; }
+  }
+  return n;
+});
+
+ipcMain.handle('campaigns:createMonitor', (_e, id: string, input: { name: string; companyId?: string; collectionId?: string; everyDays: number }) => {
+  const crm = crms.get(account(id));
+  const campaign = monitorCampaign({ id: randomUUID(), accountId: id, name: input.name, everyDays: input.everyDays });
+  crm.saveCampaign(campaign);
+  let enqueued = 0;
+  if (input.collectionId) enqueued += crm.enqueueCollection(campaign, input.collectionId);
+  if (input.companyId)
+    for (const m of crm.committee(input.companyId).filter((x) => x.role !== 'fora_do_comite')) {
+      crm.enqueue(campaign.id, campaign.actions[0]!.id, m.personId);
+      enqueued++;
+    }
+  return { campaignId: campaign.id, enqueued };
+});
+
+// Sinais ------------------------------------------------------------------------
+ipcMain.handle('signals:list', (_e, id: string, onlyUnseen?: boolean) => crms.get(account(id)).listSignals({ onlyUnseen: !!onlyUnseen }));
+ipcMain.handle('signals:markSeen', (_e, id: string, signalId: number) => crms.get(account(id)).markSignalSeen(signalId));
+
 // Saúde da conta -------------------------------------------------------------
 ipcMain.handle('accounts:stats', (_e, id: string) => {
   const a = account(id);
@@ -197,6 +277,7 @@ ipcMain.handle('accounts:stats', (_e, id: string) => {
     today: Object.fromEntries(keys.map((k) => [k, { used: usage.today[k] ?? 0, limit: effectiveDailyLimit(a, k, now) }])),
     pendingApprovals: crm.listDrafts('pending').length,
     unhandledReplies: crm.inbox(true).length,
+    unseenSignals: crm.listSignals({ onlyUnseen: true }).length,
   };
 });
 
@@ -223,6 +304,7 @@ ipcMain.handle('settings:get', () => settings.public());
 ipcMain.handle('settings:setProvider', (_e, p: AiProvider) => settings.setProvider(p));
 ipcMain.handle('settings:setAiKey', (_e, p: AiProvider, key: string | null) => settings.setApiKey(p, key));
 ipcMain.handle('settings:setModel', (_e, p: AiProvider, model: string | null) => settings.setModel(p, model));
+ipcMain.handle('settings:setDecision', (_e, d: { offer?: string; icp?: string; icpThreshold?: number; signalTopics?: string[] }) => settings.setDecision(d));
 ipcMain.handle('settings:setActionEnabled', (_e, type: string, enabled: boolean) => settings.setActionEnabled(type, enabled));
 ipcMain.handle('settings:setAboutMe', (_e, text: string) => settings.setAboutMe(text));
 

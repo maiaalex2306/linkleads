@@ -124,3 +124,22 @@ Tudo passa por `LlmClient.structured()`, implementado para Anthropic (`Anthropic
 `npm run e2e` abre o app Electron real contra `apps/desktop/e2e/fake-site.mjs`, um site local que imita perfil, atividade, post,
 convite, mensagens e inbox, e ignora cliques sintéticos (`isTrusted`). A IA usa um stub determinístico
 (`LINKLEADS_TEST_AI_STUB`), e o relógio do app pode ser adiantado só em modo de teste, para simular dias de espera.
+
+## Orientado à decisão (Fase 3)
+
+```
+Empresa-alvo ─► Mapear comitê ─┬─ página "Pessoas" (busca por cargos-chave) ─► company_people
+                               ├─ página "Vagas" ─► sinal "hiring" (se casar com os temas)
+                               └─ IA: proposeBuyingRole ─► papel sugerido (usuário confirma)
+Comitê ─► Monitorar sinais (MonitorSignals, a cada N dias via RETRY_LATER)
+          ├─ releitura do perfil ─► sinal "job_change" (detectJobChange)
+          └─ posts recentes ─► sinal "topic_post" (matchTopics)
+Sequência ─► IcpFilter (IA: scoreIcp ≥ nota mínima) ─► convite…
+Conta ─► summarizeAccount (comitê + sinais + respostas) ─► resumo salvo
+```
+
+- **Banco (migração 4)**: `companies`, `company_people` (papel, confiança, motivo, confirmado), `signals` (idempotentes
+  por `dedupe_key`) e `people.icp_score`.
+- **Sinais não disparam mensagens**: viram tarefas na aba Sinais e evidências na página da empresa.
+- **Orçamento**: o monitoramento consome visitas de perfil, inclusive quando volta para a fila.
+- **"Rodar agora"** espera o ciclo automático em andamento terminar e roda em seguida.

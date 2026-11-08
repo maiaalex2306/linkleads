@@ -1,7 +1,15 @@
 // Site falso que imita a estrutura de perfil/atividade/post para testes e2e (sem rede externa).
 import { createServer } from 'node:http';
 
-const state = { liked: false, comments: [], connection: 'none', inviteNote: null, invites: 0, withdrawals: 0, messages: [], unread: false };
+const state = {
+  liked: false, comments: [], connection: 'none', inviteNote: null, invites: 0, withdrawals: 0, messages: [], unread: false,
+  anaHeadline: 'Diretora de Operações na Águas do Vale', companyVisits: 0,
+};
+const COLLEAGUES = {
+  'bruno-lima': { name: 'Bruno Lima', headline: 'Gerente de Compras e Suprimentos' },
+  'carla-souza': { name: 'Carla Souza', headline: 'Engenheira de Perdas e Telemetria' },
+  'diego-alves': { name: 'Diego Alves', headline: 'Estagiário de Engenharia' },
+};
 const URN = 'urn:li:activity:7001';
 const page = (body, script = '') => `<!doctype html><html><head><meta charset="utf-8"><style>
   body{font-family:sans-serif;margin:0} main{padding:20px} .spacer{height:900px}
@@ -49,7 +57,7 @@ function profileHtml() {
     : c === 'pending' ? '<button aria-label="Pending, click to withdraw invitation sent to Ana Silva">Pending</button>'
     : '<button aria-label="Invite Ana Silva to connect">Connect</button>';
   return `<section><div class="pv-text-details__left-panel"><h1 class="text-heading-xlarge">Ana Silva</h1>
-    <div class="text-body-medium break-words">Engenheira de Saneamento na Águas do Vale</div>
+    <div class="text-body-medium break-words">${esc(state.anaHeadline)}</div>
     <span class="text-body-small inline t-black--light break-words">Campinas, SP</span></div>
     <span class="dist-value">${c === 'connected' ? '1st' : '2nd'}</span>
     <div class="pv-top-card-v2-ctas">${btn}<button aria-label="More actions">More</button></div></section>
@@ -120,6 +128,7 @@ export function startFakeSite(port = 0) {
         if (url === '/api/read') state.unread = false;
         if (url === '/test/accept') state.connection = 'connected';
         if (url === '/test/reply') { state.messages.push({ from: 'them', body }); state.unread = true; }
+        if (url === '/test/jobchange') state.anaHeadline = body;
         if (url === '/api/comment') state.comments.push(body.replace(/</g, '&lt;'));
         res.end('ok');
       });
@@ -129,6 +138,23 @@ export function startFakeSite(port = 0) {
     if (url === '/in/ana-silva/recent-activity/all/') return html(`<div class="spacer"></div>${postHtml(false)}<div class="spacer"></div>`, likeScript);
     if (url === '/in/ana-silva/') return html(profileHtml(), profileScript);
     if (url === '/messaging/') return html(inboxHtml(), inboxScript);
+    const colleague = url.match(/^\/in\/([a-z-]+)\/$/);
+    if (colleague && COLLEAGUES[colleague[1]]) {
+      const p = COLLEAGUES[colleague[1]];
+      return html(`<section><h1 class="text-heading-xlarge">${p.name}</h1><div class="text-body-medium break-words">${p.headline}</div>
+        <span class="dist-value">2nd</span><div class="pv-top-card-v2-ctas"><button aria-label="Invite ${p.name} to connect">Connect</button></div></section>`);
+    }
+    if (url.match(/^\/in\/[a-z-]+\/recent-activity\/all\/$/)) return html('<div class="artdeco-empty-state">Sem atividade</div>');
+    if (url.startsWith('/company/acme/people/')) {
+      state.companyVisits++;
+      const card = (slug, name, headline) => `<li class="org-people-profile-card__profile-card-spacing"><a href="/in/${slug}/">
+        <div class="artdeco-entity-lockup__title">${name}</div></a><div class="artdeco-entity-lockup__subtitle">${headline}</div></li>`;
+      return html(`<ul>${card('ana-silva', 'Ana Silva', state.anaHeadline)}${Object.entries(COLLEAGUES).map(([s, p]) => card(s, p.name, p.headline)).join('')}
+        ${card('headless', 'LinkedIn Member', 'Analista')}</ul><div class="spacer"></div>`);
+    }
+    if (url.startsWith('/company/acme/jobs/'))
+      return html(`<ul><li class="job-card-container"><a class="job-card-list__title" href="/jobs/view/1/">Engenheiro(a) de Perdas de Água</a></li>
+        <li class="job-card-container"><a class="job-card-list__title" href="/jobs/view/2/">Analista Financeiro</a></li></ul>`);
     if (url.startsWith('/feed')) return html('<h1>Feed</h1>');
     res.writeHead(404); res.end(page('<div class="not-found__container">Not found</div>'));
   });

@@ -167,3 +167,51 @@ export function threadProfileHref(sel: Record<string, readonly string[]>): strin
   }
   return null;
 }
+
+export interface PeopleCard {
+  name: string;
+  headline: string;
+  href: string;
+}
+
+/** Cartões de pessoas na página "Pessoas" da empresa. */
+export function extractPeopleCards(sel: Record<string, readonly string[]>): PeopleCard[] {
+  const pick = (root: Element, cands: readonly string[]) => {
+    for (const c of cands) {
+      const el = root.querySelector(c) as HTMLElement | null;
+      const t = el?.innerText?.replace(/\s+/g, ' ').trim();
+      if (t) return t;
+    }
+    return '';
+  };
+  const cards = sel.companyPeopleCard!.flatMap((c) => Array.from(document.querySelectorAll(c)));
+  const out: PeopleCard[] = [];
+  const seen = new Set<string>();
+  for (const card of cards) {
+    const a = sel.companyPeopleLink!.map((c) => card.querySelector(c) as HTMLAnchorElement | null).find(Boolean);
+    if (!a?.href || seen.has(a.href)) continue;
+    seen.add(a.href);
+    const name = pick(card, sel.companyPeopleName!);
+    // "Membro do LinkedIn" = perfil fora da rede, sem nome visível: não dá para usar
+    if (!name || /^(linkedin member|membro do linkedin)$/i.test(name)) continue;
+    out.push({ name, headline: pick(card, sel.companyPeopleHeadline!), href: a.href });
+  }
+  return out;
+}
+
+export interface JobCard {
+  title: string;
+  href: string;
+}
+
+export function extractJobCards(sel: Record<string, readonly string[]>): JobCard[] {
+  const cards = sel.companyJobCard!.flatMap((c) => Array.from(document.querySelectorAll(c)));
+  const out: JobCard[] = [];
+  for (const card of cards) {
+    const a = sel.companyJobTitle!.map((c) => card.querySelector(c) as HTMLElement | null).find(Boolean);
+    const title = a?.innerText?.replace(/\s+/g, ' ').trim();
+    if (!title) continue;
+    out.push({ title, href: (a as HTMLAnchorElement).href ?? location.href });
+  }
+  return out;
+}

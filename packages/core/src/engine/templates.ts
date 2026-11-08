@@ -69,6 +69,8 @@ export interface OutreachSequenceOptions {
   messages: FollowUpStep[];
   tone?: 'profissional' | 'caloroso' | 'consultivo';
   extraInstructions?: string;
+  /** filtrar pelo ICP (nota da IA) antes de convidar */
+  icpFilter?: boolean;
 }
 
 /**
@@ -84,6 +86,7 @@ export function outreachSequence(o: OutreachSequenceOptions): Campaign {
     active: false,
     actions: [
       { id: `${o.id}-visit`, type: 'VisitAndExtract', name: 'Visitar e extrair perfil', coolDown: 0, maxResults: -1, settings: {} },
+      ...(o.icpFilter ? [{ id: `${o.id}-icp`, type: 'IcpFilter', name: 'Filtrar por ICP (IA)', coolDown: 0, maxResults: -1, settings: {} }] : []),
       {
         id: `${o.id}-invite`, type: 'SendInvite', name: 'Enviar convite', coolDown: 0, maxResults: -1, waitHours: 2,
         settings: { ...common, ...o.invite, kind: 'invite_note' },
@@ -108,4 +111,17 @@ export function outreachSequence(o: OutreachSequenceOptions): Campaign {
 /** Taxa de aceite dos convites (para o freio automático). */
 export function acceptanceRate(sent: number, accepted: number): number | undefined {
   return sent > 0 ? accepted / sent : undefined;
+}
+
+/** Monitoramento contínuo de sinais (mudança de cargo, posts sobre os temas) a cada N dias. */
+export function monitorCampaign(o: { id: string; accountId: string; name: string; everyDays?: number }): Campaign {
+  return {
+    id: o.id,
+    accountId: o.accountId,
+    name: o.name,
+    active: false,
+    actions: [
+      { id: `${o.id}-monitor`, type: 'MonitorSignals', name: `Monitorar sinais (a cada ${o.everyDays ?? 7} dias)`, coolDown: 0, maxResults: 20, settings: { everyDays: o.everyDays ?? 7 } },
+    ],
+  };
 }

@@ -62,6 +62,7 @@ export const ACTION_CATALOG: readonly ActionDefinition[] = [
   def('Branch', 'workflow', 'Condição (ex.: só se aceitou)', undefined, false, 0),
   def('MoveToCampaign', 'workflow', 'Mover para outra campanha', undefined, false, 0),
   def('AddToCollection', 'workflow', 'Adicionar a coleção', undefined, false, 0),
+  def('MonitorSignals', 'crm', 'Monitorar sinais (cargo, posts)', 'profile_visits', false, 30_000),
 ];
 
 const byType = new Map(ACTION_CATALOG.map((d) => [d.type, d]));
