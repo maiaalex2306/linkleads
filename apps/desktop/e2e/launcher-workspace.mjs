@@ -45,9 +45,9 @@ try {
   await ui.screenshot({ path: join(shots, 'workspace-campanhas.png'), fullPage: true });
 
   await ui.locator('#work-nav').getByRole('button', { name: /Monitoramento industrial/ }).click();
-  await ui.getByRole('button', { name: 'Fluxo de trabalho' }).waitFor();
+  await ui.getByRole('button', { name: 'Fluxo de trabalho', exact: true }).waitFor();
   await ui.getByRole('heading', { name: 'Monitoramento industrial' }).waitFor();
-  await ui.getByRole('button', { name: 'Fluxo de trabalho' }).click();
+  await ui.getByRole('button', { name: 'Fluxo de trabalho', exact: true }).click();
   await ui.locator('.workflow-node').first().waitFor();
   await ui.getByRole('button', { name: 'Listas', exact: true }).click();
   await ui.getByText('Perfis da campanha').waitFor();
