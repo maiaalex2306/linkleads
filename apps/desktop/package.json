@@ -7,6 +7,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json && node -e \"require('fs').cpSync('src/renderer','dist/renderer',{recursive:true})\" && node scripts/build-info.cjs",
     "dev": "npm run build && electron .",
+    "test": "vitest run test/trace.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "bundle": "node scripts/bundle.mjs",
     "dist": "npm run bundle && electron-builder --publish never",

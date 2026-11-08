@@ -1,6 +1,6 @@
 // Teste ponta a ponta: abre o app Electron real contra o site falso e roda a campanha completa.
 import { createRequire } from 'node:module';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, existsSync, readdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -97,6 +97,18 @@ try {
   const [c2] = await call('listCampaigns', acc.id);
   console.log('Situação final:', c2.people.map((p) => `${p.name} (${p.company}): ${p.actionName} / ${p.status}`).join('; '));
   if (c2.people[0]?.status !== 'successful') fail('campanha não concluiu');
+  // Verifica registros persistidos fisicamente, não somente resposta da interface.
+  const userData = await app.evaluate(({ app }) => app.getPath('userData'));
+  const traceDir = join(userData, 'traces', acc.id);
+  const traceFiles = existsSync(traceDir) ? readdirSync(traceDir).filter((x) => x.endsWith('.jsonl')) : [];
+  const traceData = traceFiles.map((file) => readFileSync(join(traceDir, file), 'utf8')).join('');
+  const traceEvents = traceData.trim().split('\n').filter(Boolean).map((line) => JSON.parse(line));
+  if (!traceEvents.some((e) => e.event === 'action_start' && e.campaignId === camp.campaignId)) fail('TRACE não registrou início da ação');
+  if (!traceEvents.some((e) => e.event === 'action_done' && e.actionId)) fail('TRACE não registrou resultado da ação');
+  if (!traceEvents.some((e) => e.event === 'click_target')) fail('TRACE não registrou clique do navegador');
+  if (!traceEvents.some((e) => e.event === 'execute_result' && e.area === 'approval')) fail('TRACE não registrou aprovação');
+  if (traceData.includes('Podemos conversar?') || traceData.includes('Águas do Vale')) fail('TRACE vazou conteúdo do CRM');
+  console.log('TRACE E2E:', traceEvents.length, 'eventos em', traceFiles.length, 'arquivo(s)');
   await ui.getByRole('button', { name: 'Campanhas' }).click();
   await ui.getByText(/Suas campanhas/).waitFor();
   await ui.screenshot({ path: join(shots, 'campanhas.png'), fullPage: true });

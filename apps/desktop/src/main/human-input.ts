@@ -12,6 +12,7 @@ export class HumanInput {
   constructor(
     private wc: WebContents,
     private rng: Rng = Math.random,
+    private emit?: (event: string, details: Record<string, unknown>) => void,
   ) {}
 
   private sleep(ms: number) {
@@ -37,6 +38,7 @@ export class HumanInput {
   async click(x: number, y: number): Promise<void> {
     await this.moveTo(x + randInt(this.rng, -3, 3), y + randInt(this.rng, -2, 2));
     await this.sleep(randInt(this.rng, 60, 220));
+    this.emit?.('click', { x: this.x, y: this.y });
     this.wc.sendInputEvent({ type: 'mouseDown', x: this.x, y: this.y, button: 'left', clickCount: 1 });
     await this.sleep(randInt(this.rng, 40, 120));
     this.wc.sendInputEvent({ type: 'mouseUp', x: this.x, y: this.y, button: 'left', clickCount: 1 });
@@ -44,6 +46,7 @@ export class HumanInput {
 
   /** Digitação com cadência irregular e pausas ocasionais. */
   async type(text: string): Promise<void> {
+    this.emit?.('type', { length: text.length });
     for (const ch of text) {
       this.wc.sendInputEvent({ type: 'char', keyCode: ch });
       let d = randInt(this.rng, 45, 160);
@@ -53,6 +56,7 @@ export class HumanInput {
   }
 
   async scroll(deltaY: number): Promise<void> {
+    this.emit?.('scroll', { deltaY });
     let left = deltaY;
     while (Math.abs(left) > 0) {
       const step = Math.sign(left) * Math.min(Math.abs(left), randInt(this.rng, 60, 140));
