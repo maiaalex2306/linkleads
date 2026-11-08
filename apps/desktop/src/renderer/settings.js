@@ -81,6 +81,6 @@ async function settingsView() {
     ),
     await teamCard(),
     ...(await integrationsCards()),
-    h('button', { class: 'link', onclick: () => { state.tab = 'campaigns'; renderView(); } }, '← Voltar'),
+    h('button', { class: 'link', onclick: () => { if (state.screen === 'settings') state.screen = state.backScreen || (state.accountId ? 'workspace' : 'launcher'); state.tab = 'campaigns'; renderAccounts(); renderView(); } }, '← Voltar'),
   );
 }
