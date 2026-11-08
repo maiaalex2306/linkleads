@@ -77,6 +77,10 @@ function topNav() {
   const ver = h('span', { class: 'build-tag', title: 'Versão do código que está rodando agora' }, '');
   document.getElementById('topnav').replaceChildren(
     h('button', { class: 'link', onclick: () => { state.tab = 'settings'; renderView(); } }, 'Configurações'),
+    h('button', { class: 'link', onclick: async () => {
+      const result = await safe(() => api.exportTrace(state.accountId || undefined));
+      if (result && !result.canceled) toast('TRACE exportado: ' + result.file + ' (' + result.files + ' arquivo(s))', 6500);
+    } }, 'Exportar TRACE'),
     ver,
   );
   api.appInfo().then((i) => {
@@ -221,3 +225,30 @@ api.updateStatus().then(renderUpdate).catch(() => {});
 topNav();
 api.appInfo().then((i) => { if (!storedMode && i.defaultMode) state.mode = i.defaultMode; }).catch(() => {}).finally(refresh);
 setInterval(renderAccounts, 10000);
+
+// TRACE de interface: controles e eventos, nunca valores digitados.
+document.addEventListener('click', (event) => {
+  const el = event.target instanceof Element ? event.target.closest('button, a, [role="button"], .acc') : null;
+  if (!el) return;
+  api.traceUiEvent({ action: 'click', accountId: state.accountId, view: state.tab, mode: state.mode,
+    control: (el.getAttribute('data-trace') || el.id || el.getAttribute('type') || el.tagName).replace(/[^a-z0-9_.:-]/gi, '_').slice(0, 80) });
+}, true);
+document.addEventListener('change', (event) => {
+  const el = event.target;
+  if (!(el instanceof Element)) return;
+  api.traceUiEvent({ action: 'change', accountId: state.accountId, view: state.tab, mode: state.mode,
+    field: (el.getAttribute('name') || el.id || el.tagName).slice(0, 80) });
+}, true);
+document.addEventListener('submit', (event) => {
+  const el = event.target;
+  api.traceUiEvent({ action: 'submit', accountId: state.accountId, view: state.tab, mode: state.mode,
+    control: el instanceof Element ? (el.id || el.getAttribute('class') || 'form').slice(0, 80) : 'form' });
+}, true);
+window.addEventListener('error', (event) => {
+  api.traceUiEvent({ action: 'renderer_error', accountId: state.accountId, message: event.message,
+    errorName: event.error?.name || 'Error' });
+});
+window.addEventListener('unhandledrejection', (event) => {
+  api.traceUiEvent({ action: 'unhandled_rejection', accountId: state.accountId,
+    message: String(event.reason?.message || event.reason || 'unknown') });
+});

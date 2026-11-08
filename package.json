@@ -10,7 +10,7 @@
   ],
   "scripts": {
     "build": "npm run build -w @linkleads/core -w @linkleads/db -w @linkleads/ai -w @linkleads/integrations -w @linkleads/server -w @linkleads/desktop",
-    "test": "npm test -w @linkleads/core -w @linkleads/db -w @linkleads/ai -w @linkleads/integrations -w @linkleads/server",
+    "test": "npm test -w @linkleads/core -w @linkleads/db -w @linkleads/ai -w @linkleads/integrations -w @linkleads/server -w @linkleads/desktop",
     "typecheck": "tsc -b packages/core packages/db packages/ai packages/integrations && npm run typecheck -w @linkleads/desktop",
     "dev": "npm run dev -w @linkleads/desktop",
     "e2e": "npm run build && for t in run sequence decision integrations team diagnostics; do xvfb-run -a node apps/desktop/e2e/$t.mjs || exit 1; done",

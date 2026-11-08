@@ -43,6 +43,19 @@ try {
   const acc = await call('createAccount', { label: 'Conta teste', tier: 'basic' });
   check(acc.workingHours.days.length === 7 && acc.workingHours.start === '07:00' && acc.workingHours.end === '23:00', 'conta nova nasce com todos os dias, 07:00–23:00', acc.workingHours);
   await call('startInstance', acc.id);
+  // Espera a navegação inicial assíncrona do Electron terminar.
+  // Sem isto, loadURL manual pode concorrer com START_PAGE e devolver ERR_ABORTED (-3).
+  await app.evaluate(async ({ BrowserWindow }, base) => {
+    const w = BrowserWindow.getAllWindows().find((x) => x.getTitle().startsWith('LinkLeads —'));
+    if (!w) throw new Error('Janela da conta não foi aberta');
+    const end = Date.now() + 20_000;
+    while ((!w.webContents.getURL().startsWith(base) || w.webContents.isLoading()) && Date.now() < end) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    if (!w.webContents.getURL().startsWith(base) || w.webContents.isLoading()) {
+      throw new Error('Página inicial não ficou pronta para diagnóstico');
+    }
+  }, site.url);
   // "o usuário navega" na janela da conta
   const go = (path) => app.evaluate(async ({ BrowserWindow }, url) => {
     const w = BrowserWindow.getAllWindows().find((x) => x.getTitle().startsWith('LinkLeads —') || x.webContents.getURL().includes('127.0.0.1'));

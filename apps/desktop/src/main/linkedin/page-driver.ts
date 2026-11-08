@@ -32,19 +32,30 @@ export class PageDriver {
   constructor(
     readonly wc: WebContents,
     public sel: SelectorMap,
+    private emit?: (event: string, details: Record<string, unknown>) => void,
   ) {
-    this.input = new HumanInput(wc);
+    this.input = new HumanInput(wc, Math.random, (event, detail) => this.emit?.('input_' + event, detail));
   }
 
   /** Executa uma função pura no mundo isolado. A função não pode usar closures. */
   async read<T, A extends unknown[]>(fn: (...args: A) => T, ...args: A): Promise<T> {
     // cada leitura num escopo próprio (o ajudante de posts não pode ser redeclarado no mesmo mundo isolado)
     const code = `(() => { const __llIsReact = ${llIsReact.toString()};\nconst llIsReact = __llIsReact;\nconst __llPostContainers = ${llPostContainers.toString()};\nreturn (${fn.toString()})(...${JSON.stringify(args)}); })()`;
-    return (await this.wc.executeJavaScriptInIsolatedWorld(ISOLATED_WORLD, [{ code }])) as T;
+    const started = Date.now();
+    try {
+      const result = (await this.wc.executeJavaScriptInIsolatedWorld(ISOLATED_WORLD, [{ code }])) as T;
+      const elapsed = Date.now() - started;
+      if (elapsed >= 250) this.emit?.('dom_read_slow', { name: fn.name, durationMs: elapsed });
+      return result;
+    } catch (error) {
+      this.emit?.('dom_read_failed', { name: fn.name, message: error instanceof Error ? error.message : String(error) });
+      throw error;
+    }
   }
 
   /** Tecla especial (Enter, Escape…) via evento nativo. */
   async press(keyCode: 'Enter' | 'Escape' | 'Tab'): Promise<void> {
+    this.emit?.('keyboard_press', { control: keyCode });
     this.wc.sendInputEvent({ type: 'keyDown', keyCode });
     await new Promise((r) => setTimeout(r, 60 + Math.random() * 80));
     this.wc.sendInputEvent({ type: 'keyUp', keyCode });
@@ -55,11 +66,19 @@ export class PageDriver {
 
   async goto(url: string, readyKey?: SelectorKey, timeoutMs = 30_000): Promise<void> {
     const prev = this.wc.getURL();
-    await this.wc.loadURL(url);
-    this.onNavigate?.(this.wc.getURL() || url, prev, 'url');
-    await this.assertNotBlocked();
-    if (readyKey) await this.waitFor(readyKey, timeoutMs);
-    await this.input.think(1200, 3500);
+    const start = Date.now();
+    this.emit?.('navigate_start', { location: url, selector: readyKey });
+    try {
+      await this.wc.loadURL(url);
+      this.onNavigate?.(this.wc.getURL() || url, prev, 'url');
+      await this.assertNotBlocked();
+      if (readyKey) await this.waitFor(readyKey, timeoutMs);
+      await this.input.think(1200, 3500);
+      this.emit?.('navigate_done', { location: this.wc.getURL() || url, durationMs: Date.now() - start });
+    } catch (error) {
+      this.emit?.('navigate_failed', { location: url, durationMs: Date.now() - start, message: error instanceof Error ? error.message : String(error) });
+      throw error;
+    }
   }
 
   async assertNotBlocked(): Promise<void> {
@@ -150,7 +169,8 @@ export class PageDriver {
   /** Clica no primeiro elemento de `key` com o rótulo. */
   async clickLabeled(key: SelectorKey, label: LabelKey): Promise<boolean> {
     const p = await this.scrollIntoView(key, undefined, label);
-    if (!p) return false;
+    if (!p) { this.emit?.('element_not_found', { selector: key, control: label }); return false; }
+    this.emit?.('click_target', { selector: key, control: label });
     await this.input.click(p.x, p.y);
     return true;
   }
@@ -193,7 +213,8 @@ export class PageDriver {
 
   async click(key: SelectorKey, scope?: { urn: string; containerKey: SelectorKey }): Promise<boolean> {
     const p = await this.scrollIntoView(key, scope);
-    if (!p) return false;
+    if (!p) { this.emit?.('element_not_found', { selector: key, hasPost: !!scope }); return false; }
+    this.emit?.('click_target', { selector: key, hasPost: !!scope });
     await this.input.click(p.x, p.y);
     return true;
   }

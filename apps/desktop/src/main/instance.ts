@@ -37,6 +37,7 @@ import { proxyRules } from './proxy-check.js';
 import { withTeamCaps } from './stats.js';
 import type { Settings } from './settings.js';
 import { writeFileSync } from 'node:fs';
+import { trace } from './trace.js';
 import { join } from 'node:path';
 import { accountDir } from './account-store.js';
 
@@ -168,7 +169,17 @@ export class AccountInstance {
     });
 
     attachContextMenu(this.window.webContents);
-    this.driver = new PageDriver(this.window.webContents, loadSelectors());
+    this.driver = new PageDriver(this.window.webContents, loadSelectors(), (event, detail) =>
+      trace.record('browser', event, detail, { accountId: this.account.id }));
+    this.window.webContents.on('did-navigate', (_event, url) =>
+      trace.record('browser', 'did_navigate', { location: url }, { accountId: this.account.id }));
+    this.window.webContents.on('did-navigate-in-page', (_event, url) =>
+      trace.record('browser', 'did_navigate_in_page', { location: url }, { accountId: this.account.id }));
+    this.window.webContents.on('did-fail-load', (_event, code, description, url, isMainFrame) => {
+      if (isMainFrame && code !== -3)
+        trace.record('browser', 'load_failed', { code, message: description, location: url }, { accountId: this.account.id }, 'error');
+    });
+    trace.record('account', 'browser_opened', { status: 'running' }, { accountId: this.account.id });
     this.deps = {
       driver: this.driver,
       crm,
@@ -252,6 +263,17 @@ export class AccountInstance {
   }
 
   private onProgress(e: ProgressEvent) {
+    const a = e.type === 'pause' ? undefined : e.action;
+    const p = e.type === 'pause' ? e.nextPerson : e.person;
+    trace.record('campaign', 'action_' + e.type, {
+      actionType: a?.type,
+      ...(e.type === 'start' || e.type === 'done' ? { step: e.step, total: e.total } : {}),
+      ...(e.type === 'done' ? { ok: e.ok, reason: e.reason, length: e.message?.length ?? 0 } : {}),
+      ...(e.type === 'pause' ? { waitMs: e.ms, scheduledAt: e.until.toISOString() } : {}),
+      ...(e.type === 'scheduled' ? { scheduledAt: e.at.toISOString() } : {}),
+    }, {
+      accountId: this.account.id, campaignId: e.campaign.id, actionId: a?.id, personId: p.id,
+    }, e.type === 'done' && !e.ok && e.reason !== 'RETRY_LATER' && e.reason !== 'AWAITING_APPROVAL' ? 'warn' : 'info');
     const L = this.live;
     if (e.type === 'start') {
       const name = personName(e.person);
@@ -454,10 +476,24 @@ export class AccountInstance {
       if (!opts.waitIfBusy) return [];
       await this.currentTick.catch(() => undefined);
     }
+    const cycleStart = Date.now();
+    trace.record('campaign', 'cycle_start', {
+      activeCampaigns: this.crm.listCampaigns(this.account.id).filter((c) => c.active).length,
+    }, { accountId: this.account.id });
     this.currentTick = this.runTick(opts);
     this.live.lastCycleAt = new Date().toISOString();
     try {
-      return await this.currentTick;
+      const result = await this.currentTick;
+      trace.record('campaign', 'cycle_finish', {
+        durationMs: Date.now() - cycleStart,
+        processed: result.reduce((n, r) => n + r.processed, 0),
+        successful: result.reduce((n, r) => n + r.successful, 0),
+        failed: result.reduce((n, r) => n + r.failed.length, 0),
+      }, { accountId: this.account.id });
+      return result;
+    } catch (error) {
+      trace.error('campaign', 'cycle_exception', error, { accountId: this.account.id }, { durationMs: Date.now() - cycleStart });
+      throw error;
     } finally {
       this.currentTick = undefined;
       // vencidos saem da lista de "próximos"
@@ -602,6 +638,7 @@ export class AccountInstance {
 
   /** Aprova (opcionalmente editando) e executa um rascunho pendente. */
   async approveDraft(draftId: number, editedText?: string): Promise<ExecutionResult> {
+    trace.record('approval', 'approve_requested', {}, { accountId: this.account.id });
     const draft = this.crm.getDraft(draftId);
     if (!draft || draft.status !== 'pending') throw new Error('Rascunho não está pendente');
     if (this.account.paused) throw new Error('A conta está pausada');
@@ -612,6 +649,11 @@ export class AccountInstance {
     this.crm.updateDraft(draftId, { status: 'approved', comment: text });
 
     const result = await this.executeDraft(draft, text);
+    trace.record('approval', 'execute_result', {
+      kind: draft.kind, ok: result.ok, reason: result.ok ? undefined : result.reason,
+      length: result.ok ? 0 : (result.message?.length ?? 0),
+    }, { accountId: this.account.id, campaignId: draft.campaignId,
+      actionId: draft.actionId, personId: draft.personId }, result.ok ? 'info' : 'warn');
     if (result.ok) {
       if (draft.kind === 'comment') {
         this.crm.markPostCommented(draft.postUrl, text, draft.interpretation);
@@ -630,6 +672,7 @@ export class AccountInstance {
   }
 
   rejectDraft(draftId: number): void {
+    trace.record('approval', 'reject_requested', {}, { accountId: this.account.id });
     const draft = this.crm.getDraft(draftId);
     if (!draft || draft.status !== 'pending') return;
     this.crm.updateDraft(draftId, { status: 'rejected' });
@@ -638,6 +681,7 @@ export class AccountInstance {
   }
 
   async stop(): Promise<void> {
+    trace.record('account', 'browser_stopping', {}, { accountId: this.account.id });
     this.stopScheduler();
     if (!this.window.isDestroyed()) this.window.close();
   }
