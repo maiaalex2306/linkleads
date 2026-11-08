@@ -45,7 +45,16 @@ export function toLinkedHelperFormat(p: LeadPayload, operatorName: string): Reco
   if (!conv.length && p.reply?.text) set('reply', p.reply.text);
 
   // extras do LinkLeads (ignorados por leitores do Linked Helper, preservados no dado bruto)
+  // marca de origem: o IAD CRM separa por ela o botão "LinkLeads" do "Importar LH" no mesmo balde
+  set('linkleads_origem', 'linkleads');
   set('linkleads_event', p.event);
+  // papel no grupo comprador, já no rótulo do IAD CRM ("Decisor econômico", "Champion / Mobilizer"…)
+  const papel = p.committee?.find((c) => c.role && c.roleConfirmed) ?? p.committee?.find((c) => c.role);
+  if (papel?.role) {
+    set('linkleads_papel', papel.role);
+    out.linkleads_papel_confirmado = papel.roleConfirmed ? 1 : 0;
+    set('linkleads_empresa_alvo', papel.company);
+  }
   set('linkleads_reply_label', p.reply?.label);
   set('linkleads_reply_summary', p.reply?.summary);
   if (p.committee?.length) set('linkleads_committee', p.committee.map((c) => `${c.company}: ${c.role ?? '—'}`).join('; '));

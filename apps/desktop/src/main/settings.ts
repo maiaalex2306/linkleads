@@ -20,6 +20,8 @@ interface StoredSettings {
   icpThreshold?: number;
   /** temas que transformam posts e vagas em sinais (ex.: "perdas de água", "telemetria") */
   signalTopics?: string[];
+  /** empresa do IAD CRM que abriu o LinkLeads pela última vez (link linkleads://) */
+  iad?: { empresaId: string; empresaNome: string; at: string };
   /** interruptor geral: tipos de ação desligados (ex.: SendInvite, DetectReplies) */
   disabledActions?: string[];
   /** legado (v0.1): chave da Anthropic */
@@ -41,6 +43,7 @@ export interface PublicSettings {
   disabledActions: string[];
   teamDisabledActions: string[];
   decision: { offer: string; icp: string; icpThreshold: number; signalTopics: string[] };
+  iad: { empresaId: string; empresaNome: string; at: string } | null;
 }
 
 export class Settings {
@@ -134,6 +137,10 @@ export class Settings {
   }
 
   /** Efetivo: desligados localmente + desligados pelo gestor da equipe. */
+  setIadContext(iad: { empresaId: string; empresaNome: string; at: string }): void {
+    this.write({ ...this.read(), iad });
+  }
+
   disabledActions(): string[] {
     return [...new Set([...(this.read().disabledActions ?? []), ...this.teamDisabled()])];
   }
@@ -175,6 +182,7 @@ export class Settings {
       disabledActions: s.disabledActions ?? [],
       teamDisabledActions: this.teamDisabled(),
       decision: this.decision(),
+      iad: s.iad ?? null,
     };
   }
 }

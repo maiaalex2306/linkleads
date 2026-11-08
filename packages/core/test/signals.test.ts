@@ -16,11 +16,13 @@ describe('sinais', () => {
 
   it('cobertura do comitê', () => {
     const c = committeeCoverage([
-      { role: 'decisor', connected: true, replied: false },
-      { role: 'influenciador_tecnico', connected: false, replied: false },
+      { role: 'decisor_economico', connected: true, replied: false },
+      { role: 'tecnico', connected: false, replied: false },
       { role: 'compras', connected: false, replied: true },
     ]);
     expect(c.covered).toBe(2);
-    expect(c.missing).toEqual(['usuario', 'juridico', 'patrocinador']);
+    expect(c.criticalCovered).toBe(2);
+    expect(c.criticalTotal).toBe(4);
+    expect(c.missing).toEqual(['champion', 'financeiro']);
   });
 });

@@ -13,7 +13,7 @@ describe('DecisionCrm', () => {
     expect(crm.addCompanyPeople('acme', [{ id: 'ana', publicId: 'ana', firstName: 'Ana', headline: 'Diretora' }, { id: 'bia', publicId: 'bia', firstName: 'Bia' }], 'busca')).toBe(2);
     expect(crm.addCompanyPeople('acme', [{ id: 'ana', publicId: 'ana' }], 'busca')).toBe(0);
     expect(crm.unclassifiedMembers('acme')).toHaveLength(2);
-    crm.setRole('acme', 'ana', 'decisor', { confidence: 0.9, reason: 'Diretora', confirmed: false });
+    crm.setRole('acme', 'ana', 'decisor_economico', { confidence: 0.9, reason: 'Diretora', confirmed: false });
     crm.setRole('acme', 'bia', 'compras', { confirmed: true });
     crm.recordInvite('ana', null);
     crm.resolveInvite('ana', 'accepted');
@@ -21,7 +21,7 @@ describe('DecisionCrm', () => {
     const c = crm.committee('acme');
     expect(c.map((m) => [m.name, m.role, m.roleConfirmed, m.connected, m.replied])).toEqual([
       ['Bia', 'compras', true, false, true],
-      ['Ana', 'decisor', false, true, false],
+      ['Ana', 'decisor_economico', false, true, false],
     ]);
     expect(crm.listCompanies()[0]).toMatchObject({ name: 'ACME Saneamento', members: 2, roleKeywords: ['diretor', 'engenharia'] });
     expect(crm.companiesOf('ana').map((x) => x.id)).toEqual(['acme']);
@@ -37,5 +37,23 @@ describe('DecisionCrm', () => {
     expect(all).toHaveLength(2);
     crm.markSignalSeen(all[0]!.id);
     expect(crm.listSignals({ onlyUnseen: true })).toHaveLength(1);
+  });
+});
+
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+describe('migração 6', () => {
+  it('converte papéis antigos para a taxonomia do IAD CRM ao reabrir o banco', () => {
+    const file = join(mkdtempSync(join(tmpdir(), 'll-m6-')), 'conta.db');
+    const crm = new DecisionCrm(openAccountDb(file), 'UTC');
+    crm.saveCompany({ id: 'acme', name: 'ACME', roleKeywords: [] });
+    crm.addCompanyPeople('acme', [{ id: 'a', publicId: 'a' }, { id: 'b', publicId: 'b' }, { id: 'c', publicId: 'c' }, { id: 'd', publicId: 'd' }], 'x');
+    crm.db.exec(`UPDATE company_people SET buying_role = CASE person_id WHEN 'a' THEN 'decisor' WHEN 'b' THEN 'influenciador_tecnico' WHEN 'c' THEN 'patrocinador' ELSE 'compras' END`);
+    crm.db.exec(`UPDATE schema_version SET version = 5`); // simula um banco anterior ao alinhamento
+    crm.db.close();
+    const again = new DecisionCrm(openAccountDb(file), 'UTC');
+    expect(Object.fromEntries(again.committee('acme').map((m) => [m.personId, m.role]))).toEqual({ a: 'decisor_economico', b: 'tecnico', c: 'champion', d: 'compras' });
+    again.db.close();
   });
 });

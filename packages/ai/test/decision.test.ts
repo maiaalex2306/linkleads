@@ -12,9 +12,9 @@ const fake = (output: unknown): LlmClient & { prompts: string[] } => {
 
 describe('decisão', () => {
   it('papel no comitê, com confiança limitada a 0..1', async () => {
-    const llm = fake({ role: 'decisor', confidence: 1.4, seniority: 'diretoria', reason: 'Diretor de operações' });
+    const llm = fake({ role: 'decisor_economico', confidence: 1.4, seniority: 'diretoria', reason: 'Diretor de operações' });
     const r = await proposeBuyingRole(llm, { id: 'p', firstName: 'Ana', headline: 'Diretora de Operações' }, { company: 'ACME', offer: 'telemetria' });
-    expect(r).toMatchObject({ role: 'decisor', confidence: 1 });
+    expect(r).toMatchObject({ role: 'decisor_economico', confidence: 1 });
     expect(llm.prompts[0]).toContain('O que o usuário vende: telemetria');
   });
 
@@ -26,11 +26,11 @@ describe('decisão', () => {
   it('prompt da conta reúne comitê, sinais e respostas', () => {
     const p = buildAccountPrompt({
       company: 'ACME', offer: 'telemetria',
-      members: [{ name: 'Ana', role: 'decisor', connected: true, replied: true, lastReplyLabel: 'interessado' }],
+      members: [{ name: 'Ana', role: 'Decisor econômico', connected: true, replied: true, lastReplyLabel: 'interessado' }],
       signals: [{ title: 'Vaga: Engenheiro de perdas', detectedAt: '2026-11-09T00:00:00Z' }],
       replies: [{ name: 'Ana', body: 'Vamos conversar', label: 'interessado' }],
     });
-    expect(p).toContain('Ana — papel: decisor; conexão; respondeu (interessado)');
+    expect(p).toContain('Ana — papel: Decisor econômico; conexão; respondeu (interessado)');
     expect(p).toContain('2026-11-09: Vaga: Engenheiro de perdas');
   });
 });

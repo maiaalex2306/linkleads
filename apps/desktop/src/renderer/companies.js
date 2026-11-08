@@ -2,8 +2,9 @@
 /* Empresas-alvo: comitê de compra, cobertura, sinais e resumo da conta. Aba Sinais. */
 
 const ROLE_LABELS = {
-  decisor: 'Decisor', influenciador_tecnico: 'Influenciador técnico', usuario: 'Usuário', compras: 'Compras',
-  juridico: 'Jurídico', patrocinador: 'Patrocinador', fora_do_comite: 'Fora do comitê',
+  // os mesmos papéis do IAD CRM ("Papel na compra")
+  decisor_economico: 'Decisor econômico', champion: 'Champion / Mobilizer', financeiro: 'Financeiro', compras: 'Compras',
+  tecnico: 'Técnico', operacoes: 'Operações', usuario: 'Usuário', juridico: 'Jurídico / Compliance', fora_do_comite: 'Fora do comitê',
 };
 const SIGNAL_LABELS = { job_change: 'Mudança de cargo', topic_post: 'Post sobre o tema', hiring: 'Vaga aberta', company_post: 'Post da empresa' };
 let openCompanyId = null;
@@ -32,8 +33,8 @@ function coverageGrid(cov) {
     ...cov.byRole.map((r) => {
       const state = r.replied ? 'replied' : r.connected ? 'connected' : r.mapped ? 'mapped' : 'missing';
       const txt = { replied: 'respondeu', connected: 'conectado', mapped: 'mapeado', missing: 'faltando' }[state];
-      return h('div', { class: 'cov ' + state },
-        h('span', { class: 'muted' }, ROLE_LABELS[r.role]),
+      return h('div', { class: 'cov ' + state + (r.critical ? ' critical' : '') },
+        h('span', { class: 'muted' }, ROLE_LABELS[r.role], r.critical ? ' ★' : ''),
         h('strong', {}, String(r.mapped)),
         h('span', { class: 'covstate' }, txt));
     }));
@@ -77,7 +78,7 @@ async function companyDetail(a, companyId) {
   const summaryBox = h('div', { class: 'ai summary' }, company.summary || 'Sem resumo ainda.');
   const campSel = h('select', {}, ...camps.map((c) => h('option', { value: c.id }, c.name)));
   const roleChecks = Object.entries(ROLE_LABELS).filter(([k]) => k !== 'fora_do_comite')
-    .map(([k, l]) => ({ k, el: h('input', { type: 'checkbox', checked: k === 'decisor' || k === 'influenciador_tecnico' }), l }));
+    .map(([k, l]) => ({ k, el: h('input', { type: 'checkbox', checked: ['decisor_economico', 'champion', 'financeiro', 'compras'].includes(k) }), l }));
 
   return h('div', { class: 'stack' },
     h('div', { class: 'row' },
@@ -97,8 +98,9 @@ async function companyDetail(a, companyId) {
     ),
     h('div', { class: 'muted' }, `Cargos-chave: ${company.roleKeywords.join(', ') || '—'}`),
     h('div', { class: 'card stack' },
-      h('div', { class: 'row' }, h('strong', { style: 'flex:1' }, `Cobertura do comitê: ${coverage.covered} de ${coverage.total} papéis alcançados`),
-        coverage.missing.length > 0 && h('span', { class: 'muted' }, `Faltando: ${coverage.missing.map((r) => ROLE_LABELS[r]).join(', ')}`)),
+      h('div', { class: 'row' }, h('strong', { style: 'flex:1' }, `Papéis críticos alcançados: ${coverage.criticalCovered} de ${coverage.criticalTotal}`),
+        h('span', { class: 'muted' }, `(${coverage.covered} de ${coverage.total} papéis no total)`),
+        coverage.missing.length > 0 && h('span', { class: 'muted' }, `Críticos sem ninguém mapeado: ${coverage.missing.map((r) => ROLE_LABELS[r]).join(', ')}`)),
       coverageGrid(coverage)),
     h('div', { class: 'card stack' },
       h('div', { class: 'row' }, h('strong', { style: 'flex:1' }, 'Resumo da conta (IA)'),

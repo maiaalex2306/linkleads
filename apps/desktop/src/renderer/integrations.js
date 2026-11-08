@@ -25,6 +25,7 @@ function enabledToggle(on) {
 
 async function integrationsCards() {
   const s = await api.getIntegrations();
+  const iadCtx = (await api.getSettings()).iad;
   const save = (patch, msg = 'Integração salva') => safe(() => api.updateIntegrations(patch), msg).then(renderView);
 
   // Webhook
@@ -38,7 +39,8 @@ async function integrationsCards() {
   const whHint = h('div', { class: 'muted' });
   const syncHint = () => {
     whHint.textContent = whFormat.value === 'linkedhelper'
-      ? 'Use o mesmo endereço de entrada que você colou no Linked Helper: https://…workers.dev/?k=CHAVE_DE_ESCRITA&e=ID_DA_EMPRESA (a chave de ESCRITA, não a de leitura do IAD CRM). Marque só "Resposta recebida": o "Importar LH" do IAD CRM trata cada envio como alguém que respondeu.'
+      ? 'Use o mesmo endereço de entrada que você colou no Linked Helper: https://…workers.dev/?k=CHAVE_DE_ESCRITA&e=ID_DA_EMPRESA (a chave de ESCRITA, não a de leitura do IAD CRM). Marque só "Resposta recebida": as respostas aparecem no botão "LinkLeads" do Pipeline no IAD CRM.' +
+        (iadCtx ? ` Empresa do IAD CRM que abriu este app: ${iadCtx.empresaNome || ''} (e=${iadCtx.empresaId}).` : '')
       : '';
   };
   whFormat.addEventListener('change', syncHint);

@@ -24,13 +24,15 @@ export const BuyingRoleSchema = z.object({
 export type BuyingRoleProposal = z.infer<typeof BuyingRoleSchema>;
 
 export const BUYING_ROLE_SYSTEM = `Você ajuda a mapear o comitê de compra (buying group) de uma conta B2B.
-Papéis:
-- decisor: aprova o orçamento/contrato (diretoria, C-level, dono da área).
-- influenciador_tecnico: avalia a solução tecnicamente (engenharia, operações, TI, especialistas).
-- usuario: vai usar a solução no dia a dia.
-- compras: suprimentos/procurement.
-- juridico: contratos, compliance, regulatório.
-- patrocinador: defende o projeto internamente sem ser o decisor final.
+Papéis (os mesmos do IAD CRM):
+- decisor_economico (Decisor econômico): aprova o orçamento e o contrato (C-level, diretoria, dono da verba).
+- champion (Champion / Mobilizer): defende o projeto internamente e mobiliza os outros, sem ser o decisor final.
+- financeiro (Financeiro): controladoria, finanças, CFO — avalia retorno, custo e forma de pagamento.
+- compras (Compras): suprimentos/procurement.
+- tecnico (Técnico): avalia a solução tecnicamente (engenharia, TI, especialistas, qualidade).
+- operacoes (Operações): dono do processo onde a solução vai rodar (produção, manutenção, utilidades).
+- usuario (Usuário): vai usar a solução no dia a dia.
+- juridico (Jurídico / Compliance): contratos, compliance, regulatório, meio ambiente/licenças.
 - fora_do_comite: não participa desta compra.
 Use o que o usuário vende para julgar a relevância. Não invente informação; com pouca evidência, baixe a confiança.`;
 

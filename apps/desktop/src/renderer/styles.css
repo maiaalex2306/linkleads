@@ -99,3 +99,4 @@ input[type=radio], input[type=checkbox] { accent-color:var(--brand); }
 .signal.seen { border-left-color:var(--line); opacity:.75; }
 .ai.summary { white-space:pre-wrap; font-size:13px; }
 .tabs { flex-wrap:wrap; }
+.cov.critical { border-width:2px; }

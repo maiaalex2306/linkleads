@@ -1,5 +1,6 @@
 import { createRequire } from 'node:module';
 import { SCHEMA_SQL } from './schema.js';
+import { BUYING_ROLE_LABELS } from '@linkleads/core';
 import type { DatabaseSync as DatabaseSyncT } from 'node:sqlite';
 import type {
   BuyingRole,
@@ -102,6 +103,15 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
         PRIMARY KEY (person_id, destination)
       );
       ALTER TABLE people ADD COLUMN enriched_at TEXT;
+    `,
+  },
+  {
+    version: 6,
+    // papéis alinhados à taxonomia do IAD CRM
+    sql: `
+      UPDATE company_people SET buying_role = 'decisor_economico' WHERE buying_role = 'decisor';
+      UPDATE company_people SET buying_role = 'tecnico' WHERE buying_role = 'influenciador_tecnico';
+      UPDATE company_people SET buying_role = 'champion' WHERE buying_role = 'patrocinador';
     `,
   },
 ];
@@ -1084,7 +1094,8 @@ export class IntegrationCrm extends DecisionCrm {
       const companies = this.companiesOf(p.id);
       const roles = companies.map((co) => {
         const m = this.committee(co.id).find((x) => x.personId === p.id);
-        return `${co.name}: ${m?.role ?? '—'}${m?.roleConfirmed ? ' (confirmado)' : ''}`;
+        const label = m?.role ? (BUYING_ROLE_LABELS[m.role] ?? m.role) : '—';
+        return `${co.name}: ${label}${m?.roleConfirmed ? ' (confirmado)' : ''}`;
       });
       const thread = this.thread(p.id);
       const lastIn = [...thread].reverse().find((m) => m.direction === 'in');

@@ -58,6 +58,19 @@ try {
   const file = JSON.parse(readFileSync(saved, 'utf8'));
   check(file.reports.length === 3 && !readFileSync(saved, 'utf8').includes('Ana Silva'), 'relatório salvo, sem nomes');
 
+  // clique no menu "LinkLeads" do IAD CRM → linkleads://abrir…
+  const link = (url) => app.evaluate((_e, u) => globalThis.__linkleadsDeepLink(u), url);
+  await link('linkleads://abrir?origem=iadcrm&empresa=bwc-vale&empresaNome=Bio%20Water%20Care');
+  await ui.getByText('Aberto pelo IAD CRM · Bio Water Care').waitFor({ timeout: 5000 });
+  let st = await call('getSettings');
+  check(st.iad?.empresaId === 'bwc-vale' && st.iad?.empresaNome === 'Bio Water Care', 'link do IAD CRM traz a janela e registra a empresa de origem', st.iad);
+  await link('linkleads://enviar?empresa=x');                       // ação desconhecida
+  await link('linkleads://abrir?empresa=../../etc&empresaNome=<script>'); // parâmetros sujos
+  await link('https://evil.example/abrir?empresa=y');                // outro protocolo
+  st = await call('getSettings');
+  check(st.iad?.empresaId === 'bwc-vale' && (await call('lastDeepLink')).empresaId === undefined, 'links maliciosos ou desconhecidos são ignorados ou limpos', { iad: st.iad });
+  check(actions() === before, 'abrir pelo link não dispara nenhuma ação');
+
   await ui.reload();
   await ui.getByRole('button', { name: 'Diagnóstico' }).click();
   await ui.getByText('Validar o app na sua conta').waitFor();

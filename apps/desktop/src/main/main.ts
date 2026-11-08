@@ -28,6 +28,7 @@ import { accountStats } from './stats.js';
 import { TeamSync } from './team-sync.js';
 import { setupUpdater } from './updater.js';
 import { attachContextMenu } from './context-menu.js';
+import { findDeepLinkArg, parseDeepLink, registerProtocol, type DeepLink } from './deep-link.js';
 import { IntegrationHub } from './integration-hub.js';
 import { IntegrationSettings } from './integration-settings.js';
 import { toCsv } from '@linkleads/integrations';
@@ -409,13 +410,53 @@ ipcMain.handle('settings:setAboutMe', (_e, text: string) => settings.setAboutMe(
 // Somente testes e2e: adianta o relógio do app para simular esperas de dias.
 if (process.env.LINKLEADS_TEST_BASE_URL) (globalThis as Record<string, unknown>).__linkleadsTest = { advanceClock };
 
+// Uma instância só: abrir de novo (ou clicar em linkleads:// no IAD CRM) traz a janela para a frente.
+if (!process.env.LINKLEADS_TEST_BASE_URL && !app.requestSingleInstanceLock()) {
+  app.quit();
+}
+
+let lastDeepLink: DeepLink | null = null;
+function handleDeepLink(raw: string | undefined) {
+  if (!raw) return;
+  const link = parseDeepLink(raw);
+  if (!link) return;
+  lastDeepLink = link;
+  if (link.empresaId) settings.setIadContext({ empresaId: link.empresaId, empresaNome: link.empresaNome ?? '', at: new Date().toISOString() });
+  if (launcher && !launcher.isDestroyed()) {
+    if (launcher.isMinimized()) launcher.restore();
+    launcher.show();
+    launcher.focus();
+    send('deeplink', link);
+  }
+}
+app.on('second-instance', (_e, argv) => {
+  handleDeepLink(findDeepLinkArg(argv));
+  if (launcher && !launcher.isDestroyed()) {
+    if (launcher.isMinimized()) launcher.restore();
+    launcher.focus();
+  }
+});
+app.on('open-url', (event, url) => {
+  // macOS entrega o link por aqui (inclusive antes do ready)
+  event.preventDefault();
+  if (app.isReady()) handleDeepLink(url);
+  else app.once('ready', () => setTimeout(() => handleDeepLink(url), 500));
+});
+ipcMain.handle('deeplink:last', () => lastDeepLink);
+
 app.whenReady().then(() => {
+  registerProtocol();
   // só nos testes e2e em Linux sem chaveiro (o switch password-store=basic já foi aplicado acima)
   if (process.env.LINKLEADS_TEST_BASE_URL && process.platform === 'linux') safeStorage.setUsePlainTextEncryption(true);
   createLauncher();
   hub.start();
   team.start();
   setupUpdater((st) => send('update', st));
+  // Windows/Linux: o primeiro clique em linkleads:// chega como argumento da linha de comando
+  const initial = findDeepLinkArg(process.argv);
+  if (initial) launcher?.webContents.once('did-finish-load', () => handleDeepLink(initial));
+  // testes: simula o clique vindo do IAD CRM
+  if (process.env.LINKLEADS_TEST_BASE_URL) (globalThis as Record<string, unknown>).__linkleadsDeepLink = handleDeepLink;
 });
 app.on('window-all-closed', async () => {
   await instances.stopAll();

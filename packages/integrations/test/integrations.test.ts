@@ -21,7 +21,7 @@ const payload: LeadPayload = {
     id: 'ana', linkedinUrl: 'https://www.linkedin.com/in/ana/', firstName: 'Ana', lastName: 'Silva', fullName: 'Ana Silva',
     headline: 'Diretora', company: 'ACME', emails: ['ana@acme.com'], phones: [],
   },
-  committee: [{ company: 'ACME', role: 'decisor', roleConfirmed: true }],
+  committee: [{ company: 'ACME', role: 'Decisor econômico', roleConfirmed: true }],
   reply: { text: 'Vamos <conversar>', label: 'interessado' },
 };
 
@@ -153,7 +153,8 @@ describe('formato Linked Helper', () => {
       full_name: 'Ana Silva', profile_url: 'https://www.linkedin.com/in/ana/', public_identifier: 'ana', email: 'ana@acme.com',
       organization_1: 'ACME', organization_title_1: 'Diretora de Operações', member_distance: 1, my_full_name: 'Alexandre (LinkLeads)',
       message1_from: 'Alexandre (LinkLeads)', message1_text: 'Olá Ana, tudo bem?', message2_from: 'Ana Silva', message2_text: 'Oi! Tenho interesse.',
-      campaign: 'Prospecção Saneamento', linkleads_reply_label: 'interessado', linkleads_committee: 'ACME: decisor',
+      campaign: 'Prospecção Saneamento', linkleads_reply_label: 'interessado', linkleads_committee: 'ACME: Decisor econômico',
+      linkleads_origem: 'linkleads', linkleads_papel: 'Decisor econômico', linkleads_papel_confirmado: 1, linkleads_empresa_alvo: 'ACME',
     });
   });
 

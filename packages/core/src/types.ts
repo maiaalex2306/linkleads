@@ -122,18 +122,36 @@ export interface PostSnapshot {
   alreadyLiked?: boolean;
 }
 
-/** Papéis no comitê de compra (buying group). */
-export const BUYING_ROLES = ['decisor', 'influenciador_tecnico', 'usuario', 'compras', 'juridico', 'patrocinador', 'fora_do_comite'] as const;
+/**
+ * Papéis no grupo comprador — a MESMA taxonomia do IAD CRM (playbook.js → PAPEIS), para que o papel
+ * confirmado no LinkLeads chegue ao IAD como o "Papel na compra" do contato, sem tradução ambígua.
+ */
+export const BUYING_ROLES = [
+  'champion', 'usuario', 'tecnico', 'operacoes', 'financeiro', 'compras', 'juridico', 'decisor_economico', 'fora_do_comite',
+] as const;
 export type BuyingRole = (typeof BUYING_ROLES)[number];
 
+/** Rótulos idênticos aos do IAD CRM. */
 export const BUYING_ROLE_LABELS: Record<BuyingRole, string> = {
-  decisor: 'Decisor',
-  influenciador_tecnico: 'Influenciador técnico',
+  champion: 'Champion / Mobilizer',
   usuario: 'Usuário',
+  tecnico: 'Técnico',
+  operacoes: 'Operações',
+  financeiro: 'Financeiro',
   compras: 'Compras',
-  juridico: 'Jurídico',
-  patrocinador: 'Patrocinador',
+  juridico: 'Jurídico / Compliance',
+  decisor_economico: 'Decisor econômico',
   fora_do_comite: 'Fora do comitê',
+};
+
+/** Cobertura mínima para o negócio ser considerado real (IAD CRM → PAPEIS_CRITICOS). */
+export const CRITICAL_ROLES: readonly BuyingRole[] = ['champion', 'financeiro', 'decisor_economico', 'compras'];
+
+/** Papéis antigos do LinkLeads (antes do alinhamento com o IAD CRM). */
+export const LEGACY_ROLE_MAP: Record<string, BuyingRole> = {
+  decisor: 'decisor_economico',
+  influenciador_tecnico: 'tecnico',
+  patrocinador: 'champion',
 };
 
 export interface Company {

@@ -53,10 +53,10 @@ const stubLlm: LlmClient = {
       },
       reply_classification: { label: 'interessado', summary: 'Quer conversar', referredPerson: '', suggestedNextStep: 'Propor reunião' },
       buying_role: /Diretor|Diretora/.test(req.user)
-        ? { role: 'decisor', confidence: 0.9, seniority: 'diretoria', reason: 'Diretoria da área' }
+        ? { role: 'decisor_economico', confidence: 0.9, seniority: 'diretoria', reason: 'Diretoria da área' }
         : /Compras|Suprimentos/.test(req.user)
           ? { role: 'compras', confidence: 0.8, seniority: 'gerencia', reason: 'Área de suprimentos' }
-          : { role: 'influenciador_tecnico', confidence: 0.7, seniority: 'tecnico', reason: 'Perfil técnico' },
+          : { role: 'tecnico', confidence: 0.7, seniority: 'tecnico', reason: 'Perfil técnico' },
       icp_score: /Estagi/.test(req.user) ? { score: 20, reason: 'Estágio, sem poder de compra' } : { score: 85, reason: 'Área de saneamento' },
       account_summary: { summary: 'A ACME tem o decisor conectado e interessado.', gaps: ['Jurídico não mapeado'], nextSteps: ['Agendar reunião com o decisor'] },
     };

@@ -1,4 +1,4 @@
-import type { Account } from '@linkleads/core';
+import { BUYING_ROLE_LABELS, type Account } from '@linkleads/core';
 import type { IntegrationCrm } from '@linkleads/db';
 import { HubSpotClient, PipedriveClient, isRetryable, linkedinUrl, noteFor, sendWebhook, type LeadPayload } from '@linkleads/integrations';
 import { now } from './clock.js';
@@ -20,7 +20,8 @@ export function buildPayload(crm: IntegrationCrm, account: Account, personId: st
   const emails = [...new Set([...(p.email ? [p.email] : []), ...contacts.emails])];
   const committee = crm.companiesOf(p.id).map((co) => {
     const m = crm.committee(co.id).find((x) => x.personId === p.id);
-    return { company: co.name, role: m?.role ?? null, roleConfirmed: !!m?.roleConfirmed };
+    // rótulo do IAD CRM ("Decisor econômico", "Champion / Mobilizer"…): é o "Papel na compra" de lá
+    return { company: co.name, role: m?.role ? (BUYING_ROLE_LABELS[m.role] ?? m.role) : null, roleConfirmed: !!m?.roleConfirmed };
   });
   return {
     event,

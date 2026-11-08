@@ -16,6 +16,10 @@ files:
   - "**/*"
   - "!**/*.map"
 asar: true
+# links linkleads:// (o menu "LinkLeads" do IAD CRM abre o app por eles)
+protocols:
+  - name: LinkLeads
+    schemes: [linkleads]
 electronLanguages: [pt-BR, en-US]
 mac:
   category: public.app-category.business

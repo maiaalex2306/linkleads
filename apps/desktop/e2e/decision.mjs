@@ -43,11 +43,11 @@ try {
 
   let d = await call('companyDetail', acc.id, companyId);
   const roleOf = (name) => d.members.find((m) => m.name === name)?.role;
-  check(roleOf('Ana Silva') === 'decisor' && roleOf('Bruno Lima') === 'compras' && roleOf('Carla Souza') === 'influenciador_tecnico', 'papéis propostos (decisor, compras, influenciador técnico)', d.members.map((m) => [m.name, m.role]));
+  check(roleOf('Ana Silva') === 'decisor_economico' && roleOf('Bruno Lima') === 'compras' && roleOf('Carla Souza') === 'tecnico', 'papéis propostos na taxonomia do IAD (decisor econômico, compras, técnico)', d.members.map((m) => [m.name, m.role]));
   await call('setRole', acc.id, companyId, d.members.find((m) => m.name === 'Diego Alves').personId, 'usuario');
   d = await call('companyDetail', acc.id, companyId);
   check(d.members.find((m) => m.name === 'Diego Alves').roleConfirmed && roleOf('Diego Alves') === 'usuario', 'papel corrigido e confirmado pelo usuário');
-  check(d.coverage.covered === 0 && d.coverage.missing.join() === 'juridico,patrocinador', 'cobertura: nenhum papel alcançado; faltam jurídico e patrocinador', d.coverage);
+  check(d.coverage.covered === 0 && d.coverage.criticalTotal === 4 && d.coverage.missing.join() === 'champion,financeiro', 'cobertura no critério do IAD: faltam Champion e Financeiro', d.coverage);
 
   // sinais: Ana mudou de empresa e postou sobre telemetria
   await fetch(site.url + '/test/jobchange', { method: 'POST', body: 'Diretora de Operações na Hidro Sul' });
@@ -88,7 +88,7 @@ try {
   await ui.reload();
   await ui.getByRole('button', { name: 'Empresas' }).click();
   await ui.getByText('ACME Saneamento').click();
-  await ui.getByText('Cobertura do comitê').waitFor();
+  await ui.getByText('Papéis críticos alcançados').waitFor();
   await ui.screenshot({ path: join(shots, 'fase3-empresa.png'), fullPage: true });
   await ui.getByRole('button', { name: /^Sinais/ }).click();
   await ui.getByText('Só não vistos').waitFor();

@@ -41,18 +41,30 @@ export interface CoveragePerson {
   replied: boolean;
 }
 
-export const COMMITTEE_ROLES = ['decisor', 'influenciador_tecnico', 'usuario', 'compras', 'juridico', 'patrocinador'] as const;
+export const COMMITTEE_ROLES = ['champion', 'decisor_economico', 'financeiro', 'compras', 'tecnico', 'operacoes', 'usuario', 'juridico'] as const;
+const CRITICAL = new Set(['champion', 'financeiro', 'decisor_economico', 'compras']);
 
+/** Cobertura do grupo comprador, no critério do IAD CRM: os 4 papéis críticos precisam ser alcançados. */
 export function committeeCoverage(people: CoveragePerson[]) {
   const byRole = COMMITTEE_ROLES.map((role) => {
     const ps = people.filter((p) => p.role === role);
     return {
       role,
+      critical: CRITICAL.has(role),
       mapped: ps.length,
       connected: ps.filter((p) => p.connected).length,
       replied: ps.filter((p) => p.replied).length,
     };
   });
-  const covered = byRole.filter((r) => r.connected > 0 || r.replied > 0).length;
-  return { byRole, covered, total: COMMITTEE_ROLES.length, missing: byRole.filter((r) => r.mapped === 0).map((r) => r.role) };
+  const reached = (r: (typeof byRole)[number]) => r.connected > 0 || r.replied > 0;
+  const critical = byRole.filter((r) => r.critical);
+  return {
+    byRole,
+    covered: byRole.filter(reached).length,
+    total: COMMITTEE_ROLES.length,
+    criticalCovered: critical.filter(reached).length,
+    criticalTotal: critical.length,
+    /** papéis críticos sem ninguém mapeado */
+    missing: critical.filter((r) => r.mapped === 0).map((r) => r.role),
+  };
 }

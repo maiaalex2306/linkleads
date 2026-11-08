@@ -28,13 +28,13 @@ describe('IntegrationCrm', () => {
     expect(crm.externalId('ana', 'hubspot')).toBe('901');
     crm.saveCompany({ id: 'acme', name: 'ACME', roleKeywords: [] });
     crm.addCompanyPeople('acme', [{ id: 'ana', publicId: 'ana' }], 'busca');
-    crm.setRole('acme', 'ana', 'decisor', { confirmed: true });
+    crm.setRole('acme', 'ana', 'decisor_economico', { confirmed: true });
     crm.syncMessages('ana', [{ direction: 'in', body: 'Vamos falar', sentAt: '2026-11-09T10:00:00Z' }]);
 
     const [row] = crm.exportRows({ collectionId: 'col' });
     expect(row).toMatchObject({
       nome: 'Ana', linkedin: 'https://www.linkedin.com/in/ana/', empresa: 'ACME', emails: ['ana@acme.com'],
-      telefones: ['+55 11 99999-0000'], respondeu: 'sim', ultima_resposta: 'Vamos falar', comite: ['ACME: decisor (confirmado)'], 'custom.Segmento': 'Água',
+      telefones: ['+55 11 99999-0000'], respondeu: 'sim', ultima_resposta: 'Vamos falar', comite: ['ACME: Decisor econômico (confirmado)'], 'custom.Segmento': 'Água',
     });
     const c = engagementCampaign({ id: 'c', accountId: 'a', name: 'E', commentMode: 'manual' });
     crm.saveCampaign(c);

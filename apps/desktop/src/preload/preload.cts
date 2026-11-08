@@ -68,6 +68,8 @@ contextBridge.exposeInMainWorld('linkleads', {
   checkForUpdates: invoke('update:check'),
   installUpdate: invoke('update:install'),
   onUpdate: (cb: (s: unknown) => void) => ipcRenderer.on('update', (_e, s) => cb(s)),
+  lastDeepLink: invoke('deeplink:last'),
+  onDeepLink: (cb: (l: unknown) => void) => ipcRenderer.on('deeplink', (_e, l) => cb(l)),
   onLog: (cb: (entry: unknown) => void) => ipcRenderer.on('log', (_e, entry) => cb(entry)),
   onAccountsChanged: (cb: () => void) => ipcRenderer.on('accounts:changed', () => cb()),
 });

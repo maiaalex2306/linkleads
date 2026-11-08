@@ -173,6 +173,11 @@ function renderUpdate(st) {
     nav.prepend(h('button', { class: 'primary update', onclick: () => api.installUpdate() }, `Reiniciar e atualizar para ${st.version}`));
 }
 api.onUpdate(renderUpdate);
+
+// aberto por um clique no IAD CRM (linkleads://abrir?origem=iadcrm&empresa=…)
+api.onDeepLink((l) => {
+  if (l && l.origem === 'iadcrm') toast(`Aberto pelo IAD CRM${l.empresaNome ? ` · ${l.empresaNome}` : ''}`, 5000);
+});
 api.updateStatus().then(renderUpdate).catch(() => {});
 topNav();
 refresh();
