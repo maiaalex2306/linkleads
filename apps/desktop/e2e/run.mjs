@@ -98,7 +98,7 @@ try {
   console.log('Situação final:', c2.people.map((p) => `${p.name} (${p.company}): ${p.actionName} / ${p.status}`).join('; '));
   if (c2.people[0]?.status !== 'successful') fail('campanha não concluiu');
   await ui.getByRole('button', { name: 'Campanhas' }).click();
-  await ui.getByText('Nova campanha').waitFor();
+  await ui.getByText(/Suas campanhas/).waitFor();
   await ui.screenshot({ path: join(shots, 'campanhas.png'), fullPage: true });
   await call('setProvider', 'openai');
   await ui.getByRole('button', { name: 'Configurações', exact: true }).click();
@@ -107,7 +107,7 @@ try {
   await ui.emulateMedia({ colorScheme: 'dark' });
   await ui.getByRole('button', { name: '← Voltar' }).click();
   await ui.getByRole('button', { name: 'Campanhas' }).click();
-  await ui.getByText('Nova campanha').waitFor();
+  await ui.getByText(/Suas campanhas/).waitFor();
   await ui.screenshot({ path: join(shots, 'campanhas-escuro.png') });
 } catch (e) {
   fail(e.stack ?? e);

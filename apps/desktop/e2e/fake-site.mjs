@@ -192,6 +192,13 @@ export function startFakeSite(port = 0) {
         ? '<section class="pv-contact-info__contact-type ci-email"><a href="mailto:ana.silva@aguasdovale.com.br">ana.silva@aguasdovale.com.br</a></section>' : '';
       return html(`<div role="dialog" class="artdeco-modal"><div class="pv-contact-info">${email || '<p>Sem informações</p>'}</div></div>`);
     }
+    // layout novo do LinkedIn: nome só no título da aba (sem h1)
+    if (url === '/in/layout-novo/') {
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      return res.end(page('<section><h2 class="profile-name-x">Marina Costa</h2><div>Gerente Industrial</div></section>').replace('<head>', '<head><title>(3) Marina Costa | LinkedIn</title>'));
+    }
+    // página que nunca termina de mostrar o perfil (nem nome nem título)
+    if (url === '/in/sem-nada/') return html('<div class="loading">...</div>');
     const colleague = url.match(/^\/in\/([a-z-]+)\/$/);
     if (colleague && COLLEAGUES[colleague[1]]) {
       const p = COLLEAGUES[colleague[1]];

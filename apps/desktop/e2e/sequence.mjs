@@ -100,6 +100,7 @@ try {
   await ui.getByText('ver conversa').click();
   await ui.screenshot({ path: join(shots, 'fase2-inbox.png') });
   await ui.getByRole('button', { name: 'Campanhas' }).click();
+  await ui.getByRole('button', { name: '+ Criar nova campanha' }).click();
   await ui.getByText('Criar sequência').waitFor();
   await ui.screenshot({ path: join(shots, 'fase2-campanhas.png'), fullPage: true });
   await ui.getByRole('button', { name: 'Configurações', exact: true }).click();

@@ -36,6 +36,9 @@ import { attachContextMenu } from './context-menu.js';
 import { proxyRules } from './proxy-check.js';
 import { withTeamCaps } from './stats.js';
 import type { Settings } from './settings.js';
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { accountDir } from './account-store.js';
 
 /** IA falsa e determinística — somente nos testes e2e (LINKLEADS_TEST_AI_STUB). */
 const stubLlm: LlmClient = {
@@ -135,6 +138,8 @@ export class AccountInstance {
   private lastInboxScan = 0;
   private llmCache?: { key: string; llm: LlmClient };
   private loginAttempts: number[] = [];
+  private lastAutoDiag = 0;
+  private lastAutoDiagFile?: string;
   readonly live: LiveState = { state: 'idle', recent: [], upcoming: [] };
   /** login recusado pelo LinkedIn: não tenta de novo com o mesmo e-mail/senha (evita travar a conta) */
   private rejectedLogin?: string;
@@ -184,6 +189,17 @@ export class AccountInstance {
         return cfg ? { provider: new ApolloProvider(cfg.key, fetch, cfg.baseUrl), onlyWhenNoEmail: cfg.onlyWhenNoEmail } : null;
       },
       withBrowser: (fn) => this.withBrowser(fn),
+      reportUnrecognized: async () => {
+        // no máximo um relatório por hora (sem nomes: só a estrutura da página)
+        if (Date.now() - this.lastAutoDiag < 3_600_000) return this.lastAutoDiagFile;
+        this.lastAutoDiag = Date.now();
+        const r = await diagnosePage(this.driver, app.getVersion());
+        const file = join(accountDir(this.account.id), `diagnostico-perfil-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
+        writeFileSync(file, JSON.stringify(r, null, 2));
+        this.lastAutoDiagFile = file;
+        this.log(`Página de perfil não reconhecida: relatório salvo em ${file} (envie para ajustar os seletores)`);
+        return file;
+      },
       limits: {
         left: (key) => remainingBudget(this.effectiveAccount(), key, (k, since) => this.crm.usageTimes(this.account.id, k, since), now()),
         freeAt: (key) => nextFreeAt(this.effectiveAccount(), key, (k, since) => this.crm.usageTimes(this.account.id, k, since), now()),
@@ -255,11 +271,11 @@ export class AccountInstance {
     } else if (e.type === 'done') {
       const name = personName(this.crm.getPerson(e.person.id) ?? e.person);
       const why = e.reason ? REASON_PT[e.reason] ?? e.reason : '';
-      const text = e.ok ? `${e.action.name}: ${name}` : `${e.action.name}: ${name} — ${why}${e.retryAt ? ` (às ${hhmm(e.retryAt)})` : ''}${e.message && !e.ok && e.reason !== 'RETRY_LATER' ? ` · ${e.message}` : ''}`;
+      const text = e.ok ? `${e.action.name}: ${name}` : `${e.action.name}: ${name} — ${why}${e.retryAt ? ` (às ${hhmm(e.retryAt)})` : ''}${e.message && !e.ok ? ` · ${e.message}` : ''}`;
       this.remember(text, e.ok ? true : e.reason === 'AWAITING_APPROVAL' || e.reason === 'RETRY_LATER' || e.reason === 'NO_POST' ? null : false);
       this.log(`${e.ok ? '✓' : '•'} ${text}`);
     } else if (e.type === 'pause') {
-      Object.assign(L, { state: 'pausing', doing: undefined, plan: undefined, pauseUntil: e.until.toISOString(), nextPerson: personName(e.nextPerson) });
+      Object.assign(L, { state: 'pausing', campaign: e.campaign.name, doing: undefined, plan: undefined, pauseUntil: e.until.toISOString(), nextPerson: personName(e.nextPerson) });
       this.log(`⏸ Pausa humana de ${Math.round(e.ms / 1000)} s; depois: ${personName(e.nextPerson)}`);
     } else if (e.type === 'scheduled') {
       L.upcoming.push({ at: e.at.toISOString(), text: `${e.action.name}: ${personName(e.person)}` });

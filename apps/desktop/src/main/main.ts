@@ -263,7 +263,7 @@ ipcMain.handle('instance:live', (_e, id: string) => {
     else if (approval) explain = `Parada esperando VOCÊ: ${approval} rascunho(s) na aba Aprovações.`;
     else explain = `Campanha terminou: não há mais nada a fazer. ${done} etapa(s) concluída(s), ${failedRows.length} pessoa(s) com falha.` +
       (retryable ? ` ${retryable} falha(s) podem ser tentadas de novo.` : '');
-    return { id: c.id, name: c.name, total: rows.length, ready, waiting: later.length, next: later[0] ? { at: later[0].notBefore, text: `${later[0].actionName}: ${later[0].name}` } : null,
+    return { id: c.id, name: c.name, steps: c.actions.map((x) => x.name), total: rows.length, ready, waiting: later.length, next: later[0] ? { at: later[0].notBefore, text: `${later[0].actionName}: ${later[0].name}` } : null,
       done, failed: failedRows.length, approval, reasons, retryable, explain };
   });
   return { ...(inst?.live ?? { state: 'idle', recent: [], upcoming: [] }), running: !!inst, queues, now: t.toISOString() };

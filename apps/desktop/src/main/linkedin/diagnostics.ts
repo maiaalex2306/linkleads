@@ -58,6 +58,20 @@ export interface DiagnosisReport {
   labels: Array<{ label: LabelKey; pattern: string; matched: boolean }>;
   /** rótulos de botões visíveis (nome da pessoa trocado por [NOME]) */
   buttons: string[];
+  /** estrutura da página, sem textos: títulos (h1–h3) com classes e onde estão; para ajustar seletores */
+  structure?: { hasMain: boolean; titleEndsWithLinkedIn: boolean; headings: Array<{ tag: string; classes: string; inMain: boolean; textLength: number; parents: string }> };
+}
+
+/** Pura: lista os títulos da página sem o texto (só tag, classes e tamanho). */
+function pageStructure() {
+  const cls = (el: Element) => (typeof el.className === 'string' ? el.className : '').trim().split(/\s+/).slice(0, 6).join('.');
+  const headings = Array.from(document.querySelectorAll('h1, h2, h3')).slice(0, 25).map((el) => {
+    const chain: string[] = [];
+    let p = el.parentElement;
+    for (let i = 0; p && i < 4; i++, p = p.parentElement) chain.push(`${p.tagName.toLowerCase()}${cls(p) ? '.' + cls(p).split('.').slice(0, 3).join('.') : ''}`);
+    return { tag: el.tagName.toLowerCase(), classes: cls(el), inMain: !!el.closest('main'), textLength: (el.textContent || '').trim().length, parents: chain.join(' < ') };
+  });
+  return { hasMain: !!document.querySelector('main'), titleEndsWithLinkedIn: /\|\s*LinkedIn\s*$/i.test(document.title), headings };
 }
 
 /** Somente leitura: não clica, não digita, não navega. */
@@ -95,5 +109,6 @@ export async function diagnosePage(driver: PageDriver, appVersion: string): Prom
     keys,
     labels,
     buttons,
+    structure: await driver.read(pageStructure).catch(() => undefined),
   };
 }

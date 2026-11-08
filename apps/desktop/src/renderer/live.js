@@ -20,10 +20,12 @@ function liveHeader(a, L) {
   if (!a.running) return [h('div', { class: 'now' }, h('span', { class: 'pulse idle' }), h('strong', {}, 'Conta parada: nada está sendo feito.')),
     h('div', { class: 'muted' }, 'Clique em "Iniciar (abre o navegador)" para o LinkLeads começar a trabalhar.')];
   const main = {
-    working: () => [h('div', { class: 'now' }, h('span', { class: 'pulse' }), h('strong', {}, L.doing)),
-      h('div', { class: 'muted' }, `${L.campaign} · etapa ${L.step} de ${L.total} · começou há ${ago(L.since, L.now)}`),
+    working: () => [h('div', { class: 'running-camp' }, '▶ Rodando a campanha ', h('b', {}, `"${L.campaign}"`)),
+      h('div', { class: 'now' }, h('span', { class: 'pulse' }), h('strong', {}, L.doing)),
+      h('div', { class: 'muted' }, `etapa ${L.step} de ${L.total} · começou há ${ago(L.since, L.now)}`),
       L.plan && L.plan.length ? h('div', {}, h('span', { class: 'muted' }, 'Depois, com esta mesma pessoa: '), L.plan.join(' → ')) : null],
-    pausing: () => [h('div', { class: 'now' }, h('span', { class: 'pulse wait' }), h('strong', {}, `Pausa humana entre pessoas: próximo é ${L.nextPerson} em ${fmtLeft(L.pauseUntil, L.now)}`)),
+    pausing: () => [h('div', { class: 'running-camp' }, '▶ Rodando a campanha ', h('b', {}, `"${L.campaign}"`)),
+      h('div', { class: 'now' }, h('span', { class: 'pulse wait' }), h('strong', {}, `Pausa humana entre pessoas: próximo é ${L.nextPerson} em ${fmtLeft(L.pauseUntil, L.now)}`)),
       h('div', { class: 'muted' }, 'O intervalo varia (20 s a 3 min) para parecer uma pessoa usando o LinkedIn.')],
     inbox: () => [h('div', { class: 'now' }, h('span', { class: 'pulse' }), h('strong', {}, L.doing))],
     login: () => [h('div', { class: 'now' }, h('span', { class: 'pulse' }), h('strong', {}, L.doing))],
@@ -46,7 +48,8 @@ function liveHeader(a, L) {
 function liveQueues(a, L) {
   if (!L || !L.queues.length) return [];
   return [h('div', { class: 'stack q-list' }, ...L.queues.map((q) => h('div', { class: 'q card' },
-    h('div', { class: 'row' }, h('strong', { style: 'flex:1' }, q.name),
+    h('div', { class: 'row' }, h('strong', { style: 'flex:1' }, `Campanha "${q.name}"`),
+      h('span', { class: 'badge ' + (L.campaign === q.name && L.state !== 'idle' ? 'successful' : 'processed') }, L.campaign === q.name && L.state !== 'idle' ? 'rodando agora' : 'ativa'),
       q.retryable > 0 && h('button', { onclick: async (e) => {
         e.target.disabled = true;
         const n = await safe(() => api.retryFailed(a.id, q.id));
@@ -54,6 +57,7 @@ function liveQueues(a, L) {
         lastQueuesKey = '';
         refreshLive();
       } }, `Tentar de novo (${q.retryable})`)),
+    h('div', { class: 'muted' }, 'Etapas: ' + q.steps.join(' → ')),
     h('div', {}, q.explain),
     h('div', { class: 'muted' }, [`${q.total} pessoa(s)`, `${q.ready} pronta(s) agora`, q.waiting && `${q.waiting} agendada(s)`, `${q.done} etapa(s) concluída(s)`, q.failed && `${q.failed} falha(s)`, q.approval && `${q.approval} esperando aprovação`].filter(Boolean).join(' · ')),
     q.failed > 0 && h('div', { class: 'muted' }, 'Motivos das falhas: ' + Object.entries(q.reasons).map(([r, n]) => `${REASONS[r] || r} (${n})`).join(', ')))))];
@@ -91,7 +95,7 @@ async function refreshLive() {
   if (!a) return;
   if (box) {
     box.querySelector('.live-head').replaceChildren(...liveHeader(a, L));
-    const qk = JSON.stringify(L && L.queues);
+    const qk = JSON.stringify(L && [L.queues, L.campaign, L.state === 'idle']);
     if (qk !== lastQueuesKey) { lastQueuesKey = qk; box.querySelector('.live-queues').replaceChildren(...liveQueues(a, L)); }
     const lk = JSON.stringify(L && [L.recent, L.upcoming.filter((u) => u.at > L.now)]);
     if (lk !== lastListsKey) { lastListsKey = lk; box.querySelector('.live-lists').replaceChildren(...liveLists(L)); }

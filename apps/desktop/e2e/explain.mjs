@@ -1,6 +1,6 @@
 // E2E: a tela explica por que nada acontece (campanha terminada com falhas) e permite tentar de novo.
 import { createRequire } from 'node:module';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,6 +14,8 @@ const tmp = mkdtempSync(join(tmpdir(), 'linkleads-exp-'));
 const shots = process.env.SHOT_DIR ?? tmp;
 const csv = join(tmp, 'leads.csv');
 writeFileSync(csv, 'profileUrl\nhttps://www.linkedin.com/in/nao-existe-1/\nhttps://www.linkedin.com/in/nao-existe-2/\n');
+const csv2 = join(tmp, 'layout.csv');
+writeFileSync(csv2, 'profileUrl\nhttps://www.linkedin.com/in/layout-novo/\nhttps://www.linkedin.com/in/sem-nada/\n');
 
 const site = await startFakeSite();
 const app = await electron.launch({
@@ -63,6 +65,27 @@ try {
   await ui.waitForTimeout(1500);
   L = await call('liveStatus', acc.id);
   check(L.queues[0].ready === 2 && L.queues[0].failed === 0, '"Tentar de novo" devolve as 2 para a fila', L.queues[0]);
+
+  // layout novo: nome só no título da aba; e página que não mostra o perfil (gera relatório)
+  await call('setCampaignActive', acc.id, camp.campaignId, false);
+  await app.evaluate(({ dialog }, f) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [f] }); }, csv2);
+  const imp2 = await call('importCsv', acc.id);
+  const c2 = await call('createEngagementCampaign', acc.id, { name: 'Layout', collectionId: imp2.collectionId, commentMode: 'manual', tone: 'profissional', extraInstructions: '', maxPostAgeDays: 30 });
+  await call('setCampaignActive', acc.id, c2.campaignId, true);
+  await call('runNow', acc.id);
+  const ppl = (await call('listCampaigns', acc.id)).find((c) => c.name === 'Layout').people;
+  const marina = ppl.find((p) => p.publicId === 'layout-novo');
+  check(marina && marina.name === 'Marina Costa' && marina.actionName !== 'Visitar e extrair perfil', 'layout novo: reconhece o perfil pelo título da aba e segue o fluxo', marina);
+  const semNada = ppl.find((p) => p.publicId === 'sem-nada');
+  check(semNada && semNada.reason === 'RETRY_LATER', 'página sem perfil: tenta de novo mais tarde', semNada);
+  const L2 = await call('liveStatus', acc.id);
+  const rel = L2.recent.find((r) => /Relatório para ajuste: .*diagnostico-perfil-.*\.json/.test(r.text));
+  check(!!rel, 'salva um relatório de diagnóstico e mostra onde', L2.recent.slice(0, 4));
+  if (rel) {
+    const file = rel.text.match(/Relatório para ajuste: (\S+\.json)/)[1];
+    const rep = JSON.parse(readFileSync(file, 'utf8'));
+    check(rep.structure && Array.isArray(rep.structure.headings) && !JSON.stringify(rep).includes('sem-nada'), 'relatório traz a estrutura da página, sem o identificador da pessoa', rep.structure);
+  }
 } catch (e) {
   fail(e.stack ?? e);
 } finally {

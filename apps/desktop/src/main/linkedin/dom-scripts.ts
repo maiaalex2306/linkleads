@@ -21,8 +21,15 @@ export function extractProfile(sel: Record<string, readonly string[]>): ProfileE
     }
     return null;
   };
+  // plano B: o título da aba ("(3) Fulano de Tal | LinkedIn") — o LinkedIn sempre preenche, mesmo com layout novo
+  const fromTitle = () => {
+    if (!/^\/in\//.test(location.pathname)) return null;
+    const t = document.title.replace(/^\(\d+\+?\)\s*/, '').replace(/\s*[|·–-]\s*LinkedIn\s*$/i, '').trim();
+    if (!t || /^linkedin$/i.test(t) || /not found|não encontrad|indisponível|unavailable/i.test(t)) return null;
+    return t;
+  };
   return {
-    name: pick(sel.profileName!),
+    name: pick(sel.profileName!) ?? fromTitle(),
     headline: pick(sel.profileHeadline!),
     location: pick(sel.profileLocation!),
     degree: pick(sel.profileDegree!),
@@ -286,4 +293,23 @@ export function visibleButtonLabels(scopes: readonly string[], personName: strin
     }
   }
   return [...out].slice(0, 40);
+}
+
+/**
+ * O perfil terminou de carregar? 'ok' (nome na página ou no título), 'not_found' (página de erro) ou null (ainda não).
+ * Pura (roda no mundo isolado).
+ */
+export function profileReady(sel: Record<string, readonly string[]>): 'ok' | 'not_found' | null {
+  const has = (cands: readonly string[]) => cands.some((c) => {
+    const el = document.querySelector(c);
+    return !!el && !!el.textContent?.trim();
+  });
+  const title = document.title || '';
+  if (sel.profileNotFound!.some((c) => document.querySelector(c)) || /page not found|página não encontrada|this page doesn.t exist|esta página não existe/i.test(title)) return 'not_found';
+  if (has(sel.profileName!)) return 'ok';
+  if (/^\/in\//.test(location.pathname) && /\|\s*LinkedIn\s*$/i.test(title) && document.readyState !== 'loading') {
+    const t = title.replace(/^\(\d+\+?\)\s*/, '').replace(/\s*\|\s*LinkedIn\s*$/i, '').trim();
+    if (t && !/^linkedin$/i.test(t)) return 'ok';
+  }
+  return null;
 }

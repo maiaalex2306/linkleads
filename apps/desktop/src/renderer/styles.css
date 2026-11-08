@@ -124,3 +124,4 @@ table.limits td { white-space:nowrap; }
 .live .q.card { padding:10px 12px; box-shadow:none; gap:4px; display:flex; flex-direction:column; }
 
 .build-tag { margin-left:16px; font-size:12px; opacity:.75; color:var(--inverso); }
+.live .running-camp { font-size:13px; color:var(--brand); }

@@ -124,7 +124,7 @@ function sequenceForm(a, cols, settings, integ) {
         invite: invite.read(), acceptTimeoutDays: Number(timeout.value), withdrawOnTimeout: withdraw.checked,
         messages: steps.map((s) => s.read()),
       }));
-      if (r) { toast(`Sequência criada com ${r.enqueued} pessoas na fila. Ative-a para começar.`); renderView(); }
+      if (r) { state.newCampaignOpen = false; toast(`Sequência criada com ${r.enqueued} pessoas na fila. Ative-a para começar.`); renderView(); }
     },
   },
     !settings.hasAiKey && h('div', { class: 'muted', style: 'color:var(--warn)' }, 'A IA escolhida ainda não tem chave (Configurações da IA). Etapas "personalizadas pela IA" vão falhar até lá.'),
@@ -170,7 +170,7 @@ function engagementForm(a, cols) {
         name: f.get('name'), collectionId: f.get('collectionId'), commentMode: f.get('commentMode'), tone: f.get('tone'),
         extraInstructions: f.get('extraInstructions'), maxPostAgeDays: Number(f.get('maxPostAgeDays')),
       }));
-      if (r) { toast(`Campanha criada com ${r.enqueued} pessoas na fila. Ative-a para começar.`); renderView(); }
+      if (r) { state.newCampaignOpen = false; toast(`Campanha criada com ${r.enqueued} pessoas na fila. Ative-a para começar.`); renderView(); }
     },
   },
     h('div', { class: 'muted' }, 'Visitar → Curtir o post mais recente → Comentar com IA.'),
@@ -253,6 +253,7 @@ function campaignCard(a, c, cols) {
   });
   return h('div', { class: 'card stack' },
     h('div', { class: 'row' },
+      h('span', { class: 'badge ' + (c.active ? 'successful' : '') }, c.active ? 'ATIVA' : 'PAUSADA'),
       h('strong', { style: 'flex:1' }, c.name),
       countsEl,
       addCol,
@@ -280,9 +281,15 @@ async function campaignsView(a) {
     formBox.replaceChildren(newCampaignKind === 'sequence' ? sequenceForm(a, cols, settings, integ) : engagementForm(a, cols));
   };
   renderForm();
+  const formOpen = state.newCampaignOpen || !camps.length;
+  const sorted = [...camps].sort((x, y) => Number(y.active) - Number(x.active));
   return h('div', { class: 'stack' },
-    h('div', { class: 'card stack' }, h('strong', {}, 'Nova campanha'), !cols.length && h('div', { class: 'muted' }, 'Importe uma coleção (CSV) primeiro.'), tabs, formBox),
-    ...camps.map((c) => campaignCard(a, c, cols)),
+    h('div', { class: 'row' },
+      h('h3', { style: 'margin:0;flex:1' }, camps.length ? `Suas campanhas (${camps.filter((c) => c.active).length} ativa(s) de ${camps.length})` : 'Nenhuma campanha ainda'),
+      camps.length > 0 && h('button', { class: formOpen ? '' : 'primary', onclick: () => { state.newCampaignOpen = !formOpen; renderView(); } }, formOpen ? 'Fechar "Nova campanha"' : '+ Criar nova campanha')),
+    camps.length > 0 && h('div', { class: 'muted' }, 'Só as campanhas ATIVAS rodam. Com mais de uma ativa, o app passa por todas, uma de cada vez.'),
+    ...sorted.map((c) => campaignCard(a, c, cols)),
+    formOpen && h('div', { class: 'card stack' }, h('strong', {}, 'Nova campanha'), !cols.length && h('div', { class: 'muted' }, 'Importe uma coleção (CSV) primeiro.'), tabs, formBox),
   );
 }
 

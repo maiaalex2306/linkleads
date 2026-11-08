@@ -3,7 +3,7 @@ import { detectJobChange, getActionDefinition, parseRelativeAgeDays, publicIdFro
 import type { CommentSettings, LlmClient, PostInterpreter } from '@linkleads/ai';
 import type { IntegrationCrm } from '@linkleads/db';
 import type { EnrichmentProvider } from '@linkleads/integrations';
-import { commentPublished, editorText, extractPosts, extractProfile, likeState, type PostExtract } from './dom-scripts.js';
+import { commentPublished, editorText, extractPosts, extractProfile, likeState, profileReady, type PostExtract } from './dom-scripts.js';
 import { BlockedError, type PageDriver } from './page-driver.js';
 
 /** LINKLEADS_TEST_BASE_URL aponta para o site falso dos testes e2e; nunca usar em produção. */
@@ -38,6 +38,8 @@ export interface ExecutorDeps {
   withBrowser: <T>(fn: () => Promise<T>) => Promise<T>;
   /** limites da conta (vagas e quando abrem); ausente = sem controle (testes de unidade) */
   limits?: { left: (key: BudgetKey) => number; freeAt: (key: BudgetKey) => Date | undefined };
+  /** página aberta mas não reconhecida: salva um relatório de diagnóstico (sem nomes) e devolve onde */
+  reportUnrecognized?: () => Promise<string | undefined>;
 }
 
 /** Converte bloqueio da plataforma em THROTTLED (o motor pausa a conta). */
@@ -68,8 +70,7 @@ function degreeOf(label: string | null): 1 | 2 | 3 | undefined {
 export async function awaitProfile(d: ExecutorDeps): Promise<'ok' | 'not_found' | 'timeout'> {
   let state: 'ok' | 'not_found' | undefined;
   await d.driver.waitUntil(async () => {
-    if (await d.driver.exists('profileNotFound')) state = 'not_found';
-    else if (await d.driver.exists('profileName')) state = 'ok';
+    state = (await d.driver.read(profileReady, d.driver.sel as unknown as Record<string, readonly string[]>).catch(() => null)) ?? undefined;
     return !!state;
   }, 25_000, 500);
   return state ?? 'timeout';
@@ -115,7 +116,13 @@ export function visitAndExtract(d: ExecutorDeps): ActionExecutor {
           if (open !== 'ok') return noUrlSlot(open.retryAt);
           const st = await awaitProfile(d);
           if (st === 'not_found') return { ok: false, reason: 'NOT_FOUND', message: `O LinkedIn mostrou "página não encontrada" para ${profileUrl(ctx.person)}` };
-          if (st === 'timeout') return { ok: false, reason: 'RETRY_LATER', retryAfterMs: 3 * 3_600_000, message: 'O perfil não carregou (página lenta ou layout diferente); tenta de novo em 3 h' };
+          if (st === 'timeout') {
+            const file = await d.reportUnrecognized?.().catch(() => undefined);
+            return {
+              ok: false, reason: 'RETRY_LATER', retryAfterMs: 3 * 3_600_000,
+              message: `O perfil abriu, mas o app não reconheceu a página (lenta ou layout diferente do esperado); tenta de novo em 3 h${file ? `. Relatório para ajuste: ${file}` : ''}`,
+            };
+          }
           await d.driver.browse(200, 900); // "lê" o perfil
           return captureOpenProfile(d, ctx.person);
         }),
