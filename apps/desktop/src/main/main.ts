@@ -7,6 +7,9 @@ import {
   DEFAULT_LIMIT_RULES,
   LIMIT_LABELS,
   limitStatus,
+  remainingBudget,
+  nextFreeAt,
+  isWithinWorkingHours,
   type BudgetKey,
   type LimitRule,
   engagementCampaign,
@@ -218,21 +221,52 @@ ipcMain.handle('accounts:remove', async (_e, id: string) => {
 
 ipcMain.handle('instance:start', (_e, id: string) => void instances.start(account(id)));
 ipcMain.handle('instance:stop', (_e, id: string) => instances.stop(id));
+/** Falhas que podem mudar numa nova tentativa (página não carregou, erro, sem efeito, bloqueio, sem post). */
+const RETRYABLE = ['NOT_FOUND', 'ERROR', 'NO_REAL_EFFECT', 'THROTTLED', 'NO_POST', 'LIMIT_REACHED'];
+
+ipcMain.handle('campaigns:retryFailed', (_e, id: string, campaignId: string) => {
+  const crm = crms.get(account(id));
+  const n = crm.retryFailed(campaignId, RETRYABLE);
+  return n;
+});
+
 /** Painel "Agora": o que a conta está fazendo, a próxima pausa/ciclo e os próximos passos agendados. */
 ipcMain.handle('instance:live', (_e, id: string) => {
   const inst = instances.get(id);
-  if (!inst) return null;
-  const crm = crms.get(account(id));
+  const acc = inst?.account ?? account(id);
+  const crm = crms.get(acc);
   const t = now();
-  // fila por campanha: quantos prontos para agora e o próximo agendado
+  const read = (k: BudgetKey, since: number) => crm.usageTimes(acc.id, k, since);
+  const hhmm = (iso: string) => new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  // limites gerais que travam tudo (abrir perfil)
+  const blockedBy = (['activity', 'profile_load'] as BudgetKey[]).map((k) => ({ k, left: remainingBudget(acc, k, read, t), at: nextFreeAt(acc, k, read, t) })).find((x) => x.left <= 0);
+  const inside = isWithinWorkingHours(t, acc.workingHours);
+  // fila por campanha: o que está pronto, agendado, terminado e POR QUE nada acontece
   const queues = crm.listCampaigns(id).filter((c) => c.active).map((c) => {
     const rows = crm.campaignPeople(c);
-    const ready = rows.filter((r) => r.status === 'queued' && (!r.notBefore || r.notBefore <= t.toISOString())).length;
-    const later = rows.filter((r) => r.status === 'queued' && r.notBefore && r.notBefore > t.toISOString()).sort((a, b) => a.notBefore!.localeCompare(b.notBefore!));
-    return { name: c.name, ready, waiting: later.length, next: later[0] ? { at: later[0].notBefore, text: `${later[0].actionName}: ${later[0].name}` } : null,
-      done: rows.filter((r) => r.status === 'successful').length, failed: rows.filter((r) => r.status === 'failed').length, approval: rows.filter((r) => r.reason === 'AWAITING_APPROVAL').length };
+    const nowIso = t.toISOString();
+    const ready = rows.filter((r) => r.status === 'queued' && (!r.notBefore || r.notBefore <= nowIso)).length;
+    const later = rows.filter((r) => r.status === 'queued' && r.notBefore && r.notBefore > nowIso).sort((a, b) => a.notBefore!.localeCompare(b.notBefore!));
+    const failedRows = rows.filter((r) => r.status === 'failed');
+    const reasons: Record<string, number> = {};
+    for (const r of failedRows) reasons[r.reason ?? 'ERROR'] = (reasons[r.reason ?? 'ERROR'] ?? 0) + 1;
+    const retryable = failedRows.filter((r) => RETRYABLE.includes(r.reason ?? 'ERROR')).length;
+    const approval = rows.filter((r) => r.reason === 'AWAITING_APPROVAL').length;
+    const done = rows.filter((r) => r.status === 'successful').length;
+    let explain: string;
+    if (!rows.length) explain = 'Campanha sem pessoas: adicione uma coleção a ela na aba Campanhas.';
+    else if (ready && acc.paused) explain = `${ready} pessoa(s) prontas, mas a automação está PAUSADA nesta conta.`;
+    else if (ready && !inside) explain = `${ready} pessoa(s) prontas, esperando o horário de trabalho (${acc.workingHours.start}–${acc.workingHours.end}).`;
+    else if (ready && blockedBy) explain = `${ready} pessoa(s) prontas, mas o limite "${LIMIT_LABELS[blockedBy.k]}" das últimas 24 h acabou${blockedBy.at ? `: libera às ${hhmm(blockedBy.at.toISOString())}` : ''}.`;
+    else if (ready) explain = `${ready} pessoa(s) prontas: o app trabalha nelas agora ou no próximo ciclo.`;
+    else if (later.length) explain = `Ninguém pronto agora. Próximo passo agendado: ${later[0]!.actionName} de ${later[0]!.name} em ${hhmm(later[0]!.notBefore!)}.`;
+    else if (approval) explain = `Parada esperando VOCÊ: ${approval} rascunho(s) na aba Aprovações.`;
+    else explain = `Campanha terminou: não há mais nada a fazer. ${done} etapa(s) concluída(s), ${failedRows.length} pessoa(s) com falha.` +
+      (retryable ? ` ${retryable} falha(s) podem ser tentadas de novo.` : '');
+    return { id: c.id, name: c.name, total: rows.length, ready, waiting: later.length, next: later[0] ? { at: later[0].notBefore, text: `${later[0].actionName}: ${later[0].name}` } : null,
+      done, failed: failedRows.length, approval, reasons, retryable, explain };
   });
-  return { ...inst.live, queues, now: t.toISOString() };
+  return { ...(inst?.live ?? { state: 'idle', recent: [], upcoming: [] }), running: !!inst, queues, now: t.toISOString() };
 });
 
 ipcMain.handle('instance:runNow', (_e, id: string, opts?: { ignoreHours?: boolean }) =>

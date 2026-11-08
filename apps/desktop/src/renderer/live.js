@@ -1,4 +1,4 @@
-/* global h, api, state, healthBar */
+/* global h, api, state, healthBar, safe, toast, REASONS */
 /* Painel "Agora": o que a conta está fazendo, o que vem depois e o que já foi feito. Atualiza a cada segundo. */
 
 const fmtLeft = (iso, nowIso) => {
@@ -15,9 +15,10 @@ const fmtAt = (iso) => {
 };
 const ago = (iso, nowIso) => fmtLeft(nowIso, iso);
 
-function liveContent(a, L) {
-  if (!a.running) return [h('div', { class: 'muted' }, 'Conta parada: clique em "Iniciar" para o LinkLeads começar a trabalhar.')];
+function liveHeader(a, L) {
   if (!L) return [h('div', { class: 'muted' }, 'Carregando…')];
+  if (!a.running) return [h('div', { class: 'now' }, h('span', { class: 'pulse idle' }), h('strong', {}, 'Conta parada: nada está sendo feito.')),
+    h('div', { class: 'muted' }, 'Clique em "Iniciar (abre o navegador)" para o LinkLeads começar a trabalhar.')];
   const main = {
     working: () => [h('div', { class: 'now' }, h('span', { class: 'pulse' }), h('strong', {}, L.doing)),
       h('div', { class: 'muted' }, `${L.campaign} · etapa ${L.step} de ${L.total} · começou há ${ago(L.since, L.now)}`),
@@ -26,30 +27,56 @@ function liveContent(a, L) {
       h('div', { class: 'muted' }, 'O intervalo varia (20 s a 3 min) para parecer uma pessoa usando o LinkedIn.')],
     inbox: () => [h('div', { class: 'now' }, h('span', { class: 'pulse' }), h('strong', {}, L.doing))],
     login: () => [h('div', { class: 'now' }, h('span', { class: 'pulse' }), h('strong', {}, L.doing))],
-    idle: () => [h('div', { class: 'now' }, h('span', { class: 'pulse idle' }), h('strong', {},
-      L.nextCycleAt ? `Aguardando o próximo ciclo: em ${fmtLeft(L.nextCycleAt, L.now)} (às ${fmtAt(L.nextCycleAt)})` : 'Aguardando')),
-      h('div', { class: 'muted' }, L.queues.some((q) => q.ready) ? 'Há pessoas prontas na fila: no próximo ciclo o app continua de onde parou (ou clique em "Rodar agora").'
-        : L.queues.length ? 'Ninguém pronto para agora: as próximas etapas estão agendadas (veja abaixo).' : 'Nenhuma campanha ativa: ative uma campanha na aba Campanhas.')],
+    idle: () => {
+      const anyReady = L.queues.some((q) => q.ready);
+      const title = !L.queues.length ? 'Parado: nenhuma campanha ativa.'
+        : anyReady ? `Há pessoas prontas: próximo ciclo em ${L.nextCycleAt ? fmtLeft(L.nextCycleAt, L.now) : '—'}`
+          : L.queues.some((q) => q.waiting) ? 'Esperando: os próximos passos têm dia e hora marcados (veja abaixo).'
+            : L.queues.some((q) => q.approval) ? 'Parado esperando você aprovar rascunhos (aba Aprovações).'
+              : 'Parado: as campanhas ativas não têm mais nada a fazer.';
+      return [h('div', { class: 'now' }, h('span', { class: 'pulse idle' }), h('strong', {}, title)),
+        h('div', { class: 'muted' }, !L.queues.length ? 'Ative uma campanha na aba Campanhas.'
+          : `O app confere a cada 5 minutos${L.nextCycleAt ? ` (próxima conferência às ${fmtAt(L.nextCycleAt)})` : ''}. Veja abaixo o motivo de cada campanha.`)];
+    },
   }[L.state] || (() => []);
-  const queues = L.queues.map((q) => h('div', { class: 'q' }, h('strong', {}, q.name), ': ',
-    [`${q.ready} pronta(s) para agora`, q.waiting && `${q.waiting} agendada(s)`, q.done && `${q.done} concluída(s)`, q.failed && `${q.failed} falha(s)`, q.approval && `${q.approval} esperando sua aprovação`].filter(Boolean).join(' · '),
-    q.next && h('span', { class: 'muted' }, ` · próximo agendado: ${q.next.text} às ${fmtAt(q.next.at)}`)));
-  const up = L.upcoming.filter((u) => u.at > L.now).slice(0, 5);
-  return [
-    ...main(),
-    queues.length ? h('div', { class: 'stack q-list' }, ...queues) : null,
-    h('div', { class: 'cols' },
-      h('div', {}, h('div', { class: 'muted' }, 'O que vem depois'),
-        up.length ? h('ul', {}, ...up.map((u) => h('li', {}, h('span', { class: 'muted' }, fmtAt(u.at) + ' '), u.text))) : h('div', { class: 'muted' }, '—')),
-      h('div', {}, h('div', { class: 'muted' }, 'O que acabou de fazer'),
-        L.recent.length ? h('ul', {}, ...L.recent.slice(0, 8).map((r) => h('li', { class: r.ok === true ? 'ok' : r.ok === false ? 'bad' : '' },
-          h('span', { class: 'muted' }, fmtAt(r.at) + ' '), r.ok === true ? '✓ ' : r.ok === false ? '✗ ' : '• ', r.text))) : h('div', { class: 'muted' }, 'Nada ainda nesta sessão.'))),
-  ];
+  return main();
 }
 
+/** Uma linha por campanha ativa: o motivo, os números e "Tentar de novo" (estável: só redesenha quando os dados mudam). */
+function liveQueues(a, L) {
+  if (!L || !L.queues.length) return [];
+  return [h('div', { class: 'stack q-list' }, ...L.queues.map((q) => h('div', { class: 'q card' },
+    h('div', { class: 'row' }, h('strong', { style: 'flex:1' }, q.name),
+      q.retryable > 0 && h('button', { onclick: async (e) => {
+        e.target.disabled = true;
+        const n = await safe(() => api.retryFailed(a.id, q.id));
+        if (n != null) toast(`${n} pessoa(s) voltaram para a fila de "${q.name}"`);
+        lastQueuesKey = '';
+        refreshLive();
+      } }, `Tentar de novo (${q.retryable})`)),
+    h('div', {}, q.explain),
+    h('div', { class: 'muted' }, [`${q.total} pessoa(s)`, `${q.ready} pronta(s) agora`, q.waiting && `${q.waiting} agendada(s)`, `${q.done} etapa(s) concluída(s)`, q.failed && `${q.failed} falha(s)`, q.approval && `${q.approval} esperando aprovação`].filter(Boolean).join(' · ')),
+    q.failed > 0 && h('div', { class: 'muted' }, 'Motivos das falhas: ' + Object.entries(q.reasons).map(([r, n]) => `${REASONS[r] || r} (${n})`).join(', ')))))];
+}
+
+function liveLists(L) {
+  if (!L) return [];
+  const up = L.upcoming.filter((u) => u.at > L.now).slice(0, 5);
+  return [h('div', { class: 'cols' },
+    h('div', {}, h('div', { class: 'muted' }, 'O que vem depois'),
+      up.length ? h('ul', {}, ...up.map((u) => h('li', {}, h('span', { class: 'muted' }, fmtAt(u.at) + ' '), u.text))) : h('div', { class: 'muted' }, '—')),
+    h('div', {}, h('div', { class: 'muted' }, 'O que acabou de fazer'),
+      L.recent.length ? h('ul', {}, ...L.recent.slice(0, 8).map((r) => h('li', { class: r.ok === true ? 'ok' : r.ok === false ? 'bad' : '' },
+        h('span', { class: 'muted' }, fmtAt(r.at) + ' '), r.ok === true ? '✓ ' : r.ok === false ? '✗ ' : '• ', r.text))) : h('div', { class: 'muted' }, 'Nada ainda nesta sessão.')))];
+}
+
+let lastQueuesKey = '';
+let lastListsKey = '';
 function livePanel(a) {
-  const box = h('div', { class: 'live card stack', id: 'live-box', 'data-account': a.id }, ...liveContent(a, null));
-  return box;
+  lastQueuesKey = '';
+  lastListsKey = '';
+  return h('div', { class: 'live card stack', id: 'live-box', 'data-account': a.id },
+    h('div', { class: 'live-head stack' }, ...liveHeader(a, null)), h('div', { class: 'live-queues' }), h('div', { class: 'live-lists' }));
 }
 
 async function refreshLive() {
@@ -62,7 +89,13 @@ async function refreshLive() {
   if (id !== state.accountId) return;
   const a = accounts.find((x) => x.id === id);
   if (!a) return;
-  if (box) box.replaceChildren(...liveContent(a, L));
+  if (box) {
+    box.querySelector('.live-head').replaceChildren(...liveHeader(a, L));
+    const qk = JSON.stringify(L && L.queues);
+    if (qk !== lastQueuesKey) { lastQueuesKey = qk; box.querySelector('.live-queues').replaceChildren(...liveQueues(a, L)); }
+    const lk = JSON.stringify(L && [L.recent, L.upcoming.filter((u) => u.at > L.now)]);
+    if (lk !== lastListsKey) { lastListsKey = lk; box.querySelector('.live-lists').replaceChildren(...liveLists(L)); }
+  }
   if (health) health.replaceChildren(healthBar(stats));
   if (state.tab === 'campaigns') refreshCampaignTables(id).catch(() => {});
 }

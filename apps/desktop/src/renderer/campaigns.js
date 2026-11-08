@@ -235,7 +235,8 @@ function campaignCard(a, c, cols) {
     body.replaceChildren(
       h('table', {}, h('tr', {}, h('th', {}, 'Pessoa'), h('th', {}, 'Empresa'), h('th', {}, 'Etapa'), h('th', {}, 'Situação'), h('th', {}, 'Quando')),
         ...people.slice(0, 300).map((p) => h('tr', {}, h('td', {}, p.name), h('td', {}, p.company || '—'), h('td', {}, p.actionName),
-          h('td', {}, h('span', { class: 'badge ' + p.status }, STATUS[p.status]), p.reason ? h('span', { class: 'muted' }, ' ' + (REASONS[p.reason] || p.reason)) : ''),
+          h('td', {}, h('span', { class: 'badge ' + p.status }, STATUS[p.status]), p.reason ? h('span', { class: 'muted' }, ' ' + (REASONS[p.reason] || p.reason)) : '',
+            p.message && p.status === 'failed' ? h('div', { class: 'muted', style: 'font-size:12px;max-width:420px' }, p.message) : ''),
           h('td', { class: 'muted' }, when(p))))));
   };
   showPeople(c.people);
@@ -256,6 +257,10 @@ function campaignCard(a, c, cols) {
       countsEl,
       addCol,
       exportButton(a, { campaignId: c.id, name: c.name }),
+      c.people.some((p) => p.status === 'failed') && h('button', { title: 'Devolve para a fila quem falhou por perfil que não carregou, erro, sem efeito confirmado ou sem post', onclick: async () => {
+        const n = await safe(() => api.retryFailed(a.id, c.id));
+        if (n != null) { toast(n ? `${n} pessoa(s) voltaram para a fila` : 'Nenhuma falha que valha tentar de novo (ex.: respondeu, fora do ICP)'); renderView(); }
+      } }, 'Tentar de novo as falhas'),
       h('button', { onclick: () => { showingTable = false; body.replaceChildren(campaignEditor(a, c, () => renderView())); } }, 'Editar etapas'),
       h('button', { class: c.active ? '' : 'primary', onclick: () => safe(() => api.setCampaignActive(a.id, c.id, !c.active)).then(renderView) }, c.active ? 'Pausar' : 'Ativar'),
     ),

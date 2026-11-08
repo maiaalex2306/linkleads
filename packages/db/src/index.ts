@@ -121,6 +121,14 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
       CREATE INDEX IF NOT EXISTS usage_events_key_at ON usage_events (key, at);
     `,
   },
+  {
+    version: 8,
+    // detalhe do motivo de cada falha, para a tela explicar o que aconteceu
+    sql: `
+      ALTER TABLE campaign_action_people ADD COLUMN message TEXT;
+      ALTER TABLE action_log ADD COLUMN message TEXT;
+    `,
+  },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.version;
@@ -142,7 +150,14 @@ export function openAccountDb(path: string): DatabaseSync {
     if (m.version <= version) continue;
     db.exec('BEGIN');
     try {
-      db.exec(m.sql);
+      // um comando por vez: "ADD COLUMN" de coluna que já existe (migração repetida) é ignorado
+      for (const stmt of m.sql.split(';').map((x) => x.trim()).filter(Boolean)) {
+        try {
+          db.exec(stmt);
+        } catch (e) {
+          if (!(/ADD COLUMN/i.test(stmt) && /duplicate column name/i.test(String(e)))) throw e;
+        }
+      }
       db.prepare('UPDATE schema_version SET version = ?').run(m.version);
       db.exec('COMMIT');
       version = m.version;
@@ -218,18 +233,34 @@ export class SqliteCampaignStore implements CampaignStore {
     return rows.map(rowToPerson);
   }
 
-  setStatus(campaignId: string, actionId: string, personId: string, status: PersonActionStatus, reason?: FailureReason): void {
+  setStatus(campaignId: string, actionId: string, personId: string, status: PersonActionStatus, reason?: FailureReason, message?: string): void {
     this.db
       .prepare(
-        `INSERT INTO campaign_action_people (campaign_id, action_id, person_id, status, reason, seq)
-         VALUES (?, ?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM campaign_action_people))
-         ON CONFLICT(action_id, person_id) DO UPDATE SET status=excluded.status, reason=excluded.reason, updated_at=datetime('now')`,
+        `INSERT INTO campaign_action_people (campaign_id, action_id, person_id, status, reason, message, seq)
+         VALUES (?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM campaign_action_people))
+         ON CONFLICT(action_id, person_id) DO UPDATE SET status=excluded.status, reason=excluded.reason, message=excluded.message, updated_at=datetime('now')`,
       )
-      .run(campaignId, actionId, personId, status, reason ?? null);
+      .run(campaignId, actionId, personId, status, reason ?? null, message ?? null);
     if (status !== 'queued')
       this.db
-        .prepare('INSERT INTO action_log (campaign_id, action_id, person_id, status, reason) VALUES (?, ?, ?, ?, ?)')
-        .run(campaignId, actionId, personId, status, reason ?? null);
+        .prepare('INSERT INTO action_log (campaign_id, action_id, person_id, status, reason, message) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(campaignId, actionId, personId, status, reason ?? null, message ?? null);
+  }
+
+  /**
+   * Devolve para a fila (na mesma etapa) quem falhou por motivos que podem mudar
+   * (perfil não carregou, erro, sem efeito confirmado…). Não mexe em quem respondeu,
+   * pediu para parar, foi excluído ou ficou fora do ICP.
+   */
+  retryFailed(campaignId: string, reasons: string[]): number {
+    if (!reasons.length) return 0;
+    const r = this.db
+      .prepare(
+        `UPDATE campaign_action_people SET status = 'queued', reason = NULL, message = NULL, not_before = NULL, updated_at = datetime('now')
+         WHERE campaign_id = ? AND status = 'failed' AND reason IN (${reasons.map(() => '?').join(',')})`,
+      )
+      .run(campaignId, ...reasons);
+    return Number(r.changes);
   }
 
   enqueue(campaignId: string, actionId: string, personId: string, notBefore?: Date): void {
@@ -315,6 +346,8 @@ export interface CampaignPersonRow {
   updatedAt: string;
   /** na fila só a partir deste momento (ISO), quando há espera */
   notBefore?: string;
+  /** detalhe do motivo (falhas) */
+  message?: string;
 }
 
 /** Operações de CRM local além do contrato do motor (coleções, campanhas, posts, rascunhos). */
@@ -471,6 +504,7 @@ export class LocalCrm extends SqliteCampaignStore {
       reason: (r.reason as string) ?? undefined,
       updatedAt: r.updated_at as string,
       notBefore: r.not_before ? new Date(Number(r.not_before)).toISOString() : undefined,
+      message: (r.message as string) ?? undefined,
     }));
   }
 

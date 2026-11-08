@@ -121,3 +121,4 @@ table.limits td { vertical-align:middle; }
 aside form.new-account input, aside form.new-account > select { width:100%; max-width:100%; box-sizing:border-box; min-width:0; }
 aside { overflow-x:hidden; }
 table.limits td { white-space:nowrap; }
+.live .q.card { padding:10px 12px; box-shadow:none; gap:4px; display:flex; flex-direction:column; }

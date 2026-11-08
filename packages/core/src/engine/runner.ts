@@ -131,7 +131,7 @@ export class CampaignRunner {
     const def = getActionDefinition(action.type);
     const executor = executors.get(action.type)!;
     const fail = (reason: FailureReason, message?: string) => {
-      store.setStatus(campaign.id, action.id, person.id, 'failed', reason);
+      store.setStatus(campaign.id, action.id, person.id, 'failed', reason, message);
       report.failed.push({ personId: person.id, actionId: action.id, reason });
       this.opts.onProgress?.({ type: 'done', campaign, action, person, step: i + 1, total: campaign.actions.length, ok: false, reason, message });
     };

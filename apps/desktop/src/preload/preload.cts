@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('linkleads', {
   stopInstance: invoke('instance:stop'),
   runNow: invoke('instance:runNow'),
   liveStatus: invoke('instance:live'),
+  retryFailed: invoke('campaigns:retryFailed'),
   saveCurrentProfile: invoke('instance:saveCurrentProfile'),
   diagnose: invoke('instance:diagnose'),
   saveDiagnosis: invoke('instance:saveDiagnosis'),

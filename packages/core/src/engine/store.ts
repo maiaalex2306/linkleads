@@ -10,6 +10,8 @@ export interface CampaignStore {
     personId: string,
     status: PersonActionStatus,
     reason?: FailureReason,
+    /** detalhe legível do motivo (ex.: qual página não carregou) */
+    message?: string,
   ): void;
   /** coloca a pessoa como `queued` na ação (opcionalmente só a partir de `notBefore`) */
   enqueue(campaignId: string, actionId: string, personId: string, notBefore?: Date): void;
@@ -51,7 +53,7 @@ export class InMemoryCampaignStore implements CampaignStore {
       .filter(Boolean);
   }
 
-  setStatus(c: string, a: string, p: string, status: PersonActionStatus, reason?: FailureReason) {
+  setStatus(c: string, a: string, p: string, status: PersonActionStatus, reason?: FailureReason, _message?: string) {
     const prev = this.statuses.get(this.key(c, a, p));
     this.statuses.set(this.key(c, a, p), { status, reason, order: prev?.order ?? this.seq++, notBefore: prev?.notBefore });
   }
