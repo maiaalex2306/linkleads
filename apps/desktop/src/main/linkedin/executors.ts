@@ -60,6 +60,20 @@ function degreeOf(label: string | null): 1 | 2 | 3 | undefined {
   return m ? (Number(m[1]) as 1 | 2 | 3) : undefined;
 }
 
+/**
+ * Espera o perfil carregar: o nome aparece (ok) ou a página de erro do LinkedIn (not_found).
+ * Página lenta não é "perfil não encontrado": até 25 s.
+ */
+export async function awaitProfile(d: ExecutorDeps): Promise<'ok' | 'not_found' | 'timeout'> {
+  let state: 'ok' | 'not_found' | undefined;
+  await d.driver.waitUntil(async () => {
+    if (await d.driver.exists('profileNotFound')) state = 'not_found';
+    else if (await d.driver.exists('profileName')) state = 'ok';
+    return !!state;
+  }, 25_000, 500);
+  return state ?? 'timeout';
+}
+
 /** Lê o perfil aberto e grava no CRM. Prova: nome preenchido. */
 async function captureOpenProfile(d: ExecutorDeps, base?: Person): Promise<ExecutionResult> {
   const data = await d.driver.read(extractProfile, d.driver.sel as unknown as Record<string, readonly string[]>);
@@ -97,8 +111,9 @@ export function visitAndExtract(d: ExecutorDeps): ActionExecutor {
       d.withBrowser(() =>
         guard(async () => {
           await d.driver.goto(profileUrl(ctx.person));
-          if (await d.driver.exists('profileNotFound')) return { ok: false, reason: 'NOT_FOUND' };
-          if (!(await d.driver.waitFor('profileName'))) return { ok: false, reason: 'NOT_FOUND' };
+          const st = await awaitProfile(d);
+          if (st === 'not_found') return { ok: false, reason: 'NOT_FOUND', message: `O LinkedIn mostrou "página não encontrada" para ${profileUrl(ctx.person)}` };
+          if (st === 'timeout') return { ok: false, reason: 'RETRY_LATER', retryAfterMs: 3 * 3_600_000, message: 'O perfil não carregou (página lenta ou layout diferente); tenta de novo em 3 h' };
           await d.driver.browse(200, 900); // "lê" o perfil
           return captureOpenProfile(d, ctx.person);
         }),

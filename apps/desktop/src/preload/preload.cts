@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('linkleads', {
   startInstance: invoke('instance:start'),
   stopInstance: invoke('instance:stop'),
   runNow: invoke('instance:runNow'),
+  liveStatus: invoke('instance:live'),
   saveCurrentProfile: invoke('instance:saveCurrentProfile'),
   diagnose: invoke('instance:diagnose'),
   saveDiagnosis: invoke('instance:saveDiagnosis'),

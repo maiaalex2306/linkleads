@@ -1,4 +1,4 @@
-/* global window, h, toast, safe, renderView, STATUS, REASONS, state */
+/* global window, h, toast, safe, renderView, STATUS, REASONS, state, campaignTables */
 /* Campanhas: criar (sequência de prospecção ou engajamento), editar etapas, acompanhar pessoas. */
 
 const VARS_HINT = 'Variáveis: {{firstName}}, {{lastName}}, {{company}}, {{position}}, {{headline}}, {{custom.Coluna}}. Spintax: {Olá|Oi}.';
@@ -222,14 +222,31 @@ function campaignEditor(a, c, onDone) {
 }
 
 function campaignCard(a, c, cols) {
-  const counts = {};
-  for (const p of c.people) counts[p.status] = (counts[p.status] || 0) + 1;
+  const countsOf = (people) => {
+    const counts = {};
+    for (const p of people) counts[p.status] = (counts[p.status] || 0) + 1;
+    return Object.entries(counts).map(([s, n]) => `${n} ${STATUS[s]}`).join(' · ') || 'vazia';
+  };
+  const countsEl = h('span', { class: 'muted' }, countsOf(c.people));
   const body = h('div', { class: 'stack' });
-  const showPeople = () => body.replaceChildren(
-    h('table', {}, h('tr', {}, h('th', {}, 'Pessoa'), h('th', {}, 'Empresa'), h('th', {}, 'Etapa'), h('th', {}, 'Situação')),
-      ...c.people.slice(0, 300).map((p) => h('tr', {}, h('td', {}, p.name), h('td', {}, p.company || '—'), h('td', {}, p.actionName),
-        h('td', {}, h('span', { class: 'badge ' + p.status }, STATUS[p.status]), p.reason ? h('span', { class: 'muted' }, ' ' + (REASONS[p.reason] || p.reason)) : '')))));
-  showPeople();
+  const when = (p) => p.status === 'queued' ? (p.notBefore && p.notBefore > new Date().toISOString()
+    ? new Date(p.notBefore).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : 'pronta')
+    : p.updatedAt ? new Date(p.updatedAt.replace(' ', 'T') + (p.updatedAt.endsWith('Z') ? '' : 'Z')).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
+  let showingTable = true;
+  const showPeople = (people) => {
+    showingTable = true;
+    body.replaceChildren(
+      h('table', {}, h('tr', {}, h('th', {}, 'Pessoa'), h('th', {}, 'Empresa'), h('th', {}, 'Etapa'), h('th', {}, 'Situação'), h('th', {}, 'Quando')),
+        ...people.slice(0, 300).map((p) => h('tr', {}, h('td', {}, p.name), h('td', {}, p.company || '—'), h('td', {}, p.actionName),
+          h('td', {}, h('span', { class: 'badge ' + p.status }, STATUS[p.status]), p.reason ? h('span', { class: 'muted' }, ' ' + (REASONS[p.reason] || p.reason)) : ''),
+          h('td', { class: 'muted' }, when(p))))));
+  };
+  showPeople(c.people);
+  campaignTables.set(c.id, (fresh) => {
+    if (!body.isConnected || !showingTable) return;
+    countsEl.textContent = countsOf(fresh.people);
+    showPeople(fresh.people);
+  });
   const addCol = h('select', {}, h('option', { value: '' }, '+ adicionar coleção…'), ...cols.map((col) => h('option', { value: col.id }, `${col.name} (${col.size})`)));
   addCol.addEventListener('change', async () => {
     if (!addCol.value) return;
@@ -239,10 +256,10 @@ function campaignCard(a, c, cols) {
   return h('div', { class: 'card stack' },
     h('div', { class: 'row' },
       h('strong', { style: 'flex:1' }, c.name),
-      h('span', { class: 'muted' }, Object.entries(counts).map(([s, n]) => `${n} ${STATUS[s]}`).join(' · ') || 'vazia'),
+      countsEl,
       addCol,
       exportButton(a, { campaignId: c.id, name: c.name }),
-      h('button', { onclick: () => body.replaceChildren(campaignEditor(a, c, () => renderView())) }, 'Editar etapas'),
+      h('button', { onclick: () => { showingTable = false; body.replaceChildren(campaignEditor(a, c, () => renderView())); } }, 'Editar etapas'),
       h('button', { class: c.active ? '' : 'primary', onclick: () => safe(() => api.setCampaignActive(a.id, c.id, !c.active)).then(renderView) }, c.active ? 'Pausar' : 'Ativar'),
     ),
     h('div', { class: 'muted' }, c.actions.map((x) => x.name + (x.waitHours ? ` (+${+(x.waitHours / 24).toFixed(1)}d)` : '')).join(' → ')),

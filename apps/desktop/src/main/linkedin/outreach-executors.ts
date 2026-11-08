@@ -2,7 +2,7 @@ import type { ActionExecutor, ExecutionContext, ExecutionResult, Person } from '
 import { renderMessage } from '@linkleads/core';
 import { classifyReply, looksLikeOptOut, writeOutreachMessage, type OutreachContext } from '@linkleads/ai';
 import { listConversations, conversationBox, messageEditorText, readThread, threadProfileHref, type ThreadEvent } from './dom-scripts.js';
-import { BASE, guard, profileSlug, profileUrl, type ExecutorDeps } from './executors.js';
+import { BASE, awaitProfile, guard, profileSlug, profileUrl, type ExecutorDeps } from './executors.js';
 import type { SelectorMap } from './selectors.js';
 import { now } from '../clock.js';
 
@@ -32,9 +32,7 @@ export interface ProfileState {
 
 async function openProfile(d: ExecutorDeps, p: Person): Promise<ProfileState | 'not_found'> {
   await d.driver.goto(profileUrl(p));
-  if (await d.driver.exists('profileNotFound')) return 'not_found';
-  if (!(await d.driver.waitFor('profileName'))) return 'not_found';
-  return profileState(d);
+  return (await awaitProfile(d)) === 'ok' ? profileState(d) : 'not_found';
 }
 
 async function profileState(d: ExecutorDeps): Promise<ProfileState> {

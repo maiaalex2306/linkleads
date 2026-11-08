@@ -17,7 +17,8 @@ export const DEFAULT_SELECTORS = {
   profileLocation: ['main .pv-text-details__left-panel .text-body-small.inline', 'main section .text-body-small.inline.t-black--light.break-words'],
   profileDegree: ['main .dist-value', 'main .distance-badge .visually-hidden'],
   profileCurrentCompany: ['main [aria-label^="Current company"], main [aria-label^="Empresa atual"]', 'main .pv-text-details__right-panel li button span'],
-  profileNotFound: ['.not-found__container', 'main .artdeco-empty-state'],
+  // só a página de erro inteira: perfis reais têm caixas "vazio" em seções sem conteúdo (ex.: Atividade)
+  profileNotFound: ['.not-found__container', 'main.error-page', '.error-container .error-code'],
   // atividade / posts
   postItem: ['[data-urn^="urn:li:activity:"]', 'div.feed-shared-update-v2[data-urn]'],
   postText: ['.update-components-text', '.feed-shared-inline-show-more-text', '.feed-shared-text'],

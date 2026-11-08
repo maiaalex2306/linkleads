@@ -71,8 +71,27 @@ try {
   await call('startInstance', acc.id);
   await new Promise((r) => setTimeout(r, 3000));
 
+  // painel "Agora": acompanha enquanto roda
+  const seen = new Set();
+  let polling = true;
+  const poll = (async () => { while (polling) { const L = await call('liveStatus', acc.id); if (L?.doing) seen.add(L.doing); await new Promise((r) => setTimeout(r, 150)); } })();
   await call('runNow', acc.id);
+  polling = false;
+  await poll;
   check(site.state.liked && site.state.comments.length === 1, 'curtiu e comentou o post', { liked: site.state.liked, comments: site.state.comments });
+  check([...seen].some((x) => /Visitando o perfil de/.test(x)) && [...seen].some((x) => /curtindo/.test(x)) && [...seen].some((x) => /comentário/.test(x)),
+    'painel "Agora" mostrou a visita, a curtida e o comentário enquanto aconteciam', [...seen]);
+  const L1 = await call('liveStatus', acc.id);
+  check(L1.recent.slice(0, 3).map((r) => r.text.split(':')[0]).reverse().join() === 'Visitar e extrair perfil,Curtir post mais recente,Comentar com IA', 'histórico: visitar → curtir → comentar, nesta ordem', L1.recent);
+  check(L1.upcoming.some((u) => /Enviar convite: Ana/.test(u.text)) && L1.queues[0].waiting === 1, 'painel mostra o convite agendado para daqui a 4 h', { up: L1.upcoming, q: L1.queues });
+  await ui.reload();
+  await ui.locator('.account-list').getByText('Conta teste').click();
+  await ui.locator('#live-box').getByText('O que acabou de fazer').waitFor();
+  await ui.waitForTimeout(1500);
+  await ui.locator('#live-box').screenshot({ path: join(shots, 'painel-agora.png') });
+  const stats = await call('accountStats', acc.id);
+  check(stats.today.profile_visits.used === 1 && stats.today.engagement.used === 2, 'contadores do dia: 1 visita e 2 engajamentos', stats.today);
+  check(/1\//.test(await ui.locator('#health-box').innerText()), 'contadores aparecem atualizados na tela');
   check(site.state.connection === 'none', 'convite ainda não sai junto com o comentário');
 
   await advanceHours(5);

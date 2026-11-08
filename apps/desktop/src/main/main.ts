@@ -23,7 +23,7 @@ import type { AiProvider } from '@linkleads/ai';
 import type { CommentDraft } from '@linkleads/db';
 import { AccountStore, publicAccount } from './account-store.js';
 import { checkProxy, validateProxy } from './proxy-check.js';
-import { advanceClock } from './clock.js';
+import { advanceClock, now } from './clock.js';
 import { CrmRegistry } from './crm-registry.js';
 import { accountStats } from './stats.js';
 import { TeamSync } from './team-sync.js';
@@ -187,6 +187,23 @@ ipcMain.handle('accounts:remove', async (_e, id: string) => {
 
 ipcMain.handle('instance:start', (_e, id: string) => void instances.start(account(id)));
 ipcMain.handle('instance:stop', (_e, id: string) => instances.stop(id));
+/** Painel "Agora": o que a conta está fazendo, a próxima pausa/ciclo e os próximos passos agendados. */
+ipcMain.handle('instance:live', (_e, id: string) => {
+  const inst = instances.get(id);
+  if (!inst) return null;
+  const crm = crms.get(account(id));
+  const t = now();
+  // fila por campanha: quantos prontos para agora e o próximo agendado
+  const queues = crm.listCampaigns(id).filter((c) => c.active).map((c) => {
+    const rows = crm.campaignPeople(c);
+    const ready = rows.filter((r) => r.status === 'queued' && (!r.notBefore || r.notBefore <= t.toISOString())).length;
+    const later = rows.filter((r) => r.status === 'queued' && r.notBefore && r.notBefore > t.toISOString()).sort((a, b) => a.notBefore!.localeCompare(b.notBefore!));
+    return { name: c.name, ready, waiting: later.length, next: later[0] ? { at: later[0].notBefore, text: `${later[0].actionName}: ${later[0].name}` } : null,
+      done: rows.filter((r) => r.status === 'successful').length, failed: rows.filter((r) => r.status === 'failed').length, approval: rows.filter((r) => r.reason === 'AWAITING_APPROVAL').length };
+  });
+  return { ...inst.live, queues, now: t.toISOString() };
+});
+
 ipcMain.handle('instance:runNow', (_e, id: string, opts?: { ignoreHours?: boolean }) =>
   instances.require(id).tickAll({ waitIfBusy: true, ignoreHours: !!opts?.ignoreHours }));
 ipcMain.handle('instance:diagnose', (_e, id: string) => instances.require(id).diagnose());

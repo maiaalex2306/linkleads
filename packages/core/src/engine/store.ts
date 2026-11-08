@@ -22,6 +22,8 @@ export interface CampaignStore {
   isGloballyBlocked(personId: string): FailureReason | undefined;
   lastRunAt(campaignId: string, actionId: string): number | undefined;
   markRun(campaignId: string, actionId: string, at: number): void;
+  /** dados mais recentes da pessoa (ex.: nome lido na visita), para a etapa seguinte no mesmo ciclo */
+  getPerson?(personId: string): Person | undefined;
 }
 
 /** Implementação em memória — usada em testes e no modo de simulação. */

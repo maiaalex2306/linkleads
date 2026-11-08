@@ -134,6 +134,27 @@ describe('sequência de prospecção (curtir → comentar → convite)', () => {
   });
 });
 
+describe('uma pessoa de cada vez', () => {
+  it('visita → curte → comenta a mesma pessoa antes de visitar a próxima; o convite espera', async () => {
+    const campaign = { ...prospectingSequence({ id: 'o', accountId: 'acc', name: 'O', commentMode: 'auto', invite: { template: 'x' }, messages: [{ waitDays: 0, template: 'm' }] }), active: true };
+    const store = new InMemoryCampaignStore();
+    for (const id of ['p1', 'p2', 'p3']) { store.addPerson({ id, firstName: id }); store.enqueue('o', campaign.actions[0]!.id, id); }
+    const log: string[] = [];
+    const ev: string[] = [];
+    const ok = (t: string) => ({ type: t, execute: async (ctx: { person: { id: string } }) => { log.push(`${t}:${ctx.person.id}`); return { ok: true as const }; }, verify: async () => true });
+    const executors = new ExecutorRegistry().register(ok('VisitAndExtract')).register(ok('LikePosts')).register(ok('CommentPost')).register(ok('SendInvite'));
+    const runner = new CampaignRunner({ store, executors, now: () => new Date('2026-11-09T13:00:00Z'), sleep: async () => {}, onProgress: (e) => ev.push(e.type) });
+    await runner.tick(campaign, account);
+    expect(log).toEqual([
+      'VisitAndExtract:p1', 'LikePosts:p1', 'CommentPost:p1',
+      'VisitAndExtract:p2', 'LikePosts:p2', 'CommentPost:p2',
+      'VisitAndExtract:p3', 'LikePosts:p3', 'CommentPost:p3',
+    ]);
+    expect(ev.filter((t) => t === 'pause')).toHaveLength(2);
+    expect(ev.filter((t) => t === 'scheduled')).toHaveLength(3); // convite agendado (espera de 4 h)
+  });
+});
+
 describe('monitoramento recorrente', () => {
   it('volta para a fila a cada N dias e consome orçamento de visitas', async () => {
     const { monitorCampaign } = await import('../src/index.js');

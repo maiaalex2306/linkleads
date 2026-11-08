@@ -1,5 +1,5 @@
 import { app, BrowserWindow, session, type Session } from 'electron';
-import type { Account, Campaign, ExecutionResult, TickReport } from '@linkleads/core';
+import type { Account, Campaign, ExecutionResult, Person, ProgressEvent, TickReport } from '@linkleads/core';
 import { CampaignRunner, ExecutorRegistry, resolveApproval, shouldAutoBrake } from '@linkleads/core';
 import { LlmPostInterpreter, createLlm, type LlmClient } from '@linkleads/ai';
 import type { CommentDraft, IntegrationCrm } from '@linkleads/db';
@@ -75,6 +75,45 @@ export interface InstanceEvents {
   getLogin?(accountId: string): { email: string; password: string } | undefined;
 }
 
+/** O que a conta está fazendo agora, para o painel "Agora" da tela. */
+export interface LiveState {
+  state: 'idle' | 'working' | 'pausing' | 'inbox' | 'login';
+  doing?: string;
+  campaign?: string;
+  step?: number;
+  total?: number;
+  plan?: string[];
+  since?: string;
+  pauseUntil?: string;
+  nextPerson?: string;
+  nextCycleAt?: string;
+  lastCycleAt?: string;
+  recent: Array<{ at: string; text: string; ok: boolean | null }>;
+  upcoming: Array<{ at: string; text: string }>;
+}
+
+const DOING: Record<string, string> = {
+  VisitAndExtract: 'Visitando o perfil de',
+  IcpFilter: 'Avaliando com IA se combina com o ICP:',
+  LikePosts: 'Procurando o post mais recente e curtindo —',
+  CommentPost: 'Lendo o post e escrevendo um comentário com IA para',
+  SendInvite: 'Enviando convite de conexão para',
+  CheckConnection: 'Conferindo se aceitou o convite:',
+  WithdrawInvite: 'Retirando o convite de',
+  MessageToPerson: 'Lendo a conversa e mandando mensagem para',
+  MonitorSignals: 'Procurando sinais (cargo, posts) de',
+  ExtractEmail: 'Lendo e-mail e telefone de',
+  EnrichProfile: 'Enriquecendo contato de',
+};
+const REASON_PT: Record<string, string> = {
+  NO_REAL_EFFECT: 'não deu para confirmar o efeito', EXCLUDED: 'excluída', REJECTED: 'rejeitado na aprovação', REPLIED: 'respondeu',
+  OPTED_OUT: 'pediu para parar', NOT_FOUND: 'perfil não encontrado', LIMIT_REACHED: 'limite do dia', THROTTLED: 'a plataforma bloqueou',
+  ERROR: 'erro', AWAITING_APPROVAL: 'aguardando sua aprovação (aba Aprovações)', AI_SKIPPED: 'IA preferiu não agir', NO_POST: 'sem post recente',
+  ICP_REJECTED: 'fora do ICP', RETRY_LATER: 'vai conferir de novo', NOT_ACCEPTED: 'convite não aceito', ALREADY_CONNECTED: 'já era conexão', NOT_CONNECTED: 'não é conexão',
+};
+const hhmm = (d: Date) => d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+const personName = (p: Person) => [p.firstName, p.lastName].filter(Boolean).join(' ') || p.publicId || 'contato';
+
 const LOGIN_PAGE = /\/(login|uas\/login|checkpoint\/lg\/login|checkpoint\/rm\/sign-in-another-account|authwall)/;
 const MAX_LOGIN_ATTEMPTS_PER_HOUR = 3;
 
@@ -95,6 +134,7 @@ export class AccountInstance {
   private lastInboxScan = 0;
   private llmCache?: { key: string; llm: LlmClient };
   private loginAttempts: number[] = [];
+  readonly live: LiveState = { state: 'idle', recent: [], upcoming: [] };
   /** login recusado pelo LinkedIn: não tenta de novo com o mesmo e-mail/senha (evita travar a conta) */
   private rejectedLogin?: string;
   private rejectedNoticeAt = 0;
@@ -165,6 +205,7 @@ export class AccountInstance {
       // em testes e2e, intervalos curtos entre pessoas; em produção, o padrão humano (20 s a 3 min)
       ...(process.env.LINKLEADS_TEST_BASE_URL ? { delayRange: [200, 600] as [number, number] } : {}),
       isKilled: (type) => this.settings.disabledActions().includes(type),
+      onProgress: (e) => this.onProgress(e),
     });
 
     // o proxy precisa estar ativo ANTES da primeira requisição, senão ela sai pelo IP da máquina
@@ -181,6 +222,44 @@ export class AccountInstance {
    * Digita como uma pessoa (eventos nativos), no máximo 3 tentativas por hora para não travar a conta.
    * Verificação de segurança (código por e-mail/app, captcha) fica para a pessoa concluir na janela.
    */
+  private remember(text: string, ok: boolean | null) {
+    this.live.recent.unshift({ at: now().toISOString(), text, ok });
+    this.live.recent.length = Math.min(this.live.recent.length, 40);
+  }
+
+  private onProgress(e: ProgressEvent) {
+    const L = this.live;
+    if (e.type === 'start') {
+      const name = personName(e.person);
+      Object.assign(L, {
+        state: 'working', campaign: e.campaign.name, step: e.step, total: e.total, since: now().toISOString(), pauseUntil: undefined, nextPerson: undefined,
+        doing: `${DOING[e.action.type] ?? e.action.name + ' —'} ${name}`,
+        // o que vem depois para esta pessoa (até a próxima espera)
+        plan: e.campaign.actions.slice(e.step).reduce<{ out: string[]; stop: boolean }>((acc, a) => {
+          if (acc.stop) return acc;
+          if (a.waitHours) { acc.out.push(`${a.name} (daqui a ${a.waitHours >= 24 ? `${+(a.waitHours / 24).toFixed(1)} dia(s)` : `${a.waitHours} h`})`); acc.stop = true; }
+          else acc.out.push(a.name);
+          return acc;
+        }, { out: [], stop: false }).out,
+      });
+      this.log(`▶ ${L.doing} (${e.campaign.name}, etapa ${e.step}/${e.total})`);
+    } else if (e.type === 'done') {
+      const name = personName(this.crm.getPerson(e.person.id) ?? e.person);
+      const why = e.reason ? REASON_PT[e.reason] ?? e.reason : '';
+      const text = e.ok ? `${e.action.name}: ${name}` : `${e.action.name}: ${name} — ${why}${e.retryAt ? ` (às ${hhmm(e.retryAt)})` : ''}${e.message && !e.ok && e.reason !== 'RETRY_LATER' ? ` · ${e.message}` : ''}`;
+      this.remember(text, e.ok ? true : e.reason === 'AWAITING_APPROVAL' || e.reason === 'RETRY_LATER' || e.reason === 'NO_POST' ? null : false);
+      this.log(`${e.ok ? '✓' : '•'} ${text}`);
+    } else if (e.type === 'pause') {
+      Object.assign(L, { state: 'pausing', doing: undefined, plan: undefined, pauseUntil: e.until.toISOString(), nextPerson: personName(e.nextPerson) });
+      this.log(`⏸ Pausa humana de ${Math.round(e.ms / 1000)} s; depois: ${personName(e.nextPerson)}`);
+    } else if (e.type === 'scheduled') {
+      L.upcoming.push({ at: e.at.toISOString(), text: `${e.action.name}: ${personName(e.person)}` });
+      L.upcoming.sort((a, b) => a.at.localeCompare(b.at));
+      L.upcoming.length = Math.min(L.upcoming.length, 30);
+      this.log(`🕒 ${e.action.name} de ${personName(e.person)} agendado para ${hhmm(e.at)}`);
+    }
+  }
+
   /** Tenta o login agora (ex.: logo depois de salvar e-mail e senha). */
   loginNow(): Promise<string> {
     // e-mail/senha novos: zera o histórico de tentativas
@@ -219,6 +298,7 @@ export class AccountInstance {
       return 'rate_limited';
     }
     this.loginAttempts.push(Date.now());
+    Object.assign(this.live, { state: 'login', doing: 'Entrando no LinkedIn com o login salvo', plan: undefined, since: now().toISOString() });
     this.log('Entrando no LinkedIn com o login salvo…');
     if (!(await d.exists('loginPassword'))) {
       await wc.loadURL(`${BASE}/login`);
@@ -326,7 +406,9 @@ export class AccountInstance {
     if (this.settings.disabledActions().includes('DetectReplies')) return undefined;
     this.lastInboxScan = Date.now();
     try {
+      Object.assign(this.live, { state: 'inbox', doing: 'Lendo as conversas não lidas do inbox (respostas)', plan: undefined, since: now().toISOString() });
       const r = await this.withBrowser(() => scanInbox(this.deps));
+      this.remember(r.newReplies.length ? `Inbox: ${r.newReplies.length} resposta(s) nova(s)` : 'Inbox conferido: nenhuma resposta nova', r.newReplies.length ? true : null);
       for (const n of r.newReplies) this.log(`Resposta de ${n.name}${n.label ? ` [${n.label}]` : ''}${n.summary ? `: ${n.summary}` : ''}`);
       if (r.scanned) this.log(`Inbox: ${r.scanned} conversa(s) não lida(s) verificada(s), ${r.newReplies.length} resposta(s) nova(s)`);
       return r;
@@ -344,10 +426,15 @@ export class AccountInstance {
       await this.currentTick.catch(() => undefined);
     }
     this.currentTick = this.runTick(opts);
+    this.live.lastCycleAt = new Date().toISOString();
     try {
       return await this.currentTick;
     } finally {
       this.currentTick = undefined;
+      // vencidos saem da lista de "próximos"
+      const t = now().toISOString();
+      this.live.upcoming = this.live.upcoming.filter((u) => u.at > t);
+      Object.assign(this.live, { state: 'idle', doing: undefined, plan: undefined, pauseUntil: undefined, nextPerson: undefined, campaign: undefined });
     }
   }
 
@@ -414,7 +501,11 @@ export class AccountInstance {
 
   startScheduler(intervalMs = 5 * 60_000): void {
     this.stopScheduler();
-    const run = () => void this.tickAll().catch((e) => this.log(`Erro no ciclo: ${String(e)}`));
+    const run = () => {
+      this.live.nextCycleAt = new Date(Date.now() + intervalMs).toISOString();
+      void this.tickAll().catch((e) => this.log(`Erro no ciclo: ${String(e)}`));
+    };
+    this.live.nextCycleAt = new Date(Date.now() + 15_000).toISOString();
     setTimeout(run, 15_000); // dá tempo de a página inicial carregar
     this.loop = setInterval(run, intervalMs);
   }

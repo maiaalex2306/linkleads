@@ -103,3 +103,16 @@ input[type=radio], input[type=checkbox] { accent-color:var(--brand); }
 .schedule { display:flex; gap:10px; align-items:center; margin-top:10px; padding:8px 12px; border-radius:10px; font-size:13px; border:1px solid var(--line); }
 .schedule.ok { border-color:var(--ok); color:var(--ok); }
 .schedule.warn { border-color:var(--warn); background:var(--accent-soft); color:var(--soft-ink); }
+/* painel "Agora" */
+.live { margin-top:10px; gap:6px; border-left:4px solid var(--brand, #4b0f75); }
+.live .now { display:flex; align-items:center; gap:8px; font-size:15px; }
+.live .pulse { width:10px; height:10px; border-radius:50%; background:var(--ok); flex:none; animation:pulse 1.2s infinite; }
+.live .pulse.wait { background:var(--warn); }
+.live .pulse.idle { background:var(--muted, #999); animation:none; }
+@keyframes pulse { 0%{opacity:1} 50%{opacity:.3} 100%{opacity:1} }
+.live .q-list { gap:2px; font-size:13px; }
+.live .cols { display:grid; grid-template-columns:1fr 1fr; gap:16px; font-size:13px; }
+.live ul { margin:4px 0 0; padding-left:16px; }
+.live li.ok { color:var(--ok); }
+.live li.bad { color:var(--bad); }
+@media (max-width: 900px) { .live .cols { grid-template-columns:1fr; } }

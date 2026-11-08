@@ -318,6 +318,8 @@ export interface CampaignPersonRow {
   status: PersonActionStatus;
   reason?: string;
   updatedAt: string;
+  /** na fila só a partir deste momento (ISO), quando há espera */
+  notBefore?: string;
 }
 
 /** Operações de CRM local além do contrato do motor (coleções, campanhas, posts, rascunhos). */
@@ -473,6 +475,7 @@ export class LocalCrm extends SqliteCampaignStore {
       status: r.status as PersonActionStatus,
       reason: (r.reason as string) ?? undefined,
       updatedAt: r.updated_at as string,
+      notBefore: r.not_before ? new Date(Number(r.not_before)).toISOString() : undefined,
     }));
   }
 
