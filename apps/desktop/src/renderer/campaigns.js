@@ -1,4 +1,4 @@
-/* global window, h, toast, safe, renderView, STATUS, REASONS */
+/* global window, h, toast, safe, renderView, STATUS, REASONS, state */
 /* Campanhas: criar (sequência de prospecção ou engajamento), editar etapas, acompanhar pessoas. */
 
 const VARS_HINT = 'Variáveis: {{firstName}}, {{lastName}}, {{company}}, {{position}}, {{headline}}, {{custom.Coluna}}. Spintax: {Olá|Oi}.';
@@ -46,13 +46,22 @@ function textSourceEditor(src, { kind, allowNoNote } = {}) {
   };
 }
 
-function messageStepEditor(step, index, onRemove) {
+const MAX_MESSAGES = 5;
+const DEFAULT_MESSAGES = [
+  { goal: 'Agradecer a conexão e fazer uma pergunta sobre o trabalho dela', waitDays: 0 },
+  { goal: 'Trazer um dado ou caso útil para o contexto dela (microvalor)', waitDays: 3 },
+  { goal: 'Mostrar como resolvemos um problema parecido em outra empresa do setor', waitDays: 4 },
+  { goal: 'Convidar para uma conversa rápida de 15 minutos, sem pressão', waitDays: 5 },
+  { goal: 'Encerrar com gentileza e deixar a porta aberta', waitDays: 7 },
+];
+
+function messageStepEditor(step, index, onRemove, numOffset = 3) {
   const wait = h('input', { type: 'number', min: 0, max: 90, value: String(step.waitDays ?? (index === 0 ? 0 : 3)), style: 'width:70px' });
   const text = textSourceEditor(step, { kind: 'message' });
   return {
     el: h('div', { class: 'step' },
-      h('div', { class: 'head' }, h('span', { class: 'num' }, String(index + 3)),
-        h('strong', { style: 'flex:1' }, index === 0 ? 'Mensagem 1 (após aceite)' : `Follow-up ${index}`),
+      h('div', { class: 'head' }, h('span', { class: 'num' }, String(index + numOffset)),
+        h('strong', { style: 'flex:1' }, index === 0 ? 'Mensagem 1 (após o aceite)' : `Mensagem ${index + 1}`),
         h('span', { class: 'muted' }, 'esperar'), wait, h('span', { class: 'muted' }, index === 0 ? 'dias após o aceite' : 'dias após a anterior'),
         onRemove && h('button', { type: 'button', class: 'link', onclick: onRemove }, 'remover')),
       text.el),
@@ -60,24 +69,29 @@ function messageStepEditor(step, index, onRemove) {
   };
 }
 
-function sequenceForm(a, cols, settings) {
+function sequenceForm(a, cols, settings, integ) {
   const steps = [];
+  const engage = h('input', { type: 'checkbox', checked: true });
+  const commentMode = h('select', {}, h('option', { value: 'manual' }, 'Eu aprovo cada comentário (recomendado)'), h('option', { value: 'auto' }, 'Publicar automaticamente'));
+  const numOffset = () => (engage.checked ? 4 : 3);
   const stepsBox = h('div', { class: 'stack' });
   const renderSteps = () => stepsBox.replaceChildren(...steps.map((s) => s.el));
   const addStep = (init) => {
     const idx = steps.length;
-    const ed = messageStepEditor(init || { ai: true, approval: 'manual' }, idx, idx === 0 ? null : () => { steps.splice(steps.indexOf(ed), 1); rebuild(); });
+    if (idx >= MAX_MESSAGES) return toast(`No máximo ${MAX_MESSAGES} mensagens`);
+    const ed = messageStepEditor(init || { ai: true, approval: 'manual' }, idx, idx === 0 ? null : () => { steps.splice(steps.indexOf(ed), 1); rebuild(); }, numOffset());
     steps.push(ed);
     renderSteps();
+    addBtn.hidden = steps.length >= MAX_MESSAGES;
   };
+  const addBtn = h('button', { type: 'button', onclick: () => addStep({ ai: true, approval: 'manual', waitDays: 5 }) }, '+ Adicionar mensagem');
   const rebuild = () => {
     const data = steps.map((s) => s.read());
     steps.length = 0;
     data.forEach((d) => addStep(d));
     if (!data.length) addStep();
   };
-  addStep({ ai: true, approval: 'manual', goal: 'Agradecer a conexão e fazer uma pergunta sobre o trabalho dela', waitDays: 0 });
-  addStep({ ai: true, approval: 'manual', goal: 'Trazer um dado ou caso útil para o contexto dela (microvalor)', waitDays: 4 });
+  for (const m of DEFAULT_MESSAGES) addStep({ ai: true, approval: 'manual', ...m });
 
   const invite = textSourceEditor({ ai: true, approval: 'manual' }, { kind: 'invite_note', allowNoNote: true });
   const name = h('input', { value: 'Prospecção', required: true });
@@ -88,10 +102,26 @@ function sequenceForm(a, cols, settings) {
   const extra = h('textarea', { placeholder: 'Ex.: somos da BioSolvit; quando fizer sentido, conecte com eficiência hídrica.' });
   const icpFilter = h('input', { type: 'checkbox', checked: !!settings.decision.icp });
 
+  const engageBox = h('div', { class: 'step' },
+    h('div', { class: 'head' }, h('span', { class: 'num' }, '2'), h('strong', { style: 'flex:1' }, 'Curtir e comentar o post mais recente'),
+      h('label', { class: 'row', style: 'display:flex' }, engage, 'começar engajando')),
+    h('div', { class: 'row' }, h('span', { class: 'muted' }, 'Comentário com IA:'), commentMode),
+    h('div', { class: 'muted' }, 'Curte o post mais recente (até 30 dias) e comenta com IA, profissional, mostrando interesse no trabalho da pessoa. Sem post recente, segue direto para o convite.'));
+  const syncNums = () => {
+    commentMode.disabled = !engage.checked;
+    engageBox.querySelector('.num').textContent = engage.checked ? '2' : '—';
+    engageBox.style.opacity = engage.checked ? '' : '0.6';
+    const inv = invite.el.parentElement && invite.el.parentElement.querySelector('.num');
+    if (inv) inv.textContent = engage.checked ? '3' : '2';
+    rebuild();
+  };
+  engage.addEventListener('change', syncNums);
+
   return h('form', {
     class: 'stack', onsubmit: async (e) => {
       e.preventDefault();
       const r = await safe(() => api.createSequenceCampaign(a.id, {
+        engage: engage.checked, commentMode: commentMode.value,
         name: name.value, collectionId: collection.value, tone: tone.value, extraInstructions: extra.value, icpFilter: icpFilter.checked,
         invite: invite.read(), acceptTimeoutDays: Number(timeout.value), withdrawOnTimeout: withdraw.checked,
         messages: steps.map((s) => s.read()),
@@ -104,19 +134,34 @@ function sequenceForm(a, cols, settings) {
     h('div', { class: 'step' }, h('div', { class: 'head' }, h('span', { class: 'num' }, '1'), h('strong', {}, 'Visitar o perfil'), h('span', { class: 'muted' }, 'aquece o lead e atualiza os dados')),
       h('label', { class: 'row', style: 'display:flex' }, icpFilter, 'Filtrar pelo ICP com IA antes do convite',
         h('span', { class: 'muted' }, settings.decision.icp ? `(nota mínima ${settings.decision.icpThreshold})` : '(defina o ICP em Configurações)'))),
+    engageBox,
     h('div', { class: 'step' },
-      h('div', { class: 'head' }, h('span', { class: 'num' }, '2'), h('strong', { style: 'flex:1' }, 'Convite de conexão'), h('span', { class: 'muted' }, 'nota de até 300 caracteres')),
+      h('div', { class: 'head' }, h('span', { class: 'num', 'data-n': 'invite' }, '3'), h('strong', { style: 'flex:1' }, 'Convite de conexão'), h('span', { class: 'muted' }, 'nota de até 300 caracteres')),
       invite.el),
     h('div', { class: 'step' },
-      h('div', { class: 'head' }, h('span', { class: 'num' }, '↻'), h('strong', { style: 'flex:1' }, 'Aguardar aceite'),
+      h('div', { class: 'head' }, h('span', { class: 'num' }, '↻'), h('strong', { style: 'flex:1' }, 'Espera 1 dia e confere se aceitou'),
         h('span', { class: 'muted' }, 'desistir após'), timeout, h('span', { class: 'muted' }, 'dias'),
         h('label', { class: 'row', style: 'display:flex' }, withdraw, h('span', {}, 'retirar o convite'))),
-      h('div', { class: 'muted' }, 'Checa uma vez por dia. Antes de cada mensagem, o app lê a conversa: quem responder sai da sequência na hora.')),
+      h('div', { class: 'muted' }, 'Confere 1 dia depois do convite e, se ainda não aceitou, de novo a cada dia. Aceitou: começa a sequência de mensagens. Antes de cada mensagem, o app lê a conversa: quem responder sai da sequência na hora.')),
     stepsBox,
-    h('div', {}, h('button', { type: 'button', onclick: () => addStep({ ai: true, approval: 'manual', waitDays: 5 }) }, '+ Adicionar follow-up')),
+    h('div', {}, addBtn),
+    replyStep(integ),
     h('label', {}, 'Instruções extras para a IA (opcional)', extra),
     h('div', {}, h('button', { class: 'primary', disabled: !cols.length }, 'Criar sequência')),
   );
+}
+
+/** Última etapa: quem respondeu vai para o webhook (evento "Resposta recebida"). */
+function replyStep(integ) {
+  const wh = integ.webhook;
+  const ok = wh.enabled && wh.url && wh.events.includes('reply_received');
+  return h('div', { class: 'step' },
+    h('div', { class: 'head' }, h('span', { class: 'num' }, '✓'), h('strong', { style: 'flex:1' }, 'Respondeu → envia para o webhook'),
+      h('span', { class: 'badge ' + (ok ? 'successful' : 'failed') }, ok ? 'webhook ligado' : 'webhook não configurado')),
+    h('div', { class: 'muted' }, ok
+      ? `Assim que a pessoa responder (em qualquer ponto), as mensagens param e a conversa vai para ${wh.format === 'linkedhelper' ? 'a ponte do IAD CRM (botão LinkLeads do Pipeline)' : 'o seu webhook'}, com a classificação da IA.`
+      : 'Configure o webhook em Configurações → Integrações, marque "Resposta recebida" e ligue. Sem isso, a resposta fica só no Inbox do app.'),
+    !ok && h('div', {}, h('button', { type: 'button', class: 'link', onclick: () => { state.tab = 'settings'; renderView(); } }, 'Abrir Configurações')));
 }
 
 function engagementForm(a, cols) {
@@ -207,12 +252,13 @@ function campaignCard(a, c, cols) {
 
 async function campaignsView(a) {
   const [cols, camps, settings] = await Promise.all([api.listCollections(a.id), api.listCampaigns(a.id), api.getSettings()]);
-  const kinds = [['sequence', 'Sequência de prospecção'], ['engagement', 'Engajamento (curtir + comentar)']];
+  const kinds = [['sequence', 'Sequência de prospecção'], ['engagement', 'Só engajamento (curtir + comentar)']];
+  const integ = await api.getIntegrations();
   const formBox = h('div');
   const tabs = h('div', { class: 'tabs', style: 'margin:0 0 8px' });
   const renderForm = () => {
     tabs.replaceChildren(...kinds.map(([k, l]) => h('button', { type: 'button', class: newCampaignKind === k ? 'sel' : '', onclick: () => { newCampaignKind = k; renderForm(); } }, l)));
-    formBox.replaceChildren(newCampaignKind === 'sequence' ? sequenceForm(a, cols, settings) : engagementForm(a, cols));
+    formBox.replaceChildren(newCampaignKind === 'sequence' ? sequenceForm(a, cols, settings, integ) : engagementForm(a, cols));
   };
   renderForm();
   return h('div', { class: 'stack' },

@@ -63,7 +63,7 @@ try {
 
   // sequência com filtro de ICP para o comitê
   const seq = await call('createSequenceCampaign', acc.id, {
-    name: 'Comitê ACME', collectionId: '', tone: 'consultivo', extraInstructions: '', icpFilter: true,
+    engage: false, name: 'Comitê ACME', collectionId: '', tone: 'consultivo', extraInstructions: '', icpFilter: true,
     invite: { ai: true, approval: 'manual' }, acceptTimeoutDays: 21, withdrawOnTimeout: true,
     messages: [{ waitDays: 0, ai: true, approval: 'manual' }],
   });

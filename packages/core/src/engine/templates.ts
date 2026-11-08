@@ -1,4 +1,4 @@
-import type { Campaign } from '../types.js';
+import type { Campaign, FailureReason } from '../types.js';
 
 export interface EngagementCampaignOptions {
   id: string;
@@ -103,6 +103,79 @@ export function outreachSequence(o: OutreachSequenceOptions): Campaign {
         maxResults: -1,
         waitHours: Math.max(0, m.waitDays) * 24 || (i === 0 ? 4 : 0),
         settings: { ...common, ...m, kind: 'message', step: i + 1, total: o.messages.length },
+      })),
+    ],
+  };
+}
+
+export interface ProspectingSequenceOptions {
+  id: string;
+  accountId: string;
+  name: string;
+  /** comentário: 'manual' = vai para Aprovações; 'auto' = publica sozinho */
+  commentMode: 'manual' | 'auto';
+  aboutMe?: string;
+  invite: MessageSource & { sendWithoutNote?: boolean };
+  /** horas entre o comentário e o convite (padrão 4) */
+  inviteAfterHours?: number;
+  /** horas até conferir o aceite (padrão 24 = espera um dia) */
+  checkAfterHours?: number;
+  acceptTimeoutDays?: number;
+  withdrawOnTimeout?: boolean;
+  /** até 5 mensagens; a primeira sai depois do aceite */
+  messages: FollowUpStep[];
+  tone?: 'profissional' | 'caloroso' | 'consultivo';
+  extraInstructions?: string;
+  icpFilter?: boolean;
+  maxPostAgeDays?: number;
+}
+
+/** Sem post recente, IA preferiu não comentar ou comentário rejeitado: segue para o convite mesmo assim. */
+const ENGAGEMENT_SOFT_FAILS: FailureReason[] = ['NO_POST', 'AI_SKIPPED', 'NO_REAL_EFFECT', 'ERROR', 'REJECTED'];
+
+/**
+ * Sequência de prospecção completa:
+ * visitar → curtir o post → comentar com IA → convite → (1 dia) conferir aceite →
+ * até 5 mensagens com espera. Antes de cada mensagem a conversa é lida: se a pessoa
+ * respondeu, a sequência para e a resposta vai para o webhook/CRMs ("Resposta recebida").
+ */
+export function prospectingSequence(o: ProspectingSequenceOptions): Campaign {
+  const common = { tone: o.tone ?? 'profissional', extraInstructions: o.extraInstructions ?? '' };
+  const messages = o.messages.slice(0, 5);
+  if (!messages.length) throw new Error('Adicione pelo menos uma mensagem');
+  return {
+    id: o.id,
+    accountId: o.accountId,
+    name: o.name,
+    active: false,
+    actions: [
+      { id: `${o.id}-visit`, type: 'VisitAndExtract', name: 'Visitar e extrair perfil', coolDown: 0, maxResults: -1, settings: {} },
+      ...(o.icpFilter ? [{ id: `${o.id}-icp`, type: 'IcpFilter', name: 'Filtrar por ICP (IA)', coolDown: 0, maxResults: -1, settings: {} }] : []),
+      {
+        id: `${o.id}-like`, type: 'LikePosts', name: 'Curtir post mais recente', coolDown: 0, maxResults: -1,
+        settings: { count: 1, maxPostAgeDays: o.maxPostAgeDays ?? 30 }, continueOnFail: ENGAGEMENT_SOFT_FAILS,
+      },
+      {
+        id: `${o.id}-comment`, type: 'CommentPost', name: 'Comentar com IA', coolDown: 0, maxResults: -1,
+        settings: { mode: o.commentMode, tone: o.tone ?? 'profissional', aboutMe: o.aboutMe ?? '', extraInstructions: o.extraInstructions ?? '', maxChars: 400 },
+        continueOnFail: ENGAGEMENT_SOFT_FAILS,
+      },
+      {
+        id: `${o.id}-invite`, type: 'SendInvite', name: 'Enviar convite', coolDown: 0, maxResults: -1, waitHours: o.inviteAfterHours ?? 4,
+        settings: { ...common, ...o.invite, kind: 'invite_note' },
+      },
+      {
+        id: `${o.id}-accept`, type: 'CheckConnection', name: 'Conferir aceite (1 dia depois)', coolDown: 0, maxResults: -1, waitHours: o.checkAfterHours ?? 24,
+        settings: { timeoutDays: o.acceptTimeoutDays ?? 21, withdrawOnTimeout: o.withdrawOnTimeout ?? true, recheckHours: 24 },
+      },
+      ...messages.map((m, i) => ({
+        id: `${o.id}-msg${i + 1}`,
+        type: 'MessageToPerson',
+        name: i === 0 ? 'Mensagem 1 (após aceite)' : `Mensagem ${i + 1}`,
+        coolDown: 0,
+        maxResults: -1,
+        waitHours: Math.max(0, m.waitDays) * 24 || (i === 0 ? 4 : 0),
+        settings: { ...common, ...m, kind: 'message', step: i + 1, total: messages.length },
       })),
     ],
   };

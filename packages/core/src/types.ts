@@ -11,6 +11,7 @@ export type JobStatus = 'queued' | 'running' | 'confirmed' | 'failed';
 export type FailureReason =
   | 'NO_REAL_EFFECT'      // o clique aconteceu, mas o estado resultante não confirmou
   | 'EXCLUDED'
+  | 'REJECTED'            // rascunho rejeitado na aprovação
   | 'ICP_REJECTED'
   | 'REPLIED'             // pessoa respondeu: interrompe sequência
   | 'OPTED_OUT'
@@ -83,6 +84,11 @@ export interface ActionConfig<S = Record<string, unknown>> {
   exclusions?: string[];
   /** espera (horas) entre concluir a etapa anterior e executar esta */
   waitHours?: number;
+  /**
+   * Etapa opcional: com uma destas falhas a pessoa segue para a próxima etapa
+   * (ex.: sem post recente para curtir/comentar, ainda assim recebe o convite).
+   */
+  continueOnFail?: FailureReason[];
 }
 
 export interface Campaign {

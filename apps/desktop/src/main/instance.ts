@@ -514,7 +514,7 @@ export class AccountInstance {
     if (!draft || draft.status !== 'pending') return;
     this.crm.updateDraft(draftId, { status: 'rejected' });
     const campaign = this.crm.loadCampaign(draft.campaignId, this.account.id);
-    if (campaign) resolveApproval(this.crm, campaign, draft.actionId, draft.personId, { executed: false, reason: 'EXCLUDED' });
+    if (campaign) resolveApproval(this.crm, campaign, draft.actionId, draft.personId, { executed: false, reason: 'REJECTED' }, now());
   }
 
   async stop(): Promise<void> {

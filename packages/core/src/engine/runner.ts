@@ -145,6 +145,7 @@ export class CampaignRunner {
           if (next) store.enqueue(campaign.id, next.id, person.id, notBeforeFor(next, this.now()));
         } else {
           fail(result.reason);
+          if (next && action.continueOnFail?.includes(result.reason)) store.enqueue(campaign.id, next.id, person.id, notBeforeFor(next, this.now()));
           if (result.reason === 'THROTTLED') {
             account.paused = true; // freio: plataforma sinalizou limite
             return report;
@@ -193,6 +194,9 @@ export function resolveApproval(
     if (next) store.enqueue(campaign.id, next.id, personId, notBeforeFor(next, now));
   } else {
     store.setStatus(campaign.id, actionId, personId, 'failed', outcome.reason);
+    const action = campaign.actions[idx]!;
+    const next = campaign.actions[idx + 1];
+    if (next && action.continueOnFail?.includes(outcome.reason)) store.enqueue(campaign.id, next.id, personId, notBeforeFor(next, now));
   }
 }
 

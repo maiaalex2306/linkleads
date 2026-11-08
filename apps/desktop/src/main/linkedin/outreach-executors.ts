@@ -296,8 +296,9 @@ export function sendMessageNow(d: ExecutorDeps, person: Person, text: string): P
     const conv = await openConversation(d, person);
     if ('ok' in conv) return conv;
     if (d.crm.hasInbound(person.id)) {
-      d.crm.block(person.id, 'REPLIED');
       await closeConversation(d);
+      // a conversa já ficou lida ao abrir: o inbox não a veria de novo, então trata a resposta aqui
+      if (!(await handleReply(d, person))) d.crm.block(person.id, 'REPLIED');
       return { ok: false, reason: 'REPLIED', message: 'A pessoa respondeu; sequência interrompida' };
     }
     return typeAndSend(d, person, text);
@@ -314,8 +315,8 @@ export function messageToPerson(d: ExecutorDeps): ActionExecutor {
           const conv = await openConversation(d, ctx.person);
           if ('ok' in conv) return conv;
           if (d.crm.hasInbound(ctx.person.id)) {
-            d.crm.block(ctx.person.id, 'REPLIED');
             await closeConversation(d);
+            if (!(await handleReply(d, ctx.person))) d.crm.block(ctx.person.id, 'REPLIED');
             return { ok: false, reason: 'REPLIED', message: 'A pessoa respondeu; sequência interrompida' };
           }
           const composed = await composeText(d, ctx, 'message', conv.events);
@@ -341,6 +342,34 @@ export interface InboxScanResult {
 }
 
 /**
+ * Resposta nova da pessoa: classifica com IA (se houver chave), bloqueia nas sequências
+ * (REPLIED/OPTED_OUT) e envia o evento "Resposta recebida" para webhook/CRMs.
+ * Usada pela varredura do inbox e pela checagem antes de cada mensagem da sequência.
+ */
+export async function handleReply(d: ExecutorDeps, person: Person): Promise<{ label?: string; summary?: string } | null> {
+  const fresh = d.crm.thread(person.id).filter((m) => m.direction === 'in' && !m.aiLabel && !m.handled);
+  if (!fresh.length) return null;
+  const last = fresh.at(-1)!;
+  let label: string | undefined;
+  let summary: string | undefined;
+  const llm = d.llm();
+  if (llm) {
+    try {
+      const c = await classifyReply(llm, person, d.crm.thread(person.id).map((m) => ({ direction: m.direction, body: m.body })));
+      label = c.label;
+      summary = [c.summary, c.referredPerson && `Indicou: ${c.referredPerson}`, c.suggestedNextStep && `Próximo passo: ${c.suggestedNextStep}`].filter(Boolean).join(' · ');
+    } catch {
+      /* sem classificação: segue com a regra local */
+    }
+  }
+  if (!label && looksLikeOptOut(last.body)) label = 'opt_out';
+  if (label) d.crm.labelMessage(last.id, label, summary ?? '');
+  d.crm.block(person.id, label === 'opt_out' ? 'OPTED_OUT' : 'REPLIED');
+  d.emit('reply_received', person.id, { reply: { text: last.body, label: label ?? null, summary: summary ?? null } });
+  return { label, summary };
+}
+
+/**
  * Varre as conversas não lidas do inbox. Para cada pessoa do CRM com resposta nova:
  * grava a mensagem, bloqueia a pessoa nas sequências (REPLIED/OPTED_OUT) e classifica com IA.
  * Observação: abrir a conversa marca como lida na plataforma, como faria uma pessoa.
@@ -362,26 +391,9 @@ export async function scanInbox(d: ExecutorDeps, maxConversations = 15): Promise
     if (!person) continue; // conversa com quem não está no CRM: ignora
     const events = await d.driver.read(readThread, sel(d.driver.sel));
     syncThread(d, person.id, events);
-    // respostas ainda não classificadas (inclui as gravadas pela checagem antes de um envio)
-    const fresh = d.crm.thread(person.id).filter((m) => m.direction === 'in' && !m.aiLabel && !m.handled);
-    if (!fresh.length) continue;
-    const last = fresh.at(-1)!;
-    let label: string | undefined;
-    let summary: string | undefined;
-    const llm = d.llm();
-    if (llm) {
-      try {
-        const c = await classifyReply(llm, person, d.crm.thread(person.id).map((m) => ({ direction: m.direction, body: m.body })));
-        label = c.label;
-        summary = [c.summary, c.referredPerson && `Indicou: ${c.referredPerson}`, c.suggestedNextStep && `Próximo passo: ${c.suggestedNextStep}`].filter(Boolean).join(' · ');
-      } catch {
-        /* sem classificação: segue com a regra local */
-      }
-    }
-    if (!label && looksLikeOptOut(last.body)) label = 'opt_out';
-    if (label) d.crm.labelMessage(last.id, label, summary ?? '');
-    d.crm.block(person.id, label === 'opt_out' ? 'OPTED_OUT' : 'REPLIED');
-    d.emit('reply_received', person.id, { reply: { text: last.body, label: label ?? null, summary: summary ?? null } });
+    const handled = await handleReply(d, person);
+    if (!handled) continue;
+    const { label, summary } = handled;
     result.newReplies.push({ personId: person.id, name: [person.firstName, person.lastName].filter(Boolean).join(' '), label, summary });
   }
   return result;

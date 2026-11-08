@@ -8,6 +8,7 @@ import {
   engagementCampaign,
   importPeopleFromCsv,
   outreachSequence,
+  prospectingSequence,
   monitorCampaign,
   contactsCampaign,
   committeeCoverage,
@@ -260,11 +261,19 @@ ipcMain.handle(
 
 ipcMain.handle(
   'campaigns:createSequence',
-  (_e, id: string, input: Omit<OutreachSequenceOptions, 'id' | 'accountId'> & { collectionId: string }) => {
+  (
+    _e,
+    id: string,
+    input: Omit<OutreachSequenceOptions, 'id' | 'accountId'> & { collectionId: string; engage?: boolean; commentMode?: 'manual' | 'auto' },
+  ) => {
     const crm = crms.get(account(id));
-    const { collectionId, ...opts } = input;
+    const { collectionId, engage, commentMode, ...opts } = input;
     if (!opts.messages?.length) throw new Error('Adicione pelo menos uma mensagem à sequência');
-    const campaign = outreachSequence({ id: randomUUID(), accountId: id, ...opts });
+    if (opts.messages.length > 5) throw new Error('No máximo 5 mensagens na sequência');
+    // padrão: curtir + comentar → convite → conferir aceite (1 dia) → até 5 mensagens
+    const campaign = engage === false
+      ? outreachSequence({ id: randomUUID(), accountId: id, ...opts })
+      : prospectingSequence({ id: randomUUID(), accountId: id, commentMode: commentMode ?? 'manual', aboutMe: settings.aboutMe(), ...opts });
     crm.saveCampaign(campaign);
     return { campaignId: campaign.id, enqueued: crm.enqueueCollection(campaign, collectionId) };
   },

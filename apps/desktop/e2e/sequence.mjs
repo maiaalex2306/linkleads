@@ -36,7 +36,7 @@ try {
   const imp = await call('importCsv', acc.id);
 
   const { campaignId } = await call('createSequenceCampaign', acc.id, {
-    name: 'Prospecção', collectionId: imp.collectionId, tone: 'profissional', extraInstructions: '',
+    engage: false, name: 'Prospecção', collectionId: imp.collectionId, tone: 'profissional', extraInstructions: '',
     invite: { ai: true, approval: 'manual' }, acceptTimeoutDays: 21, withdrawOnTimeout: true,
     messages: [
       { waitDays: 0, ai: false, template: 'Obrigado por aceitar, {{firstName}}! Como vocês mediram as perdas?' },
@@ -86,8 +86,7 @@ try {
   check(ps[0].status === 'failed' && ps[0].reason === 'REPLIED', 'pessoa saiu da sequência (REPLIED)');
 
   const scan = await call('checkInbox', acc.id);
-  check(scan && scan.newReplies.length === 1 && scan.newReplies[0].label === 'interessado', 'varredura do inbox classifica a resposta pela IA');
-  check(site.state.unread === false, 'conversa aberta no inbox (marcada como lida)');
+  check(scan && scan.newReplies.length === 0, 'resposta já tratada na checagem antes do envio: o inbox não a repete');
 
   const inbox = await call('listInbox', acc.id, true);
   check(inbox.length === 1 && inbox[0].lastInbound.aiLabel === 'interessado', 'inbox mostra a resposta com rótulo');
@@ -103,7 +102,7 @@ try {
   await ui.getByRole('button', { name: 'Campanhas' }).click();
   await ui.getByText('Criar sequência').waitFor();
   await ui.screenshot({ path: join(shots, 'fase2-campanhas.png'), fullPage: true });
-  await ui.getByRole('button', { name: 'Configurações' }).click();
+  await ui.getByRole('button', { name: 'Configurações', exact: true }).click();
   await ui.getByText('Interruptor geral').waitFor();
   await ui.screenshot({ path: join(shots, 'fase2-configuracoes.png'), fullPage: true });
 } catch (e) {

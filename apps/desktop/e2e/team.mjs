@@ -113,7 +113,7 @@ try {
   check(dash.inboundLeads.open === 0 && dash.devices[0].name === 'Notebook da Bia', 'servidor registra os leads como entregues', dash.inboundLeads);
 
   await ui.reload();
-  await ui.getByRole('button', { name: 'Configurações' }).click();
+  await ui.getByRole('button', { name: 'Configurações', exact: true }).click();
   await ui.getByText('Equipe: BioSolvit').waitFor();
   await ui.getByText('Equipe: BioSolvit').scrollIntoViewIfNeeded();
   await ui.screenshot({ path: join(shots, 'fase5-equipe.png') });

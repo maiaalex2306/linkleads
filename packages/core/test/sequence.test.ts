@@ -4,6 +4,8 @@ import {
   ExecutorRegistry,
   InMemoryCampaignStore,
   outreachSequence,
+  prospectingSequence,
+  resolveApproval,
   type Account,
 } from '../src/index.js';
 
@@ -65,6 +67,70 @@ describe('sequência com espera e re-tentativa', () => {
     hours(48);
     await runner.tick(campaign, account);
     expect(sent).toEqual([ids[3], ids[4]]);
+  });
+});
+
+describe('sequência de prospecção (curtir → comentar → convite)', () => {
+  const build = () => {
+    const campaign = {
+      ...prospectingSequence({
+        id: 'pro', accountId: 'acc', name: 'Pro', commentMode: 'manual',
+        invite: { template: 'Olá' },
+        messages: [1, 2, 3, 4, 5, 6].map((i) => ({ waitDays: i === 1 ? 0 : 3, template: `m${i}` })),
+      }),
+      active: true,
+    };
+    const store = new InMemoryCampaignStore();
+    store.addPerson({ id: 'p1', firstName: 'Ana' });
+    store.enqueue('pro', campaign.actions[0]!.id, 'p1');
+    return { campaign, store, id: (t: string) => campaign.actions.find((a) => a.type === t)!.id };
+  };
+
+  it('limita a 5 mensagens e confere o aceite 1 dia depois do convite', () => {
+    const { campaign } = build();
+    expect(campaign.actions.filter((a) => a.type === 'MessageToPerson')).toHaveLength(5);
+    expect(campaign.actions.find((a) => a.type === 'CheckConnection')!.waitHours).toBe(24);
+  });
+
+  it('sem post recente: pula curtir/comentar e segue para o convite', async () => {
+    const { campaign, store, id } = build();
+    const invites: string[] = [];
+    const executors = new ExecutorRegistry()
+      .register({ type: 'VisitAndExtract', execute: async () => ({ ok: true }) })
+      .register({ type: 'LikePosts', execute: async () => ({ ok: false, reason: 'NO_POST' }) })
+      .register({ type: 'CommentPost', execute: async () => ({ ok: false, reason: 'NO_POST' }) })
+      .register({ type: 'SendInvite', execute: async (ctx) => { invites.push(ctx.person.id); return { ok: true }; }, verify: async () => true });
+    let now = new Date('2026-11-09T13:00:00Z');
+    const runner = new CampaignRunner({ store, executors, now: () => now, sleep: async () => {} });
+    await runner.tick(campaign, account);
+    expect(store.statusOf('pro', id('LikePosts'), 'p1')).toMatchObject({ status: 'failed', reason: 'NO_POST' });
+    expect(store.statusOf('pro', id('SendInvite'), 'p1')?.status).toBe('queued');
+    now = new Date(now.getTime() + 5 * 3_600_000);
+    await runner.tick(campaign, account);
+    expect(invites).toEqual(['p1']);
+  });
+
+  it('perfil não encontrado ou bloqueio da plataforma NÃO seguem para o convite', async () => {
+    const { campaign, store, id } = build();
+    const executors = new ExecutorRegistry()
+      .register({ type: 'VisitAndExtract', execute: async () => ({ ok: true }) })
+      .register({ type: 'LikePosts', execute: async () => ({ ok: false, reason: 'THROTTLED' }) });
+    const runner = new CampaignRunner({ store, executors, now: () => new Date('2026-11-09T13:00:00Z'), sleep: async () => {} });
+    await runner.tick(campaign, { ...account });
+    expect(store.statusOf('pro', id('CommentPost'), 'p1')).toBeUndefined();
+  });
+
+  it('comentário rejeitado na aprovação: segue para o convite', () => {
+    const { campaign, store, id } = build();
+    store.enqueue('pro', id('CommentPost'), 'p1');
+    resolveApproval(store, campaign, id('CommentPost'), 'p1', { executed: false, reason: 'REJECTED' });
+    expect(store.statusOf('pro', id('SendInvite'), 'p1')?.status).toBe('queued');
+  });
+
+  it('convite rejeitado na aprovação: para (não manda mensagem)', () => {
+    const { campaign, store, id } = build();
+    resolveApproval(store, campaign, id('SendInvite'), 'p1', { executed: false, reason: 'REJECTED' });
+    expect(store.statusOf('pro', id('CheckConnection'), 'p1')).toBeUndefined();
   });
 });
 
