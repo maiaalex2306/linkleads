@@ -20,21 +20,29 @@ async function renderAccounts() {
     }
   }
   const box = document.getElementById('accounts');
-  box.replaceChildren(
-    h('form', {
-      class: 'stack', onsubmit: async (e) => {
+  // o formulário é criado uma vez só: redesenhar a lista não pode apagar o que a pessoa está digitando
+  let form = box.querySelector('form.new-account');
+  let listBox = box.querySelector('.account-list');
+  if (!form) {
+    form = h('form', {
+      class: 'stack new-account', onsubmit: async (e) => {
         e.preventDefault();
         const f = new FormData(e.target);
-        const a = await safe(() => api.createAccount({ label: f.get('label'), tier: f.get('tier') }));
+        const label = String(f.get('label') || '').trim();
+        if (!label) return toast('Digite um nome para a conta');
+        const a = await safe(() => api.createAccount({ label, tier: f.get('tier') }));
         if (a) { state.accountId = a.id; e.target.reset(); refresh(); }
       },
     },
-      h('input', { name: 'label', placeholder: 'Nova conta (nome)', required: true }),
+      h('input', { name: 'label', placeholder: 'Nova conta (nome)', required: true, autocomplete: 'off' }),
       h('div', { class: 'row' },
         h('select', { name: 'tier' }, ...[['basic', 'Basic'], ['premium', 'Premium'], ['sales_navigator', 'Sales Navigator'], ['recruiter', 'Recruiter']].map(([v, l]) => h('option', { value: v }, l))),
         h('button', { class: 'primary' }, 'Adicionar')),
-    ),
-    h('h3', {}, 'Contas'),
+    );
+    listBox = h('div', { class: 'account-list' });
+    box.replaceChildren(form, h('h3', {}, 'Contas'), listBox);
+  }
+  listBox.replaceChildren(
     ...list.map((a) =>
       h('div', { class: 'acc' + (a.id === state.accountId ? ' sel' : ''), onclick: () => { state.accountId = a.id; refresh(); } },
         h('span', { class: 'dot' + (a.paused ? ' paused' : a.running ? ' on' : '') }),

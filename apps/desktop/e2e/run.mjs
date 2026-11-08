@@ -26,7 +26,17 @@ try {
   await ui.waitForLoadState('domcontentloaded');
   const call = (fn, ...args) => ui.evaluate(([fn, args]) => window.linkleads[fn](...args), [fn, args]);
 
-  const acc = await call('createAccount', { label: 'Conta teste', tier: 'basic' });
+  // cria a conta pela tela, digitando como uma pessoa, com um redesenho automático (10 s) no meio
+  await ui.getByPlaceholder('Nova conta (nome)').click();
+  await ui.keyboard.type('Conta ', { delay: 50 });
+  await new Promise((r) => setTimeout(r, 11_000));
+  await ui.keyboard.type('teste', { delay: 50 });
+  const typed = await ui.getByPlaceholder('Nova conta (nome)').inputValue();
+  if (typed !== 'Conta teste') fail(`campo "Nova conta" perdeu o texto durante a digitação → ${JSON.stringify(typed)}`);
+  else console.log('ok - campo "Nova conta" mantém o texto durante o redesenho');
+  await ui.getByRole('button', { name: 'Adicionar' }).click();
+  await ui.locator('.account-list').getByText('Conta teste').waitFor();
+  const acc = (await call('listAccounts')).find((x) => x.label === 'Conta teste');
   // horário 24x7 para o teste não depender do relógio
   await call('updateAccount', { ...acc, workingHours: { ...acc.workingHours, days: [0, 1, 2, 3, 4, 5, 6], start: '00:00', end: '23:59' } });
 
