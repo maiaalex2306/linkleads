@@ -40,6 +40,8 @@ jobs:
             suite: "prospecting salesnav"
           - name: Login e limites
             suite: "login limits"
+          - name: Launcher e workspace por conta
+            suite: "launcher-workspace"
           - name: Interface guiada e falhas
             suite: "simple explain"
     steps:
