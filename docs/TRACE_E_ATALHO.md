@@ -12,7 +12,7 @@ O instalador cria **LINKLEADS.lnk** na Área de Trabalho do Windows, inclusive s
 
 1. `git pull --ff-only` (não substitui nem destrói alterações locais)
 2. `npm.cmd run build`
-3. `npm.cmd run dev -w @linkleads/desktop`
+3. `npm.cmd run dev -w @linkleads/desktop` (inicia o Electron sem compilar o desktop novamente)
 
 Se o Git ou a compilação falharem, o programa não é iniciado. O console informa o erro. Na instalação inicial, execute `npm ci` uma vez.
 

@@ -268,7 +268,7 @@ export class AccountInstance {
     trace.record('campaign', 'action_' + e.type, {
       actionType: a?.type,
       ...(e.type === 'start' || e.type === 'done' ? { step: e.step, total: e.total } : {}),
-      ...(e.type === 'done' ? { ok: e.ok, reason: e.reason, message: e.message } : {}),
+      ...(e.type === 'done' ? { ok: e.ok, reason: e.reason, length: e.message?.length ?? 0 } : {}),
       ...(e.type === 'pause' ? { waitMs: e.ms, scheduledAt: e.until.toISOString() } : {}),
       ...(e.type === 'scheduled' ? { scheduledAt: e.at.toISOString() } : {}),
     }, {
@@ -651,7 +651,7 @@ export class AccountInstance {
     const result = await this.executeDraft(draft, text);
     trace.record('approval', 'execute_result', {
       kind: draft.kind, ok: result.ok, reason: result.ok ? undefined : result.reason,
-      message: result.ok ? undefined : result.message,
+      length: result.ok ? 0 : (result.message?.length ?? 0),
     }, { accountId: this.account.id, campaignId: draft.campaignId,
       actionId: draft.actionId, personId: draft.personId }, result.ok ? 'info' : 'warn');
     if (result.ok) {

@@ -41,8 +41,12 @@ export class PageDriver {
   async read<T, A extends unknown[]>(fn: (...args: A) => T, ...args: A): Promise<T> {
     // cada leitura num escopo próprio (o ajudante de posts não pode ser redeclarado no mesmo mundo isolado)
     const code = `(() => { const __llIsReact = ${llIsReact.toString()};\nconst llIsReact = __llIsReact;\nconst __llPostContainers = ${llPostContainers.toString()};\nreturn (${fn.toString()})(...${JSON.stringify(args)}); })()`;
+    const started = Date.now();
     try {
-      return (await this.wc.executeJavaScriptInIsolatedWorld(ISOLATED_WORLD, [{ code }])) as T;
+      const result = (await this.wc.executeJavaScriptInIsolatedWorld(ISOLATED_WORLD, [{ code }])) as T;
+      const elapsed = Date.now() - started;
+      if (elapsed >= 250) this.emit?.('dom_read_slow', { name: fn.name, durationMs: elapsed });
+      return result;
     } catch (error) {
       this.emit?.('dom_read_failed', { name: fn.name, message: error instanceof Error ? error.message : String(error) });
       throw error;

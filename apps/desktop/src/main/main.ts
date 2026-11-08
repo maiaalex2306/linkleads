@@ -82,11 +82,11 @@ const integrationSettings = new IntegrationSettings();
 const hub = new IntegrationHub(
   integrationSettings,
   () => accounts.list().map((a) => ({ account: a, crm: crms.get(a) })),
-  (accountId, line) => { trace.record('runtime', 'log', { message: line }, { accountId }); send('log', { accountId, line, at: new Date().toISOString() }); },
+  (accountId, line) => { trace.record('runtime', 'log', { length: line.length }, { accountId }); send('log', { accountId, line, at: new Date().toISOString() }); },
 );
 const instances = new InstanceManager(crms, settings, {
   getLogin: (accountId) => accounts.getLogin(accountId),
-  onLog: (accountId, line) => { trace.record('runtime', 'log', { message: line }, { accountId }); send('log', { accountId, line, at: new Date().toISOString() }); },
+  onLog: (accountId, line) => { trace.record('runtime', 'log', { length: line.length }, { accountId }); send('log', { accountId, line, at: new Date().toISOString() }); },
   onAccountChanged: (account) => {
     accounts.save(account);
     send('accounts:changed');
@@ -96,7 +96,7 @@ const instances = new InstanceManager(crms, settings, {
 const team = new TeamSync({
   accounts: () => accounts.list().map((a) => ({ account: instances.get(a.id)?.account ?? a, crm: crms.get(a), running: instances.isRunning(a.id) })),
   log: (line) => {
-    for (const a of accounts.list()) { trace.record('team', 'log', { message: line }, { accountId: a.id }); send('log', { accountId: a.id, line, at: new Date().toISOString() }); }
+    for (const a of accounts.list()) { trace.record('team', 'log', { length: line.length }, { accountId: a.id }); send('log', { accountId: a.id, line, at: new Date().toISOString() }); }
   },
   onSelectorsUpdated: () => instances.all().forEach((i) => i.reloadSelectors()),
 });

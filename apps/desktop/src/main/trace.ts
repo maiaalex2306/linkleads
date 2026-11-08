@@ -83,6 +83,8 @@ export class TraceJournal {
   private failedWrites = 0;
   private pruned = new Set<string>();
   private indexes = new Map<string, number>();
+  private folders = new Set<string>();
+  private sizes = new Map<string, number>();
   constructor(
     private root?: string,
     private options: { maxBytes?: number; retentionDays?: number } = {},
@@ -119,7 +121,10 @@ export class TraceJournal {
       const at = new Date().toISOString();
       const date = at.slice(0, 10).replace(/-/g, '');
       const folder = this.folder(ctx.accountId);
-      mkdirSync(folder, { recursive: true });
+      if (!this.folders.has(folder)) {
+        mkdirSync(folder, { recursive: true });
+        this.folders.add(folder);
+      }
       this.prune(folder, date);
       const key = folder + date;
       const max = this.options.maxBytes ?? MAX_BYTES;
@@ -134,12 +139,18 @@ export class TraceJournal {
         details: safeDetails(details),
       };
       const line = JSON.stringify(record) + '\n';
-      while (existsSync(file) && statSync(file).size + Buffer.byteLength(line) > max) {
+      const bytes = Buffer.byteLength(line);
+      let current = this.sizes.get(file);
+      if (current === undefined) current = existsSync(file) ? statSync(file).size : 0;
+      while (current > 0 && current + bytes > max) {
         index++;
         file = join(folder, 'trace-' + date + '-' + String(index).padStart(3, '0') + '.jsonl');
+        current = this.sizes.get(file);
+        if (current === undefined) current = existsSync(file) ? statSync(file).size : 0;
       }
       this.indexes.set(key, index);
       appendFileSync(file, line, { encoding: 'utf8', mode: 0o600 });
+      this.sizes.set(file, current + bytes);
     } catch (e) {
       this.failedWrites++;
       if (this.failedWrites === 1 || this.failedWrites % 100 === 0)

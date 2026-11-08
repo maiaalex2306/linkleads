@@ -46,13 +46,15 @@ export class HumanInput {
 
   /** Digitação com cadência irregular e pausas ocasionais. */
   async type(text: string): Promise<void> {
-    this.emit?.('type', { length: text.length });
+    const started = Date.now();
+    this.emit?.('type_start', { length: text.length });
     for (const ch of text) {
       this.wc.sendInputEvent({ type: 'char', keyCode: ch });
       let d = randInt(this.rng, 45, 160);
       if (ch === ' ' && this.rng() < 0.15) d += randInt(this.rng, 250, 900);
       await this.sleep(d);
     }
+    this.emit?.('type_done', { length: text.length, durationMs: Date.now() - started });
   }
 
   async scroll(deltaY: number): Promise<void> {

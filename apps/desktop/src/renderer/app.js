@@ -231,7 +231,7 @@ document.addEventListener('click', (event) => {
   const el = event.target instanceof Element ? event.target.closest('button, a, [role="button"], .acc') : null;
   if (!el) return;
   api.traceUiEvent({ action: 'click', accountId: state.accountId, view: state.tab, mode: state.mode,
-    control: (el.getAttribute('data-trace') || el.getAttribute('aria-label') || el.id || el.textContent || el.tagName).replace(/\s+/g, ' ').slice(0, 80) });
+    control: (el.getAttribute('data-trace') || el.id || el.getAttribute('type') || el.tagName).replace(/[^a-z0-9_.:-]/gi, '_').slice(0, 80) });
 }, true);
 document.addEventListener('change', (event) => {
   const el = event.target;
