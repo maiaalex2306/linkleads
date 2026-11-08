@@ -92,7 +92,12 @@ async function renderAccounts() {
 function topNav() {
   const ver = h('span', { class: 'build-tag', title: 'Versão do código que está rodando agora' }, '');
   document.getElementById('topnav').replaceChildren(
-    h('button', { class: 'link', onclick: () => { state.tab = 'settings'; renderView(); } }, 'Configurações'),
+    h('button', { class: 'link', onclick: () => {
+      state.backScreen = state.screen;
+      state.screen = 'settings';
+      state.tab = 'settings';
+      renderView();
+    } }, 'Configurações'),
     h('button', { class: 'link', onclick: async () => {
       const result = await safe(() => api.exportTrace(state.accountId || undefined));
       if (result && !result.canceled) toast('TRACE exportado: ' + result.file + ' (' + result.files + ' arquivo(s))', 6500);
