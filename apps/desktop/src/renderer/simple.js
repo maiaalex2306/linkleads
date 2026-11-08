@@ -1,11 +1,14 @@
-/* global h, toast, safe, api, state, renderView, refresh, livePanel, scheduleStatus, DEFAULT_MESSAGES, loginPanel, REASONS */
+/* global h, toast, safe, api, state, renderView, refresh, livePanel, scheduleStatus, DEFAULT_MESSAGES, loginPanel, hoursPanel, limitsPanel, importReportCard, approvalsView, inboxView */
 /*
- * Modo simples (tela inicial): 3 passos grandes — lista, fluxo, começar — e um painel com o andamento.
- * Inspirado no "lançamento rápido" das ferramentas mais fáceis do mercado: fluxo pronto, desenhado,
- * e o resto (limites, proxy, empresas, sinais…) no modo avançado.
+ * Tela guiada (tela inicial): 4 etapas numeradas na ordem do trabalho —
+ * ① Listas → ② Campanha → ③ Configurações → ④ Acompanhar.
+ * A campanha é criada uma pergunta por tela (lista → ações → mensagens → revisar e iniciar).
+ * O resto (empresas, sinais, entregas, diagnóstico) fica em "Ferramentas avançadas".
  */
 
 const normCol = (k) => k.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+const goAdvanced = (tab) => { state.mode = 'advanced'; if (tab) state.tab = tab; try { localStorage.setItem('ll-mode-v2', 'advanced'); } catch {} renderView(); };
+const goStep = (g) => { state.g = g; renderView(); };
 
 /** Colunas de mensagens prontas na planilha (MSG-CONEXÃO, MSG-01…MSG-05). */
 function sheetMessages(columns) {
@@ -15,42 +18,268 @@ function sheetMessages(columns) {
   return invite || msgs.length ? { invite, msgs } : null;
 }
 
+/** Prévia: preenche {{firstName}}, {{company}}, {{custom.X}} com os dados de uma pessoa. */
+function previewText(tpl, p) {
+  if (!tpl) return '';
+  return tpl.replace(/\{\{\s*(custom\.[^}|]+?|[\w.]+)\s*(?:\|\s*"([^"]*)")?\s*\}\}/g, (_, path, fb) => {
+    const dot = path.indexOf('.');
+    const head = dot < 0 ? path : path.slice(0, dot);
+    const sub = dot < 0 ? '' : path.slice(dot + 1).trim();
+    let v;
+    if (head === 'custom') {
+      const c = p.custom || {};
+      v = c[sub] ?? Object.entries(c).find(([k]) => normCol(k) === normCol(sub))?.[1];
+    } else v = p[head];
+    return (v && String(v).trim()) || fb || '';
+  });
+}
+
 /** O fluxo desenhado: cada etapa um "bloco" com ícone. */
-function flowDiagram(nMsgs = 5) {
+function flowDiagram(o = {}) {
+  const n = o.msgs ?? 5;
   const node = (icon, title, sub, cls = '') => h('div', { class: 'fnode ' + cls }, h('div', { class: 'ficon' }, icon), h('div', {}, h('b', {}, title), sub && h('div', { class: 'muted' }, sub)));
   const arrow = (txt) => h('div', { class: 'farrow' }, h('span', {}, '→'), txt && h('small', {}, txt));
   return h('div', { class: 'flow' },
-    node('👍', 'Curtir e comentar', 'post mais recente'),
+    o.engage !== false && node('👍', 'Curtir e comentar', 'post mais recente'),
+    o.engage !== false && arrow(),
+    node('🤝', 'Convite', 'de conexão'),
+    arrow(`${o.checkDays ?? 1} dia`),
+    node('✔', 'Aceitou?', `confere todo dia, até ${o.timeout ?? 30} dias`),
     arrow(),
-    node('🤝', 'Convite', 'no mesmo dia'),
-    arrow('1 dia'),
-    node('✔', 'Aceitou?', 'confere todo dia, até 30 dias'),
+    node('✉', `${n} mensage${n > 1 ? 'ns' : 'm'}`, `${o.gap ?? 1} dia entre elas, só se não respondeu`),
     arrow(),
-    node('✉', `${nMsgs} mensagens`, '1 por dia, só se não respondeu'),
-    arrow(),
-    node('↩', 'Respondeu', 'sai do fluxo → webhook / você assume', 'goal'),
+    node('↩', 'Respondeu', 'sai do fluxo → você assume', 'goal'),
   );
 }
 
-function stepCard(n, title, done, body) {
-  return h('div', { class: 'sstep' + (done ? ' done' : '') },
-    h('div', { class: 'snum' }, done ? '✓' : String(n)),
-    h('div', { class: 'sbody' }, h('h3', {}, title), body));
-}
-
 /** Situação da conta em uma palavra + o botão principal. */
-function bigStatus(a, active) {
+function statusBar(a, active) {
   const inside = scheduleStatus(a).inside;
-  const [label, cls] = a.paused ? ['Pausado', 'warn'] : !a.running ? ['Parado', 'idle'] : !inside ? ['Fora do horário', 'warn'] : active ? ['Trabalhando', 'ok'] : ['Sem campanha', 'idle'];
+  const [label, cls] = a.paused ? ['Pausado', 'warn'] : !a.running ? ['Parado', 'idle'] : !active ? ['Sem campanha ativa', 'idle'] : !inside ? ['Fora do horário', 'warn'] : ['Trabalhando', 'ok'];
   let btn;
   if (a.paused) btn = h('button', { class: 'primary big', onclick: () => safe(() => api.setPaused(a.id, false)).then(refresh) }, '▶ Retomar');
-  else if (!a.running) btn = h('button', { class: 'primary big', disabled: !active, title: active ? '' : 'Configure a campanha nos 3 passos abaixo', onclick: () => safe(() => api.startInstance(a.id)).then(refresh) }, '▶ Começar');
+  else if (!a.running) btn = h('button', { class: 'primary big', disabled: !active, title: active ? '' : 'Crie e ative uma campanha primeiro (etapa 2)', onclick: () => safe(() => api.startInstance(a.id)).then(refresh) }, '▶ Começar');
   else btn = h('button', { class: 'big', onclick: () => safe(() => api.setPaused(a.id, true)).then(refresh) }, '⏸ Pausar');
-  return h('div', { class: 'bigstatus' },
+  return h('div', { class: 'gtop' },
+    h('h2', { style: 'margin:0' }, a.label),
     h('span', { class: 'pill ' + cls }, label),
-    h('div', { style: 'flex:1' }, active ? h('div', {}, 'Campanha: ', h('b', {}, active.name)) : h('div', { class: 'muted' }, 'Nenhuma campanha ativa'),
-      h('div', { class: 'muted' }, `Horário: ${a.workingHours.start}–${a.workingHours.end} · ${a.hasLinkedinPassword ? 'entra sozinho no LinkedIn' : 'login manual na janela do LinkedIn'}`)),
+    h('div', { class: 'muted', style: 'flex:1' }, active ? `Campanha: ${active.name}` : ''),
     btn);
+}
+
+/** As 4 etapas numeradas (navegação principal). */
+function stepper(cur, info) {
+  const item = (key, n, title, sub, warn) => h('button', { class: 'gstep' + (cur === key ? ' sel' : '') + (warn ? ' warn' : ''), onclick: () => goStep(key) },
+    h('span', { class: 'gnum' }, String(n)), h('span', { class: 'gtxt' }, h('b', {}, title), h('small', {}, sub)));
+  return h('nav', { class: 'gsteps' },
+    item('lists', 1, 'Listas', info.lists),
+    item('campaign', 2, 'Campanha', info.campaign),
+    item('config', 3, 'Configurações', info.config, info.configWarn),
+    item('track', 4, 'Acompanhar', info.track, info.trackWarn));
+}
+
+// ── ① Listas ──────────────────────────────────────────────────────────────
+async function listsPage(a, cols, camps) {
+  const usedBy = (id) => camps.filter((c) => c.people.length && c.collectionIds?.includes?.(id)).map((c) => c.name);
+  return h('div', { class: 'stack' },
+    h('div', { class: 'row' },
+      h('div', { style: 'flex:1' }, h('h3', { style: 'margin:0' }, 'Suas listas de leads'),
+        h('div', { class: 'muted' }, 'Importe a planilha (exportação do Linked Helper, do Sales Navigator ou qualquer CSV com nome + link do perfil).')),
+      h('button', { class: 'primary big', onclick: async () => {
+        const r = await safe(() => api.importCsv(a.id));
+        if (!r) return;
+        state.importReport = { ...r, accountId: a.id };
+        state.wiz = { ...(state.wiz || {}), colId: r.collectionId };
+        renderView();
+      } }, '⬆ Importar planilha')),
+    state.importReport && state.importReport.accountId === a.id && importReportCard(state.importReport, () => { state.importReport = null; renderView(); }),
+    cols.length
+      ? h('div', { class: 'glist' }, ...cols.map((c) => h('div', { class: 'card gcard' },
+          h('div', { class: 'gcard-ico' }, '📋'),
+          h('div', { style: 'flex:1;min-width:0' }, h('b', {}, c.name), h('div', { class: 'muted' }, `${c.size} pessoa(s)${usedBy(c.id).length ? ` · usada em ${usedBy(c.id).join(', ')}` : ''}`)),
+          h('button', { class: 'primary', onclick: () => { state.wiz = { step: 2, colId: c.id }; state.g = 'campaign'; state.creating = true; renderView(); } }, 'Criar campanha com esta lista →'))))
+      : h('div', { class: 'card muted' }, 'Nenhuma lista ainda. Comece importando sua planilha.'));
+}
+
+// ── ② Campanha (assistente) ──────────────────────────────────────────────
+async function wizardPage(a, cols) {
+  const w = (state.wiz = { step: 1, engage: true, approve: true, msgs: 5, gap: 1, checkDays: 1, timeout: 30, src: 'sheet', ...(state.wiz || {}) });
+  if (!w.colId && cols[0]) w.colId = cols[0].id;
+  const col = cols.find((c) => c.id === w.colId);
+  const columns = col ? await api.collectionColumns(a.id, col.id).catch(() => []) : [];
+  const sheet = sheetMessages(columns);
+  if (!sheet && w.src === 'sheet') w.src = 'ai';
+  if (sheet && w.src === 'sheet') w.msgs = Math.max(1, sheet.msgs.length || w.msgs);
+  const settings = await api.getSettings();
+  const STEPS = ['Lista', 'Ações', 'Mensagens', 'Revisar e iniciar'];
+  const dots = h('div', { class: 'wdots' }, ...STEPS.map((t, i) => h('div', { class: 'wdot' + (i + 1 === w.step ? ' cur' : i + 1 < w.step ? ' done' : '') }, h('span', {}, i + 1 < w.step ? '✓' : String(i + 1)), t)));
+  const nav = (canNext = true, nextLabel = 'Avançar →') => h('div', { class: 'row wnav' },
+    w.step > 1 && h('button', { onclick: () => { w.step--; renderView(); } }, '← Voltar'),
+    h('div', { style: 'flex:1' }),
+    w.step < 4 && h('button', { class: 'primary big', disabled: !canNext, onclick: () => { w.step++; renderView(); } }, nextLabel));
+  let body;
+
+  if (w.step === 1) {
+    body = h('div', { class: 'stack' },
+      h('h3', {}, 'Para quem? Escolha a lista'),
+      cols.length
+        ? h('div', { class: 'stack' }, ...cols.map((c) => h('label', { class: 'choice' + (c.id === w.colId ? ' sel' : '') },
+            h('input', { type: 'radio', name: 'wcol', checked: c.id === w.colId, onchange: () => { w.colId = c.id; renderView(); } }),
+            h('div', {}, h('b', {}, c.name), h('div', { class: 'muted' }, `${c.size} pessoa(s)`)))))
+        : h('div', { class: 'stack' }, h('div', { class: 'muted' }, 'Você ainda não tem listas.'), h('div', {}, h('button', { class: 'primary', onclick: () => goStep('lists') }, '⬆ Importar planilha na etapa 1'))),
+      nav(!!col));
+  } else if (w.step === 2) {
+    const num = (key, min, max) => {
+      const i = h('input', { type: 'number', min, max, value: String(w[key]), style: 'width:64px' });
+      i.addEventListener('change', () => { w[key] = Math.max(min, Math.min(max, Number(i.value) || min)); renderView(); });
+      return i;
+    };
+    const engage = h('input', { type: 'checkbox', checked: w.engage, onchange: (e) => { w.engage = e.target.checked; renderView(); } });
+    const approve = h('input', { type: 'checkbox', checked: w.approve, onchange: (e) => { w.approve = e.target.checked; } });
+    body = h('div', { class: 'stack' },
+      h('h3', {}, 'O que o LinkLeads vai fazer, na ordem'),
+      flowDiagram(w),
+      h('div', { class: 'stack wopts' },
+        h('label', { class: 'choice' }, engage, h('div', {}, h('b', {}, '👍 Curtir e comentar o post mais recente antes do convite'),
+          h('div', { class: 'muted' }, 'Aquece o lead. A IA lê o post e escreve um comentário profissional. Sem post recente, vai direto para o convite.'))),
+        w.engage && h('label', { class: 'choice sub' }, approve, h('div', {}, h('b', {}, 'Eu aprovo cada comentário antes de publicar'), h('div', { class: 'muted' }, 'Recomendado no começo. Os comentários ficam em "Acompanhar → Precisa de você".'))),
+        h('div', { class: 'choice' }, h('div', { class: 'ficon' }, '🤝'), h('div', {}, h('b', {}, 'Convite de conexão'), h('div', { class: 'muted' }, 'Sempre. Depois confere o aceite todo dia.'),
+          h('div', { class: 'row' }, 'Conferir o aceite', num('checkDays', 1, 7), 'dia(s) depois; desistir após', num('timeout', 7, 60), 'dias (retira o convite)'))),
+        h('div', { class: 'choice' }, h('div', { class: 'ficon' }, '✉'), h('div', {}, h('b', {}, 'Mensagens para quem aceitar'),
+          h('div', { class: 'row' }, num('msgs', 1, 5), 'mensagem(ns), com', num('gap', 1, 14), 'dia(s) entre elas'),
+          h('div', { class: 'muted' }, 'A 1ª sai assim que a pessoa aceitar. Quem responder sai do fluxo na hora e vai para o webhook / para você.')))),
+      nav());
+  } else if (w.step === 3) {
+    const sample = col ? (await api.collectionPeople(a.id, col.id).catch(() => [])).find((p) => p.firstName) : null;
+    const choose = (src) => { w.src = src; if (src === 'sheet' && sheet) w.msgs = Math.max(1, sheet.msgs.length); renderView(); };
+    const tpls = w.src === 'sheet' && sheet
+      ? { invite: sheet.invite ? `{{custom.${sheet.invite}}}` : '', msgs: sheet.msgs.slice(0, w.msgs).map((m) => `{{custom.${m}}}`) }
+      : null;
+    body = h('div', { class: 'stack' },
+      h('h3', {}, 'O que escrever'),
+      h('label', { class: 'choice' + (sheet ? '' : ' off') + (w.src === 'sheet' ? ' sel' : '') },
+        h('input', { type: 'radio', name: 'wsrc', disabled: !sheet, checked: w.src === 'sheet', onchange: () => choose('sheet') }),
+        h('div', {}, h('b', {}, 'Usar as mensagens da minha planilha'),
+          h('div', { class: 'muted' }, sheet ? `Encontrei: ${[sheet.invite, ...sheet.msgs].filter(Boolean).join(', ')}. Cada pessoa recebe o texto da própria linha.` : 'Esta lista não tem colunas MSG-CONEXÃO / MSG-01…MSG-05.'))),
+      h('label', { class: 'choice' + (w.src === 'ai' ? ' sel' : '') },
+        h('input', { type: 'radio', name: 'wsrc', checked: w.src === 'ai', onchange: () => choose('ai') }),
+        h('div', {}, h('b', {}, 'A IA escreve cada mensagem'), h('div', { class: 'muted' }, 'Personalizada pelo perfil e pelo post. Você aprova cada uma antes de sair.'))),
+      (w.engage || w.src === 'ai') && !settings.hasAiKey && h('div', { class: 'card attention stack' },
+        h('b', {}, '⚠ A IA ainda não tem chave'),
+        h('div', {}, 'Comentários (e mensagens escritas pela IA) precisam da chave da OpenAI ou da Anthropic. Sem ela, o app curte mas não comenta.'),
+        h('div', {}, h('button', { class: 'primary', onclick: () => { state.tab = 'settings'; renderView(); } }, 'Configurar a IA agora'))),
+      tpls && sample && h('div', { class: 'card stack preview' },
+        h('b', {}, `Prévia com ${[sample.firstName, sample.lastName].filter(Boolean).join(' ')}${sample.company ? ` (${sample.company})` : ''}`),
+        tpls.invite && h('div', {}, h('div', { class: 'muted' }, '🤝 Nota do convite'), h('div', { class: 'bubble' }, previewText(tpls.invite, sample) || '— vazio nesta linha —')),
+        ...tpls.msgs.map((t, i) => h('div', {}, h('div', { class: 'muted' }, `✉ Mensagem ${i + 1}`), h('div', { class: 'bubble' }, previewText(t, sample) || '— vazio nesta linha —')))),
+      nav());
+  } else {
+    const nm = h('input', { value: w.name || (col ? col.name.slice(0, 60) : 'Prospecção'), style: 'flex:1;min-width:260px' });
+    const start = h('button', { class: 'primary big', onclick: async () => {
+      start.disabled = true;
+      const fromSheet = w.src === 'sheet' && sheet;
+      const invite = fromSheet && sheet.invite ? { ai: false, template: `{{custom.${sheet.invite}}}` } : { ai: true, approval: 'manual', goal: 'Conectar com base no trabalho e no post da pessoa' };
+      const messages = fromSheet && sheet.msgs.length
+        ? sheet.msgs.slice(0, w.msgs).map((m, i) => ({ ai: false, template: `{{custom.${m}}}`, waitDays: i ? w.gap : 0 }))
+        : DEFAULT_MESSAGES.slice(0, w.msgs).map((m, i) => ({ ai: true, approval: 'manual', ...m, waitDays: i ? w.gap : 0 }));
+      const r = await safe(() => api.createSequenceCampaign(a.id, {
+        engage: w.engage, commentMode: w.approve ? 'manual' : 'auto', name: nm.value.trim() || 'Prospecção', collectionId: w.colId,
+        tone: 'profissional', extraInstructions: '', invite, acceptTimeoutDays: w.timeout, withdrawOnTimeout: true, messages, checkAfterHours: w.checkDays * 24,
+      }));
+      if (!r) { start.disabled = false; return; }
+      for (const old of (await api.listCampaigns(a.id)).filter((x) => x.active && x.id !== r.campaignId)) await api.setCampaignActive(a.id, old.id, false);
+      await api.setCampaignActive(a.id, r.campaignId, true);
+      if (!a.running) await safe(() => api.startInstance(a.id));
+      state.wiz = null;
+      state.creating = false;
+      state.g = 'track';
+      toast(`Campanha "${nm.value}" criada com ${r.enqueued} pessoa(s) e começando.`, 8000);
+      refresh();
+    } }, '▶ Criar campanha e começar');
+    const line = (k, v) => h('div', { class: 'rline' }, h('span', { class: 'muted' }, k), h('b', {}, v));
+    body = h('div', { class: 'stack' },
+      h('h3', {}, 'Revise e comece'),
+      h('div', { class: 'row' }, h('span', { class: 'muted' }, 'Nome da campanha'), nm),
+      h('div', { class: 'card stack' },
+        line('Lista', col ? `${col.name} — ${col.size} pessoa(s)` : '—'),
+        line('Começa com', w.engage ? `curtir e comentar (${w.approve ? 'você aprova cada comentário' : 'publica sozinho'})` : 'convite direto'),
+        line('Convite', `confere o aceite ${w.checkDays} dia(s) depois, desiste em ${w.timeout} dias`),
+        line('Mensagens', `${w.msgs}, ${w.gap} dia(s) entre elas — ${w.src === 'sheet' && sheet ? 'texto da planilha' : 'escritas pela IA (você aprova)'}`),
+        line('Quem responder', 'sai do fluxo e vai para o webhook / para você'),
+        line('Horário', `${a.workingHours.start}–${a.workingHours.end}, ritmo seguro (etapa 3 para mudar)`)),
+      flowDiagram(w),
+      h('div', { class: 'muted' }, 'Ao começar, as outras campanhas desta conta são pausadas e o LinkedIn é aberto.'),
+      h('div', { class: 'row wnav' }, h('button', { onclick: () => { w.step--; renderView(); } }, '← Voltar'), h('div', { style: 'flex:1' }), start));
+  }
+  return h('div', { class: 'card stack wizard' }, dots, body);
+}
+
+async function campaignPage(a, cols, camps) {
+  const active = camps.find((c) => c.active);
+  if (state.creating || !active) {
+    return h('div', { class: 'stack' },
+      active && h('div', { class: 'row' }, h('button', { class: 'link', onclick: () => { state.creating = false; state.wiz = null; renderView(); } }, '← Voltar para a campanha ativa')),
+      await wizardPage(a, cols));
+  }
+  const others = camps.filter((c) => !c.active);
+  return h('div', { class: 'stack' },
+    h('div', { class: 'card stack' },
+      h('div', { class: 'row' }, h('span', { class: 'pill ok' }, 'Ativa'), h('h3', { style: 'margin:0;flex:1' }, active.name),
+        h('button', { onclick: () => safe(() => api.setCampaignActive(a.id, active.id, false)).then(refresh) }, '⏸ Pausar esta campanha')),
+      h('div', { class: 'muted' }, `${active.people.length} pessoa(s) · etapas: ${active.actions.map((x) => x.name).join(' → ')}`),
+      h('div', { class: 'row' },
+        h('button', { class: 'link', onclick: () => goAdvanced('campaigns') }, 'Ver a lista de pessoas e editar as mensagens'),
+        h('button', { class: 'link', onclick: () => goStep('track') }, 'Acompanhar →'))),
+    h('div', {}, h('button', { class: 'primary', onclick: () => { state.creating = true; state.wiz = { step: 1 }; renderView(); } }, '+ Criar nova campanha')),
+    others.length > 0 && h('div', { class: 'card stack' }, h('b', {}, 'Campanhas pausadas'),
+      ...others.map((c) => h('div', { class: 'row' }, h('span', { style: 'flex:1' }, `${c.name} — ${c.people.length} pessoa(s)`),
+        h('button', { onclick: async () => {
+          if (!window.confirm(`Ativar "${c.name}"? A campanha ativa agora ("${active.name}") será pausada.`)) return;
+          await api.setCampaignActive(a.id, active.id, false);
+          await safe(() => api.setCampaignActive(a.id, c.id, true));
+          refresh();
+        } }, 'Ativar')))));
+}
+
+// ── ③ Configurações ──────────────────────────────────────────────────────
+async function configPage(a) {
+  const [settings, integ, L] = await Promise.all([api.getSettings(), api.getIntegrations(), api.accountLimits(a.id)]);
+  const preset = L.linkedinAge === 'new' ? 'safe' : !L.custom ? 'normal' : L.rules.find((r) => r.key === 'profile_load')?.max > 150 ? 'fast' : 'custom';
+  const setPreset = async (p) => {
+    const scale = p === 'fast' ? 1.5 : 1;
+    const rules = L.defaults.map((r) => ({ ...r, max: Math.round(r.max * scale) }));
+    await safe(() => api.updateAccount({ ...a, linkedinAge: p === 'safe' ? 'new' : 'established', limitRules: p === 'normal' || p === 'safe' ? undefined : rules }), 'Ritmo salvo');
+    refresh();
+  };
+  const ritmo = (key, title, desc) => h('label', { class: 'choice' + (preset === key ? ' sel' : '') },
+    h('input', { type: 'radio', name: 'ritmo', checked: preset === key, onchange: () => setPreset(key) }), h('div', {}, h('b', {}, title), h('div', { class: 'muted' }, desc)));
+  const sec = (icon, title, ok, body) => h('div', { class: 'card stack' }, h('div', { class: 'row' }, h('span', { class: 'ficon' }, icon), h('h3', { style: 'margin:0;flex:1' }, title), ok != null && h('span', { class: 'pill ' + (ok ? 'ok' : 'warn') }, ok ? 'ok' : 'falta')), body);
+  return h('div', { class: 'stack' },
+    sec('🔑', 'Login do LinkedIn', a.hasLinkedinPassword,
+      state.loginOpen ? loginPanel(a, () => { state.loginOpen = false; renderView(); })
+        : h('div', { class: 'row' }, h('span', { class: 'muted', style: 'flex:1' }, a.hasLinkedinPassword ? `Entra sozinho como ${a.linkedinEmail}.` : 'Sem login salvo: você entra manualmente na janela do LinkedIn.'),
+            h('button', { onclick: () => { state.loginOpen = true; renderView(); } }, a.hasLinkedinPassword ? 'Trocar' : 'Salvar login'))),
+    sec('🤖', 'Inteligência artificial (comentários e mensagens)', settings.hasAiKey,
+      h('div', { class: 'row' }, h('span', { class: 'muted', style: 'flex:1' }, settings.hasAiKey ? 'Chave configurada.' : 'Sem chave: o app curte, mas não comenta nem escreve mensagens com IA.'),
+        h('button', { class: settings.hasAiKey ? '' : 'primary', onclick: () => { state.tab = 'settings'; renderView(); } }, settings.hasAiKey ? 'Alterar' : 'Configurar a chave'))),
+    sec('🕒', 'Horário de trabalho', null,
+      state.hoursOpen ? hoursPanel(a, () => { state.hoursOpen = false; renderView(); })
+        : h('div', { class: 'row' }, h('span', { class: 'muted', style: 'flex:1' }, `${a.workingHours.start}–${a.workingHours.end} · ${a.workingHours.days.length === 7 ? 'todos os dias' : `${a.workingHours.days.length} dias por semana`} (${a.workingHours.timezone})`),
+            h('button', { onclick: () => { state.hoursOpen = true; renderView(); } }, 'Alterar'))),
+    sec('🚦', 'Ritmo (quanto o app faz por dia)', null,
+      h('div', { class: 'stack' },
+        ritmo('safe', 'Conservador — conta nova no LinkedIn', 'Começa devagar e sobe em ~6 semanas.'),
+        ritmo('normal', 'Recomendado', 'O que o Linked Helper recomenda para contas com mais de 1 ano: ~150 perfis e 20 convites por dia, 100 convites por semana.'),
+        ritmo('fast', 'Acelerado', '50% a mais (dentro dos tetos de segurança). Mais risco de bloqueio.'),
+        preset === 'custom' && h('div', { class: 'muted' }, 'Você está com regras personalizadas.'),
+        state.limitsOpen ? limitsPanel(a, () => { state.limitsOpen = false; renderView(); })
+          : h('div', {}, h('button', { class: 'link', onclick: () => { state.limitsOpen = true; renderView(); } }, 'Personalizar os limites (avançado)')))),
+    sec('🔗', 'Para onde vão as respostas (webhook / CRM)', integ.webhook.enabled && !!integ.webhook.url,
+      h('div', { class: 'row' }, h('span', { class: 'muted', style: 'flex:1' }, integ.webhook.enabled && integ.webhook.url ? 'Webhook ligado: quem responder é enviado automaticamente.' : 'Sem webhook: as respostas ficam só no app.'),
+        h('button', { onclick: () => { state.tab = 'settings'; renderView(); } }, 'Configurar'))),
+    sec('🌐', 'Proxy', null, h('div', { class: 'row' }, h('span', { class: 'muted', style: 'flex:1' }, a.proxy ? `Usando ${a.proxy.host}` : 'Sem proxy (usa a internet deste computador). Só precisa com várias contas.'),
+      h('button', { onclick: () => goAdvanced() }, 'Configurar'))),
+  );
 }
 
 /** Onde cada pessoa está no fluxo (contagem por etapa) + respostas e falhas. */
@@ -62,7 +291,7 @@ function funnel(c) {
   const last = c.actions[c.actions.length - 1]?.name;
   for (const p of c.people) {
     if (p.reason === 'REPLIED') replied++;
-    else if (p.status === 'failed') failed++;
+    else if (p.status === 'failed' && p.reason !== 'NO_POST') failed++;
     else if (p.status === 'successful' && p.actionName === last) finished++;
     else if (at.has(p.actionName)) at.get(p.actionName).here++;
   }
@@ -76,122 +305,55 @@ function funnel(c) {
   );
 }
 
-/** Assistente de 3 passos. */
-async function setupWizard(a, cols, hasActive) {
+// ── ④ Acompanhar ─────────────────────────────────────────────────────────
+async function trackPage(a, camps, stats) {
+  const active = camps.find((c) => c.active);
+  if (!active) return h('div', { class: 'card stack' }, h('b', {}, 'Nenhuma campanha ativa.'), h('div', {}, h('button', { class: 'primary', onclick: () => goStep('campaign') }, 'Criar campanha (etapa 2)')));
+  const m = (k) => stats.meters.find((x) => x.key === k);
   const settings = await api.getSettings();
-  const aiWarn = !settings.hasAiKey && h('div', { class: 'card attention stack' },
-    h('strong', {}, '⚠ A IA ainda não tem chave'),
-    h('div', {}, 'Os comentários nos posts (e as mensagens escritas pela IA) precisam da chave da OpenAI ou da Anthropic. Sem ela, o app curte mas não comenta.'),
-    h('div', {}, h('button', { class: 'primary', onclick: () => { state.tab = 'settings'; renderView(); } }, 'Configurar a IA agora')));
-  const box = h('div', { class: 'card stack wizard' }, h('h2', { style: 'margin:0' }, hasActive ? 'Nova campanha' : 'Configure em 3 passos'));
-  let colId = state.simpleCollection && cols.some((c) => c.id === state.simpleCollection) ? state.simpleCollection : cols[0]?.id;
-  const sel = h('select', {}, ...cols.map((c) => h('option', { value: c.id, selected: c.id === colId }, `${c.name} — ${c.size} pessoa(s)`)));
-  const sheetInfo = h('div');
-  const useSheet = h('input', { type: 'radio', name: 'msgsrc', checked: true });
-  const useAi = h('input', { type: 'radio', name: 'msgsrc' });
-  const approve = h('input', { type: 'checkbox', checked: true });
-  let sheet = null;
-  const loadSheet = async () => {
-    sheet = colId ? sheetMessages(await api.collectionColumns(a.id, colId).catch(() => [])) : null;
-    useSheet.disabled = !sheet;
-    if (!sheet) useAi.checked = true;
-    sheetInfo.replaceChildren(
-      h('label', { class: 'choice' + (sheet ? '' : ' off') }, useSheet,
-        h('div', {}, h('b', {}, 'Usar as mensagens da minha planilha'),
-          h('div', { class: 'muted' }, sheet ? `Encontrei: ${[sheet.invite, ...sheet.msgs].filter(Boolean).join(', ')}. Cada pessoa recebe o texto da própria linha.` : colId ? 'Esta lista não tem colunas MSG-CONEXÃO / MSG-01…MSG-05.' : 'Importe a planilha no passo 1.'))),
-      h('label', { class: 'choice' }, useAi,
-        h('div', {}, h('b', {}, 'A IA escreve cada mensagem'), h('div', { class: 'muted' }, 'Personalizada pelo perfil e pelo post. Você aprova cada uma antes de sair.'))));
-  };
-  sel.addEventListener('change', () => { colId = sel.value; state.simpleCollection = colId; loadSheet(); });
-  await loadSheet();
-
-  const importBtn = h('button', { class: cols.length ? '' : 'primary', onclick: async () => {
-    const r = await safe(() => api.importCsv(a.id));
-    if (!r) return;
-    state.simpleCollection = r.collectionId;
-    toast(`${r.added} pessoa(s) nova(s) na lista "${r.name}" (${r.valid} válidas de ${r.rows}${r.skipped.length ? `, ${r.rows - r.valid} ignoradas` : ''})`, 8000);
-    renderView();
-  } }, cols.length ? 'Importar outra planilha' : '⬆ Importar planilha (CSV)');
-
-  const go = h('button', { class: 'primary big', disabled: !cols.length, onclick: async () => {
-    go.disabled = true;
-    const c = cols.find((x) => x.id === colId);
-    const fromSheet = useSheet.checked && sheet;
-    const invite = fromSheet && sheet.invite ? { ai: false, template: `{{custom.${sheet.invite}}}` } : { ai: true, approval: 'manual', goal: 'Conectar com base no trabalho e no post da pessoa' };
-    const messages = fromSheet && sheet.msgs.length
-      ? sheet.msgs.map((m, i) => ({ ai: false, template: `{{custom.${m}}}`, waitDays: i ? 1 : 0 }))
-      : DEFAULT_MESSAGES.map((m) => ({ ai: true, approval: 'manual', ...m }));
-    const r = await safe(() => api.createSequenceCampaign(a.id, {
-      engage: true, commentMode: approve.checked ? 'manual' : 'auto', name: c ? c.name.slice(0, 60) : 'Prospecção', collectionId: colId,
-      tone: 'profissional', extraInstructions: '', invite, acceptTimeoutDays: 30, withdrawOnTimeout: true, messages,
-    }));
-    if (!r) { go.disabled = false; return; }
-    // só uma campanha rodando: pausa as outras
-    for (const old of (await api.listCampaigns(a.id)).filter((x) => x.active && x.id !== r.campaignId)) await api.setCampaignActive(a.id, old.id, false);
-    await api.setCampaignActive(a.id, r.campaignId, true);
-    if (!a.running) await safe(() => api.startInstance(a.id));
-    state.wizardOpen = false;
-    toast(`Campanha criada com ${r.enqueued} pessoa(s) e já começando. Acompanhe aqui embaixo.`, 8000);
-    refresh();
-  } }, '▶ Criar campanha e começar');
-
-  box.append(
-    stepCard(1, 'Sua lista de leads', cols.length > 0,
-      h('div', { class: 'stack' },
-        cols.length ? h('div', { class: 'row' }, sel, importBtn) : h('div', { class: 'row' }, importBtn),
-        h('div', { class: 'muted' }, 'Aceita a exportação do Linked Helper, do Sales Navigator ou qualquer planilha com nome + link do perfil.'))),
-    stepCard(2, 'Seu fluxo', false,
-      h('div', { class: 'stack' },
-        flowDiagram(sheet ? Math.max(1, sheet.msgs.length) : 5),
-        aiWarn || '',
-        sheetInfo,
-        h('label', { class: 'row', style: 'display:flex' }, approve, 'Quero aprovar cada comentário antes de publicar (recomendado no começo)'))),
-    stepCard(3, 'Começar', false,
-      h('div', { class: 'stack' },
-        h('div', { class: 'muted' }, 'O app abre o LinkedIn e trabalha sozinho no horário configurado, uma pessoa de cada vez, dentro dos limites seguros.'),
-        h('div', {}, go))),
+  const need = [
+    !settings.hasAiKey && h('button', { class: 'primary', onclick: () => { state.tab = 'settings'; renderView(); } }, '⚠ Configurar a chave da IA (sem ela não há comentários)'),
+    stats.pendingApprovals > 0 && h('button', { class: 'primary', onclick: () => { state.showApprovals = !state.showApprovals; renderView(); } }, `✍ Aprovar ${stats.pendingApprovals} comentário(s)/mensagem(ns)`),
+    stats.unhandledReplies > 0 && h('button', { class: 'primary', onclick: () => { state.showInbox = !state.showInbox; renderView(); } }, `↩ ${stats.unhandledReplies} resposta(s) para você atender`),
+  ].filter(Boolean);
+  return h('div', { class: 'stack' },
+    need.length ? h('div', { class: 'card stack attention' }, h('strong', {}, 'Precisa de você'), h('div', { class: 'row' }, ...need)) : '',
+    state.showApprovals && stats.pendingApprovals > 0 && h('div', { class: 'card' }, await approvalsView(a)),
+    state.showInbox && stats.unhandledReplies > 0 && h('div', { class: 'card' }, await inboxView(a)),
+    livePanel(a),
+    h('div', { class: 'card stack' },
+      h('div', { class: 'row' }, h('strong', { style: 'flex:1' }, `Onde estão as ${active.people.length} pessoas de "${active.name}"`),
+        h('button', { class: 'link', onclick: () => goAdvanced('campaigns') }, 'ver lista completa')),
+      h('div', { id: 'simple-funnel' }, funnel(active)),
+      h('div', { class: 'muted' }, `Últimas 24 h: ${m('profile_load').used} perfis abertos · ${m('likes').used} curtidas · ${m('comments').used} comentários · ${m('invites').used} convites · ${m('messages').used} mensagens`)),
   );
-  return box;
 }
 
 async function simpleView(a) {
-  const [cols, camps, stats] = await Promise.all([api.listCollections(a.id), api.listCampaigns(a.id), api.accountStats(a.id)]);
+  const [cols, camps, stats, settings] = await Promise.all([api.listCollections(a.id), api.listCampaigns(a.id), api.accountStats(a.id), api.getSettings()]);
   const active = camps.find((c) => c.active);
-  const out = h('div', { class: 'stack simple' },
-    h('div', { class: 'row' },
-      h('h2', { style: 'margin:0;flex:1' }, a.label),
-      !a.hasLinkedinPassword && h('button', { onclick: () => { state.loginOpen = !state.loginOpen; renderView(); } }, '🔑 Salvar login do LinkedIn'),
-      h('button', { class: 'link', onclick: () => { state.mode = 'advanced'; try { localStorage.setItem('ll-mode', 'advanced'); } catch {} renderView(); } }, 'Modo avançado →')),
-    state.loginOpen && loginPanel(a, () => { state.loginOpen = false; renderView(); }),
-    bigStatus(a, active),
+  if (!state.g) state.g = !cols.length ? 'lists' : !active ? 'campaign' : 'track';
+  const people = cols.reduce((s, c) => s + c.size, 0);
+  const info = {
+    lists: cols.length ? `${cols.length} lista(s), ${people} pessoas` : 'importar planilha',
+    campaign: active ? active.name : 'criar campanha',
+    config: !settings.hasAiKey ? '⚠ falta a chave da IA' : `${a.workingHours.start}–${a.workingHours.end} · ritmo seguro`,
+    configWarn: !settings.hasAiKey,
+    track: a.paused ? 'pausado' : !a.running ? 'parado' : active ? 'trabalhando' : '—',
+    trackWarn: stats.pendingApprovals > 0 || stats.unhandledReplies > 0,
+  };
+  const page = { lists: () => listsPage(a, cols, camps), campaign: () => campaignPage(a, cols, camps), config: () => configPage(a), track: () => trackPage(a, camps, stats) }[state.g] ?? (() => trackPage(a, camps, stats));
+  return h('div', { class: 'stack simple' },
+    statusBar(a, active),
+    stepper(state.g, info),
+    await page(),
+    h('div', { class: 'gfoot muted' }, 'Ferramentas avançadas: ',
+      ...[['companies', 'Empresas e comitês'], ['signals', 'Sinais'], ['deliveries', 'Entregas'], ['diagnostics', 'Diagnóstico'], ['activity', 'Registro de atividade'], [null, 'Tela completa']]
+        .flatMap(([t, l], i) => [i ? ' · ' : '', h('button', { class: 'link', onclick: () => goAdvanced(t) }, l)])),
   );
-
-  if (active) {
-    const m = (k) => stats.meters.find((x) => x.key === k);
-    const settingsNow = await api.getSettings();
-    const need = [
-      !settingsNow.hasAiKey && h('button', { class: 'primary', onclick: () => { state.tab = 'settings'; renderView(); } }, '⚠ Configurar a chave da IA (sem ela não há comentários)'),
-      stats.pendingApprovals > 0 && h('button', { class: 'primary', onclick: () => { state.mode = 'advanced'; state.tab = 'approvals'; renderView(); } }, `✍ ${stats.pendingApprovals} comentário(s)/mensagem(ns) esperando sua aprovação`),
-      stats.unhandledReplies > 0 && h('button', { class: 'primary', onclick: () => { state.mode = 'advanced'; state.tab = 'inbox'; renderView(); } }, `↩ ${stats.unhandledReplies} resposta(s) para você atender`),
-    ].filter(Boolean);
-    out.append(
-      need.length ? h('div', { class: 'card stack attention' }, h('strong', {}, 'Precisa de você'), h('div', { class: 'row' }, ...need)) : '',
-      livePanel(a),
-      h('div', { class: 'card stack' },
-        h('div', { class: 'row' }, h('strong', { style: 'flex:1' }, `Onde estão as ${active.people.length} pessoas de "${active.name}"`),
-          h('button', { class: 'link', onclick: () => { state.mode = 'advanced'; state.tab = 'campaigns'; renderView(); } }, 'ver lista completa')),
-        h('div', { id: 'simple-funnel' }, funnel(active)),
-        h('div', { class: 'muted' }, `Últimas 24 h: ${m('profile_load').used} perfis abertos · ${m('likes').used} curtidas · ${m('comments').used} comentários · ${m('invites').used} convites · ${m('messages').used} mensagens`)),
-      h('div', {}, h('button', { class: 'link', onclick: () => { state.wizardOpen = !state.wizardOpen; renderView(); } }, state.wizardOpen ? 'Fechar' : '+ Começar outra campanha (outra lista)')),
-    );
-    if (state.wizardOpen) out.append(await setupWizard(a, cols, true));
-  } else {
-    out.append(await setupWizard(a, cols, false));
-  }
-  return out;
 }
 
-/** Atualiza o funil do modo simples sem redesenhar a tela (a cada 5 s). */
+/** Atualiza o funil sem redesenhar a tela (a cada 5 s). */
 let lastFunnel = 0;
 async function refreshSimpleFunnel(id) {
   if (Date.now() - lastFunnel < 5000) return;

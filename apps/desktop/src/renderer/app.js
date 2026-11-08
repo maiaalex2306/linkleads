@@ -3,7 +3,7 @@ const state = { accountId: null, tab: 'collections', logs: [], mode: 'simple' };
 let storedMode = null;
 try {
   // tela inicial: modo simples (3 passos + painel); o avançado fica a um clique
-  storedMode = localStorage.getItem('ll-mode');
+  storedMode = localStorage.getItem('ll-mode-v2');
   if (storedMode === 'advanced') state.mode = 'advanced';
 } catch {}
 
@@ -107,7 +107,7 @@ async function renderView() {
   ];
   const header = h('div', {},
     h('div', { class: 'row' },
-      h('button', { class: 'link', onclick: () => { state.mode = 'simple'; try { localStorage.setItem('ll-mode', 'simple'); } catch {} renderView(); } }, '← Modo simples'),
+      h('button', { class: 'link', onclick: () => { state.mode = 'simple'; try { localStorage.setItem('ll-mode-v2', 'simple'); } catch {} renderView(); } }, '← Tela guiada'),
       h('h2', { style: 'margin:0;flex:1' }, a.label),
       a.running
         ? [

@@ -160,3 +160,33 @@ button.big { font-size:16px; padding:12px 22px; border-radius:12px; }
 .attention { border-color:var(--accent); background:var(--accent-soft); }
 .simple .live-queues { display:none; }
 [hidden] { display:none !important; }
+
+/* ===== tela guiada ===== */
+.gtop { display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+.gsteps { display:grid; grid-template-columns:repeat(4, 1fr); gap:8px; }
+.gstep { display:flex; align-items:center; gap:10px; text-align:left; padding:12px 14px; border-radius:14px; border:1px solid var(--line); background:var(--card); cursor:pointer; }
+.gstep .gnum { width:30px; height:30px; border-radius:50%; background:var(--brand-soft); color:var(--brand); display:flex; align-items:center; justify-content:center; font-weight:700; flex:none; }
+.gstep .gtxt { display:flex; flex-direction:column; min-width:0; }
+.gstep .gtxt small { color:var(--muted); font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.gstep.sel { border-color:var(--brand); box-shadow:0 0 0 2px color-mix(in srgb, var(--brand) 25%, transparent); }
+.gstep.sel .gnum { background:var(--brand); color:#fff; }
+.gstep.warn .gtxt small { color:var(--warn); }
+@media (max-width: 900px) { .gsteps { grid-template-columns:1fr 1fr; } }
+.glist { display:flex; flex-direction:column; gap:8px; }
+.gcard { display:flex; align-items:center; gap:12px; }
+.gcard-ico { font-size:24px; }
+.wdots { display:flex; gap:6px; flex-wrap:wrap; }
+.wdot { display:flex; align-items:center; gap:6px; padding:6px 12px; border-radius:999px; background:var(--brand-soft); color:var(--muted); font-size:13px; }
+.wdot span { width:20px; height:20px; border-radius:50%; background:var(--card); display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; }
+.wdot.cur { background:var(--brand); color:#fff; }
+.wdot.cur span { color:var(--brand); }
+.wdot.done { color:var(--ok); }
+.wizard h3 { margin:6px 0 2px; font-size:18px; }
+.wnav { margin-top:6px; }
+.choice.sel { border-color:var(--brand); }
+.choice.sub { margin-left:28px; }
+.choice .row { margin-top:6px; align-items:center; }
+.preview .bubble { background:var(--brand-soft); border-radius:12px; padding:10px 12px; white-space:pre-wrap; margin-top:2px; }
+.rline { display:flex; gap:12px; padding:4px 0; border-bottom:1px dashed var(--line); }
+.rline span { width:140px; flex:none; }
+.gfoot { margin-top:8px; font-size:13px; }

@@ -60,6 +60,30 @@ export interface DiagnosisReport {
   buttons: string[];
   /** estrutura da página, sem textos: títulos (h1–h3) com classes e onde estão; para ajustar seletores */
   structure?: { hasMain: boolean; titleEndsWithLinkedIn: boolean; headings: Array<{ tag: string; classes: string; inMain: boolean; textLength: number; parents: string }> };
+  /** posts: o que o app reconheceu e a estrutura em volta das DATAS dos posts (sem textos nem nomes) */
+  posts?: { recognized: number; probes: unknown[] };
+}
+
+/** Pura: estrutura em volta das datas dos posts ("há 1 sem") — tags, papéis, classes, nomes de atributos e rótulos de botões. */
+function postsProbe() {
+  const TIME = /^(h[áa]\s+)?\d+\s*(min|h|d|sem|m|a|mo|w|y|s)\b\.?\s*(•.*)?$/i;
+  const root = document.querySelector('main') || document.body;
+  const cls = (el: Element) => (typeof el.className === 'string' ? el.className : '').trim().split(/\s+/).slice(0, 4).join('.');
+  const times = (Array.from(root.querySelectorAll('span, time, a, div, p')) as HTMLElement[])
+    .filter((e) => e.children.length <= 3 && TIME.test((e.innerText || e.textContent || '').replace(/\s+/g, ' ').trim()) && (e.innerText || '').length < 40).slice(0, 3);
+  return times.map((t) => {
+    const chain: string[] = [];
+    let p: Element | null = t;
+    for (let i = 0; p && i < 14; i++, p = p.parentElement) {
+      const attrs = Array.from(p.attributes).map((a) => (/urn:li:|activity/.test(a.value) ? `${a.name}=${a.value.replace(/[^:/\w-]/g, '').slice(0, 60)}` : a.name)).filter((n) => n !== 'class' && n !== 'style').slice(0, 6);
+      chain.push(`${p.tagName.toLowerCase()}${cls(p) ? '.' + cls(p) : ''}${attrs.length ? `[${attrs.join(',')}]` : ''}`);
+    }
+    let box: Element | null = t;
+    for (let i = 0; box && i < 12 && !(box.querySelectorAll('button, [role="button"]').length >= 3); i++) box = box.parentElement;
+    const buttons = box ? Array.from(box.querySelectorAll('button, [role="button"]')).slice(0, 12).map((b) => `${b.tagName.toLowerCase()}${b.getAttribute('role') ? '[role]' : ''} aria="${(b.getAttribute('aria-label') || '').slice(0, 40)}" pressed=${b.getAttribute('aria-pressed')} icon=${Array.from(b.querySelectorAll('[data-test-icon],svg[aria-label],li-icon')).map((x) => x.getAttribute('data-test-icon') || x.getAttribute('aria-label') || x.getAttribute('type')).join('|')}`) : [];
+    const links = box ? Array.from(box.querySelectorAll('a[href]')).slice(0, 8).map((a) => (a.getAttribute('href') || '').replace(/^https?:\/\/[^/]+/, '').replace(/\/in\/[^/?]+/, '/in/[id]').replace(/\/posts\/[^_]+_/, '/posts/[id]_').slice(0, 90)) : [];
+    return { timeTag: t.tagName.toLowerCase(), chain, buttons, links };
+  });
 }
 
 /** Pura: lista os títulos da página sem o texto (só tag, classes e tamanho). */
@@ -75,6 +99,8 @@ function pageStructure() {
 }
 
 /** Somente leitura: não clica, não digita, não navega. */
+declare function __llPostContainers(sel: { postItem: readonly string[]; likeButton: readonly string[] }): Array<{ el: Element; urn: string }>;
+
 export async function diagnosePage(driver: PageDriver, appVersion: string): Promise<DiagnosisReport> {
   const url = driver.wc.getURL();
   const page = pageKind(url);
@@ -110,5 +136,8 @@ export async function diagnosePage(driver: PageDriver, appVersion: string): Prom
     labels,
     buttons,
     structure: await driver.read(pageStructure).catch(() => undefined),
+    posts: page === 'atividade' || page === 'post' || page === 'feed'
+      ? { recognized: await driver.read((s: Record<string, readonly string[]>) => __llPostContainers({ postItem: s.postItem!, likeButton: s.likeButton! }).length, driver.sel as unknown as Record<string, readonly string[]>).catch(() => -1), probes: await driver.read(postsProbe).catch(() => []) }
+      : undefined,
   };
 }

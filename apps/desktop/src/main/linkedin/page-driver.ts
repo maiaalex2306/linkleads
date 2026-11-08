@@ -1,4 +1,4 @@
-import { llPostContainers } from './dom-scripts.js';
+import { llIsReact, llPostContainers } from './dom-scripts.js';
 import type { WebContents } from 'electron';
 import { HumanInput } from '../human-input.js';
 import type { LabelKey, SelectorKey, SelectorMap } from './selectors.js';
@@ -24,6 +24,7 @@ export interface Box {
  * ação via eventos de input nativos (mouse/teclado), como um usuário.
  */
 declare function __llPostContainers(sel: { postItem: readonly string[]; likeButton: readonly string[] }): Array<{ el: Element; urn: string }>;
+declare function __llIsReact(el: Element): boolean;
 
 export class PageDriver {
   readonly input: HumanInput;
@@ -38,7 +39,7 @@ export class PageDriver {
   /** Executa uma função pura no mundo isolado. A função não pode usar closures. */
   async read<T, A extends unknown[]>(fn: (...args: A) => T, ...args: A): Promise<T> {
     // cada leitura num escopo próprio (o ajudante de posts não pode ser redeclarado no mesmo mundo isolado)
-    const code = `(() => { const __llPostContainers = ${llPostContainers.toString()};\nreturn (${fn.toString()})(...${JSON.stringify(args)}); })()`;
+    const code = `(() => { const __llIsReact = ${llIsReact.toString()};\nconst llIsReact = __llIsReact;\nconst __llPostContainers = ${llPostContainers.toString()};\nreturn (${fn.toString()})(...${JSON.stringify(args)}); })()`;
     return (await this.wc.executeJavaScriptInIsolatedWorld(ISOLATED_WORLD, [{ code }])) as T;
   }
 
@@ -122,9 +123,10 @@ export class PageDriver {
         if (urn && fallbackRe) {
           const re2 = new RegExp(fallbackRe, 'i');
           const NOT = /(repost|compart|share|enviar|send|salvar|save)/i;
-          for (const el of Array.from(root.querySelectorAll('button')) as HTMLElement[]) {
-            const l = `${el.getAttribute('aria-label') ?? ''} ${el.innerText ?? ''}`;
-            if (!re2.test(l) || NOT.test(l)) continue;
+          const isLike = /gostei/.test(fallbackRe);
+          for (const el of Array.from(root.querySelectorAll('button, [role="button"]')) as HTMLElement[]) {
+            const l = `${el.getAttribute('aria-label') ?? ''} ${el.innerText ?? ''} ${Array.from(el.querySelectorAll('[aria-label],[data-test-icon]')).map((x) => `${x.getAttribute('aria-label') ?? ''} ${x.getAttribute('data-test-icon') ?? ''}`).join(' ')}`;
+            if (isLike ? !__llIsReact(el) : !re2.test(l) || NOT.test(l)) continue;
             const r = el.getBoundingClientRect();
             if (r.width > 0 && r.height > 0) return { x: r.x, y: r.y, width: r.width, height: r.height };
           }

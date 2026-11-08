@@ -475,7 +475,7 @@ const normName = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '
  * Pura: entre os resultados/sugestões da busca, acha o link de perfil cujo cartão tem o NOME da pessoa
  * e (havendo homônimos) a empresa/cargo. Sem certeza → null (melhor não abrir o perfil errado).
  */
-function findPersonByName(full: string, hints: string[], scopes: readonly string[]): { x: number; y: number } | null {
+function findPersonByName(full: string, hints: string[], scopes: readonly string[], firstAndCompany = false): { x: number; y: number } | null {
   const norm = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
   const name = norm(full);
   const parts = name.split(' ');
@@ -492,8 +492,9 @@ function findPersonByName(full: string, hints: string[], scopes: readonly string
       const text = norm(card.textContent || '');
       const r = a.getBoundingClientRect();
       if (!(r.width > 0 && r.height > 0 && r.top >= 0 && r.bottom <= window.innerHeight)) continue;
-      if (!(text.includes(name) || (text.includes(first) && text.includes(last)))) continue;
       const score = tokens.filter((t) => text.includes(t)).length;
+      // busca "nome + empresa": o sobrenome pode ter mudado (casamento, nome social); exige 1º nome E empresa/cargo
+      if (firstAndCompany ? !(text.includes(first) && score > 0) : !(text.includes(name) || (text.includes(first) && text.includes(last)))) continue;
       const key = href;
       if (seen.has(key)) {
         const c = cands.find((x) => x.href === key)!;
@@ -535,20 +536,30 @@ async function openUnknownProfile(d: ExecutorDeps, p: Person): Promise<OpenResul
     const cur = d.crm.getPerson(p.id);
     d.crm.upsertPerson({ ...(cur ?? p), publicId: slug });
   };
-  if (name && d.driver) {
-    const ok = await searchAndClick(d, name, (scopes) => d.driver.read(findPersonByName, name, hints, scopes)).catch(() => false);
+  if (name) {
+    const ok = await searchAndClick(d, name, (scopes) => d.driver.read(findPersonByName, name, hints, scopes, false)).catch(() => false);
     if (ok && (await awaitProfile(d)) === 'ok' && (await pageMatchesPerson(d, p))) {
       learn();
       return 'ok';
     }
+    // 2ª tentativa: primeiro nome + empresa ("Diego MAHLE") — acha quem mudou o sobrenome no LinkedIn
+    const company = (p.company || '').split(/[,(|]/)[0]!.trim();
+    if (p.firstName && company) {
+      const ok2 = await searchAndClick(d, `${p.firstName} ${company}`, (scopes) => d.driver.read(findPersonByName, name, hints, scopes, true)).catch(() => false);
+      if (ok2 && (await awaitProfile(d)) === 'ok') {
+        learn();
+        return 'ok';
+      }
+    }
   }
-  // plano B: abrir pelo número do membro / código do Sales Navigator (gasta vaga de "perfil pelo link")
+  // plano B: abrir pelo número do membro / código do Sales Navigator (gasta vaga de "perfil pelo link").
+  // É o identificador exato da pessoa: não exige que o nome bata (o nome no LinkedIn pode ter mudado).
   const sn = p.custom?.sn_id;
   const urls = [p.memberId && `${BASE}/profile/view?id=${p.memberId}`, sn && `${BASE}/in/${sn}/`].filter(Boolean) as string[];
   for (const u of urls) {
     if (d.limits && d.limits.left('profile_url') <= 0) return { retryAt: d.limits.freeAt('profile_url') };
     await d.driver.goto(u);
-    if (/\/in\//.test(d.driver.wc.getURL()) && (await awaitProfile(d)) === 'ok' && (await pageMatchesPerson(d, p))) {
+    if (/\/in\//.test(d.driver.wc.getURL()) && (await awaitProfile(d)) === 'ok') {
       learn();
       return 'ok';
     }

@@ -83,7 +83,7 @@ try {
   const semNada = ppl.find((p) => p.publicId === 'sem-nada');
   check(semNada && semNada.reason === 'RETRY_LATER', 'página sem perfil: tenta de novo mais tarde', semNada);
   const L2 = await call('liveStatus', acc.id);
-  const rel = L2.recent.find((r) => /Relatório para ajuste: .*diagnostico-perfil-.*\.json/.test(r.text));
+  const rel = L2.recent.find((r) => /Relatório para ajuste: .*diagnostico-\w+-.*\.json/.test(r.text));
   check(!!rel, 'salva um relatório de diagnóstico e mostra onde', L2.recent.slice(0, 4));
   if (rel) {
     const file = rel.text.match(/Relatório para ajuste: (\S+\.json)/)[1];

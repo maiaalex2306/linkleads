@@ -25,6 +25,8 @@ const COLLEAGUES = {
   // homônimos: só a empresa/cargo desempata
   'carlos-pereira-tyt': { name: 'Carlos Pereira', headline: 'Gerente de Utilidades na Toyota do Brasil' },
   'carlos-pereira-fia': { name: 'Carlos Pereira', headline: 'Analista Financeiro na Fiat' },
+  // mudou o sobrenome no LinkedIn: na planilha "Diego Barbosa (MAHLE)"
+  'diego-siste': { name: 'Diego Siste', headline: 'Hardware & Quality Engineer | MAHLE' },
 };
 const URN = 'urn:li:activity:7001';
 // busca global: sugestões enquanto digita e página de resultados com Enter
@@ -183,6 +185,8 @@ export function startFakeSite(port = 0) {
     }
     if (url === '/login' || url.startsWith('/login?')) return html(loginHtml, loginScript);
     if (state.loggedOut && !url.startsWith('/api')) { res.writeHead(302, { location: '/login' }); return res.end(); }
+    // link pelo número do membro: o LinkedIn redireciona para o /in/ da pessoa
+    if (url === '/profile/view?id=444') { res.writeHead(302, { location: '/in/diego-siste/' }); return res.end(); }
     if (url.startsWith('/search/results/people/')) {
       state.searches = (state.searches || 0) + 1;
       const q = new URL(url, 'http://x').searchParams.get('keywords')?.toLowerCase() ?? '';
@@ -206,16 +210,17 @@ export function startFakeSite(port = 0) {
     // atividade no LAYOUT NOVO (como no print do usuário): sem data-urn no bloco, urn só no link da data,
     // botão de reação só com ícone e aria-label "Reagir com Gostei"; um repost de outra pessoa antes do post próprio
     if (url === '/in/layout-novo/recent-activity/all/') {
-      const card = (urn, who, slug, when, text) => `<div class="x1a2b"><div class="x9"><a href="/in/${slug}/"><span>${who}</span></a>
-        <span>Gerente Industrial</span><a href="/feed/update/${urn}/"><span>${when}</span></a></div>
+      // botão de reação = div role=button só com ícone de joinha; link do post no formato /posts/…-activity-<id>
+      const card = (id, who, slug, when, text) => `<div class="x1a2b"><div class="x9"><a href="/in/${slug}/"><span>${who}</span></a>
+        <span>Gerente Industrial</span><a href="/posts/${slug}_post-activity-${id}-AbCd"><span>${when}</span></a></div>
         <div class="x7"><span dir="ltr"><span>${text}</span></span></div>
-        <div class="x8"><button aria-label="Reagir com Gostei" aria-pressed="${urn.endsWith('8002') ? state.liked2 : false}" class="r1"><svg></svg></button>
-        <button aria-label="Comentar"><svg></svg></button><button aria-label="Compartilhar"><svg></svg></button></div></div>`;
-      return html(`<h2>Todas as atividades</h2>${card('urn:li:activity:8001', 'Outra Pessoa', 'outra-pessoa', 'há 2 d • ', 'Marina Costa compartilhou: notícia do setor automotivo sobre eficiência.')}
-        ${card('urn:li:activity:8002', 'Marina Costa', 'layout-novo', 'há 1 sem • Editado', 'Conquistamos o 4º lugar no ranking das empresas mais inovadoras de 2026, com projetos de reúso de água na planta de Taubaté.')}
-        ${card('urn:li:activity:8003', 'Marina Costa', 'layout-novo', 'há 5 m', 'Post antigo sobre a feira do ano passado.')}`,
-        `document.querySelectorAll('button[aria-label="Reagir com Gostei"]').forEach((b) => b.addEventListener('click', async (e) => {
-          if (!e.isTrusted) return; await fetch('/api/like2', { method: 'POST', body: b.closest('.x1a2b').querySelector('a[href*="/feed/update/"]').getAttribute('href') });
+        <div class="x8"><div role="button" tabindex="0" aria-pressed="${id.endsWith('8002') ? state.liked2 : false}" class="r1"><svg data-test-icon="thumbs-up-outline-small"></svg><span>125</span></div>
+        <div role="button" tabindex="0" aria-label="Comentar"><svg data-test-icon="comment-small"></svg></div><div role="button" aria-label="Compartilhar"><svg></svg></div></div></div>`;
+      return html(`<h2>Todas as atividades</h2>${card('7381234567890128001', 'Outra Pessoa', 'outra-pessoa', 'há 2 d', 'Marina Costa compartilhou: notícia do setor automotivo sobre eficiência.')}
+        ${card('7381234567890128002', 'Marina Costa', 'layout-novo', 'há 1 sem • Editado', 'Conquistamos o 4º lugar no ranking das empresas mais inovadoras de 2026, com projetos de reúso de água na planta de Taubaté.')}
+        ${card('7381234567890128003', 'Marina Costa', 'layout-novo', 'há 5 m', 'Post antigo sobre a feira do ano passado.')}`,
+        `document.querySelectorAll('[role="button"].r1').forEach((b) => b.addEventListener('click', async (e) => {
+          if (!e.isTrusted) return; await fetch('/api/like2', { method: 'POST', body: b.closest('.x1a2b').querySelector('a[href*="/posts/"]').getAttribute('href') });
           b.setAttribute('aria-pressed', 'true'); }));`);
     }
     // página que nunca termina de mostrar o perfil (nem nome nem título)
@@ -231,7 +236,7 @@ export function startFakeSite(port = 0) {
       state.companyVisits++;
       const card = (slug, name, headline) => `<li class="org-people-profile-card__profile-card-spacing"><a href="/in/${slug}/">
         <div class="artdeco-entity-lockup__title">${name}</div></a><div class="artdeco-entity-lockup__subtitle">${headline}</div></li>`;
-      return html(`<ul>${card('ana-silva', 'Ana Silva', state.anaHeadline)}${Object.entries(COLLEAGUES).filter(([s]) => !s.startsWith('carlos-pereira')).map(([s, p]) => card(s, p.name, p.headline)).join('')}
+      return html(`<ul>${card('ana-silva', 'Ana Silva', state.anaHeadline)}${Object.entries(COLLEAGUES).filter(([s]) => !s.startsWith('carlos-pereira') && s !== 'diego-siste').map(([s, p]) => card(s, p.name, p.headline)).join('')}
         ${card('headless', 'LinkedIn Member', 'Analista')}</ul><div class="spacer"></div>`);
     }
     if (url.startsWith('/company/acme/jobs/'))

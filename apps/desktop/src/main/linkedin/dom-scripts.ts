@@ -50,11 +50,22 @@ export interface PostExtract {
 }
 
 
+declare function __llIsReact(el: Element): boolean;
+
+/** Pura: o elemento é um botão de reação ("Gostei")? Rótulo, título, ícone de joinha. */
+export function llIsReact(el: Element): boolean {
+  const lab = [el.getAttribute('aria-label'), el.getAttribute('title'), (el as HTMLElement).innerText,
+    ...Array.from(el.querySelectorAll('[aria-label],[title],[data-test-icon],[type]')).map((x) => `${x.getAttribute('aria-label') ?? ''} ${x.getAttribute('title') ?? ''} ${x.getAttribute('data-test-icon') ?? ''} ${x.getAttribute('type') ?? ''}`)].join(' ');
+  if (/(coment|comment|repost|compart|share|enviar|send|salvar|save|seguir|follow|mensagem|message|conectar|connect)/i.test(lab)) return false;
+  return /(gostei|gostar|like|reagir|react|curtir|curtida|thumbs-up|thumbsup)/i.test(lab);
+}
+
 /**
- * Pura (roda no mundo isolado, injetada antes de cada leitura como __llPostContainers):
- * acha os posts da página. 1º pelos seletores clássicos (data-urn); 2º estrutural, para o layout
- * novo do LinkedIn: parte de cada botão de reação ("Gostei"), sobe até o bloco que tem o link do autor
- * e um identificador de post (urn:li:activity / ugcPost / share em qualquer atributo ou link).
+ * Pura (injetada antes de cada leitura como __llPostContainers): acha os posts da página.
+ * 1º seletores clássicos (data-urn). 2º estrutural, para o layout novo do LinkedIn, a partir de três pistas
+ * independentes: a DATA do post ("há 1 sem", "2d"), links/atributos com o identificador do post
+ * (urn:li:activity…, /posts/…-activity-123…) e o botão de reação. De cada pista, sobe até o maior bloco
+ * que ainda tem UMA só data — esse é o post.
  */
 export function llPostContainers(sel: { postItem: readonly string[]; likeButton: readonly string[] }): Array<{ el: Element; urn: string }> {
   const out: Array<{ el: Element; urn: string }> = [];
@@ -66,43 +77,50 @@ export function llPostContainers(sel: { postItem: readonly string[]; likeButton:
     }
   }
   if (out.length) return out;
-  const URN = /urn:li:(?:activity|ugcPost|share):[0-9A-Za-z_-]+/g;
-  const urnsIn = (el: Element): string[] => {
-    const found = new Set<string>();
-    const scan = (n: Element) => {
-      for (const a of Array.from(n.attributes)) for (const m of a.value.match(URN) ?? []) found.add(m);
-    };
-    scan(el);
-    for (const n of Array.from(el.querySelectorAll('[href*="urn:li:"],[data-urn],[data-id],[componentkey],[data-view-tracking-scope]'))) scan(n);
-    return [...found].map((u) => decodeURIComponent(u));
-  };
-  const REACT = /(gostei|like|reagir|react|curtir|curtida)/i;
-  const NOT = /(coment|comment|repost|compart|share|enviar|send|salvar|save)/i;
-  const buttons = (Array.from(document.querySelectorAll('main button, [role="main"] button, button')) as HTMLElement[]).filter((b) => {
-    const l = (b.getAttribute('aria-label') || '') + ' ' + (b.innerText || '');
-    return REACT.test(l) && !NOT.test(l) && b.getBoundingClientRect().width > 0;
+  const root = document.querySelector('main') || document.body;
+  const TIME = /^(h[áa]\s+)?\d+\s*(min|h|d|sem|m|a|mo|w|y|s)\b\.?\s*(•.*)?$/i;
+  const timeEls = (Array.from(root.querySelectorAll('span, time, a, div, p')) as HTMLElement[]).filter((e) => {
+    if (e.children.length > 3) return false;
+    const t = (e.innerText || e.textContent || '').replace(/\s+/g, ' ').trim();
+    return t.length > 0 && t.length < 40 && TIME.test(t) && !(e.parentElement && TIME.test((e.parentElement.innerText || '').replace(/\s+/g, ' ').trim()) && e.parentElement.children.length === 1);
   });
-  let idx = 0;
-  for (const b of buttons) {
-    let el: Element | null = b.parentElement;
-    let found: { el: Element; urn: string } | null = null;
-    for (let i = 0; el && i < 14; i++, el = el.parentElement) {
-      if (!el.querySelector('a[href*="/in/"]')) continue;
-      const urns = urnsIn(el);
-      if (urns.length > 1) break; // subiu demais: pegou mais de um post
-      if (urns.length === 1) { found = { el, urn: urns[0]! }; break; }
-      if ((el as HTMLElement).innerText && (el as HTMLElement).innerText.length > 4000) break;
+  const countTimes = (el: Element) => timeEls.filter((t) => el.contains(t)).length;
+  const urnOf = (el: Element): string | null => {
+    const vals: string[] = [];
+    const scan = (n: Element) => { for (const a of Array.from(n.attributes)) vals.push(a.value); };
+    scan(el);
+    for (const n of Array.from(el.querySelectorAll('a[href], [data-urn], [data-id], [componentkey], [data-view-tracking-scope]'))) scan(n);
+    for (const v0 of vals) {
+      let v = v0;
+      try { v = decodeURIComponent(v0); } catch {}
+      const m = v.match(/urn:li:(activity|ugcPost|share):(\d{10,25})/) || v.match(/[-/](activity|ugcPost|share)[-:](\d{15,25})/);
+      if (m) return `urn:li:${m[1]}:${m[2]}`;
     }
-    if (!found) {
-      // sem identificador visível: usa o bloco mais próximo com autor e texto
-      let e2: Element | null = b.parentElement;
-      for (let i = 0; e2 && i < 10; i++, e2 = e2.parentElement) {
-        if (e2.querySelector('a[href*="/in/"]') && ((e2 as HTMLElement).innerText || '').length > 80) { found = { el: e2, urn: `ll-idx-${idx}` }; break; }
-      }
+    return null;
+  };
+  const seeds: Element[] = [
+    ...timeEls,
+    ...Array.from(root.querySelectorAll('a[href*="activity"], a[href*="urn:li:"], [data-urn*="activity"], [data-id*="activity"]')),
+    ...(Array.from(root.querySelectorAll('button, [role="button"]')) as Element[]).filter((b) => (typeof __llIsReact === 'function' ? __llIsReact : llIsReact)(b)),
+  ];
+  const containers = new Set<Element>();
+  for (const seed of seeds) {
+    let el: Element | null = seed;
+    let best: Element | null = null;
+    for (let i = 0; el && el !== root && i < 25; i++, el = el.parentElement) {
+      const n = countTimes(el);
+      if (n > 1) break; // subiu demais: já pegou dois posts
+      if (n === 1 && el.querySelector('a[href*="/in/"]') && ((el as HTMLElement).innerText || '').length > 40) best = el;
     }
-    idx++;
-    if (found && !seen.has(found.urn)) { seen.add(found.urn); out.push(found); }
+    if (best) containers.add(best);
   }
+  // remove blocos contidos em outros (fica o maior de cada post) e ordena como na página
+  const list = [...containers].filter((c) => ![...containers].some((o) => o !== c && o.contains(c)));
+  list.sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
+  list.forEach((el, idx) => {
+    const urn = urnOf(el) ?? `ll-idx-${idx}`;
+    if (!seen.has(urn)) { seen.add(urn); out.push({ el, urn }); }
+  });
   return out;
 }
 
@@ -134,8 +152,8 @@ export function extractPosts(sel: Record<string, readonly string[]>, limit: numb
       text = best.replace(/\s*…\s*mais$|\s*\.\.\.\s*(more|mais)$/i, '').trim();
     }
     let like = first(it, sel.likeButton!) as HTMLElement | null;
-    if (!like) like = (Array.from(it.querySelectorAll('button')) as HTMLElement[]).find((b) => { const l = (b.getAttribute('aria-label') || '') + ' ' + (b.innerText || ''); return REACT.test(l) && !NOT.test(l); }) ?? null;
-    const pressed = like?.getAttribute('aria-pressed');
+    if (!like) like = (Array.from(it.querySelectorAll('button, [role="button"]')) as HTMLElement[]).find((b) => __llIsReact(b)) ?? null;
+    const pressed = like?.getAttribute('aria-pressed') ?? (like && /(desfazer|remover|undo|unlike|reagiu|reacted)/i.test(`${like.getAttribute('aria-label') ?? ''}`) ? 'true' : null);
     const head = ((it as HTMLElement).innerText || '').slice(0, 400);
     const ageEl = first(it, sel.postAge!);
     const ageTxt = ageEl?.textContent?.replace(/\s+/g, ' ').trim() || head.match(AGE)?.[1] || null;
@@ -163,7 +181,7 @@ export function likeState(sel: Record<string, readonly string[]>, urn: string): 
     const b = container.querySelector(c);
     if (b && b.hasAttribute('aria-pressed')) return b.getAttribute('aria-pressed') === 'true';
   }
-  const b = (Array.from(container.querySelectorAll('button')) as HTMLElement[]).find((x) => { const l = (x.getAttribute('aria-label') || '') + ' ' + (x.innerText || ''); return REACT.test(l) && !NOT.test(l); });
+  const b = (Array.from(container.querySelectorAll('button, [role="button"]')) as HTMLElement[]).find((x) => __llIsReact(x));
   if (b && b.hasAttribute('aria-pressed')) return b.getAttribute('aria-pressed') === 'true';
   return null;
 }

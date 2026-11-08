@@ -19,6 +19,7 @@ writeFileSync(csv, [
   `1;;111;ACwAAAna,9rcn,NAME_SEARCH;${sn('ACwAAAna')};Ana Silva;Ana;Silva;Diretora de Operações;Águas do Vale;Ana, vamos conectar?;Olá, Ana!;Ana, um dado útil.`,
   `2;;222;ACwAAcar,9rcn,NAME_SEARCH;${sn('ACwAAcar')};Carlos Pereira;Carlos;Pereira;Gerente de Utilidades;Toyota do Brasil;Carlos, vamos conectar?;Olá, Carlos!;Carlos, um dado útil.`,
   `3;;333;ACwAAzzz,9rcn,NAME_SEARCH;${sn('ACwAAzzz')};Fulano Inexistente;Fulano;Inexistente;Diretor;Empresa X;Oi;Oi;Oi`,
+  `4;;444;ACwAAdie,9rcn,NAME_SEARCH;${sn('ACwAAdie')};Diego Barbosa;Diego;Barbosa;Engenheiro;MAHLE;Oi;Oi;Oi`,
 ].join('\n'));
 
 const site = await startFakeSite();
@@ -37,7 +38,7 @@ try {
   await call('updateAccount', { ...acc, workingHours: { ...acc.workingHours, start: '00:00', end: '23:59' } });
   await app.evaluate(({ dialog }, f) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [f] }); }, csv);
   const imp = await call('importCsv', acc.id);
-  check(imp.valid === 3 && imp.added === 3, 'linhas só com Sales Navigator + nome são aceitas', imp);
+  check(imp.valid === 4 && imp.added === 4, 'linhas só com Sales Navigator + nome são aceitas', imp);
 
   // formulário: oferece usar as mensagens da planilha
   await ui.reload();
@@ -58,6 +59,8 @@ try {
   check(by('Ana').publicId === 'ana-silva' && by('Ana').actionName !== 'Visitar e extrair perfil', 'Ana (só Sales Navigator) achada pela busca e o /in/ guardado', by('Ana'));
   check(by('Carlos').publicId === 'carlos-pereira-tyt', 'homônimos: escolheu o Carlos Pereira da Toyota (empresa confere), não o da Fiat', by('Carlos'));
   check(by('Fulano').status === 'failed' && by('Fulano').reason === 'NOT_FOUND' && /Não achei o perfil de Fulano Inexistente/.test(by('Fulano').message || ''), 'quem não existe: falha explicada, sem abrir perfil errado', by('Fulano'));
+  const diego = people.find((p) => p.publicId === 'diego-siste');
+  check(diego && diego.name === 'Diego Siste' && diego.reason !== 'NOT_FOUND', 'sobrenome diferente no LinkedIn: abriu pelo número do membro e aceitou (Diego Barbosa → Diego Siste)', people.map((p) => [p.name, p.publicId, p.status, p.reason]));
   const loads = site.state.profileLoads || [];
   check(!loads.some((l) => l.slug === 'carlos-pereira-fia'), 'nunca abriu o homônimo errado', loads);
   check(loads.filter((l) => ['ana-silva', 'carlos-pereira-tyt'].includes(l.slug)).every((l) => l.clicked), 'Ana e Carlos abertos pela busca (clique), não por link', loads);

@@ -36,16 +36,24 @@ try {
   await call('updateAccount', { ...acc, workingHours: { ...acc.workingHours, start: '00:00', end: '23:59' } });
   await app.evaluate(({ dialog }, f) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [f] }); }, csv);
   await ui.reload();
-  await ui.getByText('Configure em 3 passos').waitFor();
-  check(await ui.locator('.tabs').count() === 0, 'tela inicial simples: sem abas, só os 3 passos');
-  await ui.screenshot({ path: join(shots, 'simples-1-inicio.png') });
+  await ui.locator('.gsteps').waitFor();
+  check(await ui.locator('.tabs').count() === 0, 'tela guiada: 4 etapas numeradas, sem a barra de abas');
+  await ui.screenshot({ path: join(shots, 'guiada-1-listas.png') });
 
-  await ui.getByRole('button', { name: '⬆ Importar planilha (CSV)' }).click();
-  await ui.getByText('Usar as mensagens da minha planilha').waitFor();
-  await ui.getByText(/Encontrei: MSG-CONEXÃO, MSG-01, MSG-02/).waitFor();
-  check(true, 'passo 1 feito e as mensagens da planilha detectadas no passo 2');
-  await ui.screenshot({ path: join(shots, 'simples-2-lista.png'), fullPage: true });
-
+  // ① Listas
+  await ui.getByRole('button', { name: '⬆ Importar planilha' }).click();
+  await ui.getByRole('button', { name: 'Criar campanha com esta lista →' }).click();
+  // ② Campanha: Ações → Mensagens (prévia) → Revisar
+  await ui.getByText('O que o LinkLeads vai fazer, na ordem').waitFor();
+  await ui.screenshot({ path: join(shots, 'guiada-2-acoes.png'), fullPage: true });
+  await ui.getByRole('button', { name: 'Avançar →' }).click();
+  await ui.getByText('O que escrever').waitFor();
+  await ui.locator('.preview').getByText('Ana, vamos conectar?').waitFor();
+  check(await ui.locator('.preview').getByText('Olá, Ana!').isVisible(), 'prévia mostra o convite e as mensagens reais do 1º lead');
+  await ui.screenshot({ path: join(shots, 'guiada-3-mensagens.png'), fullPage: true });
+  await ui.getByRole('button', { name: 'Avançar →' }).click();
+  await ui.getByText('Revise e comece').waitFor();
+  await ui.screenshot({ path: join(shots, 'guiada-4-revisar.png'), fullPage: true });
   await ui.getByRole('button', { name: '▶ Criar campanha e começar' }).click();
   await ui.getByText(/Onde estão as 2 pessoas/).waitFor({ timeout: 30_000 });
   const [camp] = await call('listCampaigns', acc.id);
@@ -54,12 +62,20 @@ try {
   check((await call('listAccounts'))[0].running, 'LinkedIn aberto e trabalhando sem precisar de outro clique');
   await ui.locator('#live-box .now').first().waitFor();
   await ui.waitForTimeout(1500);
-  await ui.screenshot({ path: join(shots, 'simples-3-painel.png'), fullPage: true });
-  await ui.getByRole('button', { name: 'Modo avançado →' }).click();
+  await ui.screenshot({ path: join(shots, 'guiada-5-acompanhar.png'), fullPage: true });
+
+  // ③ Configurações: ritmo em linguagem simples
+  await ui.locator('.gstep', { hasText: 'Configurações' }).click();
+  await ui.getByText('Conservador — conta nova no LinkedIn').click();
+  await ui.waitForTimeout(800);
+  check((await call('accountLimits', acc.id)).linkedinAge === 'new', 'ritmo "Conservador" liga o aquecimento de conta nova');
+  await ui.screenshot({ path: join(shots, 'guiada-6-config.png'), fullPage: true });
+
+  await ui.getByRole('button', { name: 'Tela completa' }).click();
   await ui.locator('.tabs').waitFor();
-  await ui.getByRole('button', { name: '← Modo simples' }).click();
-  await ui.getByText(/Onde estão as 2 pessoas/).waitFor();
-  check(true, 'alterna entre modo simples e avançado');
+  await ui.getByRole('button', { name: '← Tela guiada' }).click();
+  await ui.locator('.gsteps').waitFor();
+  check(true, 'alterna entre a tela guiada e a tela completa');
 } catch (e) {
   fail(e.stack ?? e);
 } finally {

@@ -138,8 +138,7 @@ export class AccountInstance {
   private lastInboxScan = 0;
   private llmCache?: { key: string; llm: LlmClient };
   private loginAttempts: number[] = [];
-  private lastAutoDiag = 0;
-  private lastAutoDiagFile?: string;
+  private autoDiag = new Map<string, { at: number; file: string }>();
   readonly live: LiveState = { state: 'idle', recent: [], upcoming: [] };
   /** login recusado pelo LinkedIn: não tenta de novo com o mesmo e-mail/senha (evita travar a conta) */
   private rejectedLogin?: string;
@@ -190,14 +189,14 @@ export class AccountInstance {
       },
       withBrowser: (fn) => this.withBrowser(fn),
       reportUnrecognized: async () => {
-        // no máximo um relatório por hora (sem nomes: só a estrutura da página)
-        if (Date.now() - this.lastAutoDiag < 3_600_000) return this.lastAutoDiagFile;
-        this.lastAutoDiag = Date.now();
+        // no máximo um relatório por hora POR TIPO de página (sem nomes: só a estrutura)
         const r = await diagnosePage(this.driver, app.getVersion());
-        const file = join(accountDir(this.account.id), `diagnostico-perfil-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
+        const last = this.autoDiag.get(r.page);
+        if (last && Date.now() - last.at < 3_600_000) return last.file;
+        const file = join(accountDir(this.account.id), `diagnostico-${r.page}-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
         writeFileSync(file, JSON.stringify(r, null, 2));
-        this.lastAutoDiagFile = file;
-        this.log(`Página de perfil não reconhecida: relatório salvo em ${file} (envie para ajustar os seletores)`);
+        this.autoDiag.set(r.page, { at: Date.now(), file });
+        this.log(`Página "${r.page}" não reconhecida: relatório salvo em ${file} (envie para ajustar)`);
         return file;
       },
       limits: {
