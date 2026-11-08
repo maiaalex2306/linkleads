@@ -7,14 +7,14 @@ export type IntegrationEvent = (typeof INTEGRATION_EVENTS)[number];
 export type Destination = 'webhook' | 'hubspot' | 'pipedrive';
 
 interface Stored {
-  webhook?: { url: string; secretEnc?: string; events: IntegrationEvent[]; enabled: boolean };
+  webhook?: { url: string; secretEnc?: string; events: IntegrationEvent[]; enabled: boolean; format?: 'linkleads' | 'linkedhelper' };
   hubspot?: { tokenEnc?: string; linkedinProperty?: string; events: IntegrationEvent[]; enabled: boolean };
   pipedrive?: { tokenEnc?: string; events: IntegrationEvent[]; enabled: boolean };
   apollo?: { keyEnc?: string; onlyWhenNoEmail: boolean };
 }
 
 export interface PublicIntegrations {
-  webhook: { url: string; hasSecret: boolean; events: IntegrationEvent[]; enabled: boolean };
+  webhook: { url: string; hasSecret: boolean; events: IntegrationEvent[]; enabled: boolean; format: 'linkleads' | 'linkedhelper' };
   hubspot: { hasToken: boolean; linkedinProperty: string; events: IntegrationEvent[]; enabled: boolean };
   pipedrive: { hasToken: boolean; events: IntegrationEvent[]; enabled: boolean };
   apollo: { hasKey: boolean; onlyWhenNoEmail: boolean };
@@ -52,7 +52,7 @@ export class IntegrationSettings {
   public(): PublicIntegrations {
     const s = this.read();
     return {
-      webhook: { url: s.webhook?.url ?? '', hasSecret: !!s.webhook?.secretEnc, events: s.webhook?.events ?? DEFAULT_EVENTS, enabled: !!s.webhook?.enabled },
+      webhook: { url: s.webhook?.url ?? '', hasSecret: !!s.webhook?.secretEnc, events: s.webhook?.events ?? DEFAULT_EVENTS, enabled: !!s.webhook?.enabled, format: s.webhook?.format ?? 'linkleads' },
       hubspot: { hasToken: !!s.hubspot?.tokenEnc, linkedinProperty: s.hubspot?.linkedinProperty ?? '', events: s.hubspot?.events ?? DEFAULT_EVENTS, enabled: !!s.hubspot?.enabled },
       pipedrive: { hasToken: !!s.pipedrive?.tokenEnc, events: s.pipedrive?.events ?? DEFAULT_EVENTS, enabled: !!s.pipedrive?.enabled },
       apollo: { hasKey: !!s.apollo?.keyEnc || !!process.env.APOLLO_API_KEY, onlyWhenNoEmail: s.apollo?.onlyWhenNoEmail ?? true },
@@ -60,7 +60,7 @@ export class IntegrationSettings {
   }
 
   update(patch: {
-    webhook?: { url?: string; secret?: string | null; events?: IntegrationEvent[]; enabled?: boolean };
+    webhook?: { url?: string; secret?: string | null; events?: IntegrationEvent[]; enabled?: boolean; format?: 'linkleads' | 'linkedhelper' };
     hubspot?: { token?: string | null; linkedinProperty?: string; events?: IntegrationEvent[]; enabled?: boolean };
     pipedrive?: { token?: string | null; events?: IntegrationEvent[]; enabled?: boolean };
     apollo?: { key?: string | null; onlyWhenNoEmail?: boolean };
@@ -76,6 +76,7 @@ export class IntegrationSettings {
       }
       if (patch.webhook.secret !== undefined) w.secretEnc = patch.webhook.secret ? this.enc(patch.webhook.secret) : undefined;
       if (patch.webhook.events) w.events = valid(patch.webhook.events)!;
+      if (patch.webhook.format) w.format = patch.webhook.format === 'linkedhelper' ? 'linkedhelper' : 'linkleads';
       if (patch.webhook.enabled != null) w.enabled = patch.webhook.enabled && !!w.url;
       s.webhook = w;
     }
@@ -125,7 +126,7 @@ export class IntegrationSettings {
 
   webhook() {
     const w = this.read().webhook;
-    return w?.url ? { url: w.url, secret: this.dec(w.secretEnc) } : undefined;
+    return w?.url ? { url: w.url, secret: this.dec(w.secretEnc), format: w.format ?? 'linkleads' } : undefined;
   }
 
   hubspot() {

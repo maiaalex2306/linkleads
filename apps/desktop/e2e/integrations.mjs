@@ -115,6 +115,16 @@ try {
   await call('flushDeliveries');
   check(got.hubspot.some((x) => x.method === 'PATCH' && x.url === '/hs/crm/v3/objects/contacts/5001'), 'HubSpot: segundo envio atualiza o mesmo contato (sem duplicar)');
 
+  // formato Linked Helper (ponte do IAD CRM): mesmo destino, corpo achatado
+  await call('updateIntegrations', { webhook: { format: 'linkedhelper' } });
+  check((await call('getIntegrations')).webhook.format === 'linkedhelper', 'formato do webhook salvo como "Linked Helper"');
+  const before = got.hooks.length;
+  await call('sendPersonToIntegrations', acc.id, bruno.id);
+  await call('flushDeliveries');
+  const lh = JSON.parse(got.hooks[before]?.body ?? '{}');
+  check(lh.full_name === 'Bruno Lima' && lh.email === 'bruno.lima@acme.com' && lh.profile_url?.endsWith('/in/bruno-lima/') && lh.my_full_name === 'Conta teste' && !('event' in lh),
+    'webhook no formato Linked Helper (campos achatados, autor = nome da conta)', lh);
+
   const exp = await call('exportCsv', acc.id, { campaignId, name: 'Contatos' });
   const text = readFileSync(exportPath, 'utf8');
   check(exp.rows === 2 && text.includes('ana.silva@aguasdovale.com.br') && text.includes('+5519988887777') && text.split('\r\n')[0].includes('nome;linkedin'), 'CSV exportado (separador ";") com e-mails e telefones', text.slice(0, 300));

@@ -55,6 +55,28 @@ const expected = 'sha256=' + createHmac('sha256', process.env.LINKLEADS_SECRET).
 const ok = timingSafeEqual(Buffer.from(expected), Buffer.from(req.headers['x-linkleads-signature'] ?? ''));
 ```
 
+## Ponte do IAD CRM (formato Linked Helper)
+
+Para quem já usa a ponte (Cloudflare Worker) do IAD CRM com o Linked Helper, o LinkLeads entrega no **mesmo balde**
+e as respostas aparecem no botão **Importar LH**, sem mudar nada na ponte nem no IAD CRM:
+
+1. **Configurações → Integrações → Webhook**, em **Formato**, escolha **Linked Helper**.
+2. **URL**: o mesmo endereço de entrada colado no Linked Helper,
+   `https://<sua-ponte>.workers.dev/?k=CHAVE_DE_ESCRITA&e=ID_DA_EMPRESA`. É a chave de **escrita** (a de leitura fica
+   no IAD CRM) e o identificador da empresa do IAD CRM (`e=`).
+3. **Enviar quando**: só **Resposta recebida**, porque o Importar LH trata cada envio como alguém que respondeu.
+4. Marque **Ligado** e clique em **Salvar**.
+
+O corpo vai "achatado", com os nomes de campo do Linked Helper: `full_name`, `first_name`, `last_name`, `headline`,
+`profile_url`, `email`, `phone`, `location_name`, `organization_1`, `organization_title_1`, `member_distance`,
+`campaign`, `my_full_name` e a conversa em `messageN_from` / `messageN_text` / `messageN_send_at_iso`.
+O autor das mensagens enviadas é o **nome da conta no LinkLeads** (também em `my_full_name`), e o das recebidas é o
+nome da pessoa. É assim que o IAD CRM separa o que é evidência do cliente do que é a nossa prospecção. Extras do
+LinkLeads vão em `linkleads_*` (rótulo da IA, comitê, sinal) e ficam preservados no dado bruto.
+
+Validado com o código real da ponte (`ponte/worker.js`) e do leitor do IAD CRM (`normalizar`): nome, empresa,
+cargo, e-mail, campanha e resposta são lidos corretamente, e a mensagem enviada pelo LinkLeads não vira evidência.
+
 ## Google Sheets (via Apps Script)
 
 1. Na planilha: **Extensões → Apps Script**. Cole o código abaixo e troque `TOKEN`.

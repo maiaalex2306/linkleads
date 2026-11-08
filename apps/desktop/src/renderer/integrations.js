@@ -31,6 +31,18 @@ async function integrationsCards() {
   const whUrl = h('input', { value: s.webhook.url, placeholder: 'https://hooks.zapier.com/… ou URL do n8n/Make/Apps Script', style: 'flex:1;min-width:320px' });
   const whSecret = h('input', { type: 'password', placeholder: s.webhook.hasSecret ? '•••••• (segredo salvo)' : 'segredo para assinatura (opcional)', style: 'width:240px' });
   const whEvents = eventChecks(s.webhook.events);
+  const whFormat = h('select', {},
+    h('option', { value: 'linkleads' }, 'LinkLeads (completo: comitê, rótulo da IA, sinais)'),
+    h('option', { value: 'linkedhelper' }, 'Linked Helper (ponte do IAD CRM / quem já lê o Linked Helper)'));
+  whFormat.value = s.webhook.format;
+  const whHint = h('div', { class: 'muted' });
+  const syncHint = () => {
+    whHint.textContent = whFormat.value === 'linkedhelper'
+      ? 'Use o mesmo endereço de entrada que você colou no Linked Helper: https://…workers.dev/?k=CHAVE_DE_ESCRITA&e=ID_DA_EMPRESA (a chave de ESCRITA, não a de leitura do IAD CRM). Marque só "Resposta recebida": o "Importar LH" do IAD CRM trata cada envio como alguém que respondeu.'
+      : '';
+  };
+  whFormat.addEventListener('change', syncHint);
+  syncHint();
   const whOn = enabledToggle(s.webhook.enabled);
 
   // HubSpot
@@ -55,10 +67,11 @@ async function integrationsCards() {
     h('div', { class: 'card stack' },
       h('div', { class: 'row' }, h('strong', { style: 'flex:1' }, 'Webhook (Zapier, Make, n8n, Google Sheets)'), badge(s.webhook.enabled, 'ligado', 'desligado')),
       h('div', { class: 'muted' }, 'POST JSON com os dados da pessoa e do evento. Com segredo, o cabeçalho X-LinkLeads-Signature traz sha256=HMAC do corpo. Para Google Sheets, use um Apps Script publicado como app da Web (veja docs/INTEGRACOES.md).'),
+      h('div', { class: 'row' }, h('span', { class: 'muted' }, 'Formato'), whFormat), whHint,
       h('div', { class: 'row' }, whUrl), h('div', { class: 'row' }, whSecret), whEvents.el,
       h('div', { class: 'row' },
         h('label', { class: 'row', style: 'display:flex' }, whOn, 'Ligado'),
-        h('button', { class: 'primary', onclick: () => save({ webhook: { url: whUrl.value, ...(whSecret.value ? { secret: whSecret.value } : {}), events: whEvents.read(), enabled: whOn.checked } }) }, 'Salvar'),
+        h('button', { class: 'primary', onclick: () => save({ webhook: { url: whUrl.value, ...(whSecret.value ? { secret: whSecret.value } : {}), events: whEvents.read(), enabled: whOn.checked, format: whFormat.value } }) }, 'Salvar'),
         s.webhook.hasSecret && h('button', { onclick: () => save({ webhook: { secret: null } }, 'Segredo removido') }, 'Remover segredo'))),
     h('div', { class: 'card stack' },
       h('div', { class: 'row' }, h('strong', { style: 'flex:1' }, 'HubSpot'), badge(s.hubspot.enabled, 'ligado', s.hubspot.hasToken ? 'desligado' : 'sem token')),

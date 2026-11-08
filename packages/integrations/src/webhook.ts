@@ -1,11 +1,14 @@
 import { createHmac } from 'node:crypto';
 import type { LeadPayload } from './payload.js';
 import { requestJson, type Fetch } from './http.js';
+import { toLinkedHelperFormat } from './linkedhelper-format.js';
 
 export interface WebhookConfig {
   url: string;
   /** segredo para assinar o corpo (HMAC-SHA256), opcional */
   secret?: string;
+  /** 'linkleads' (padrão) ou 'linkedhelper': objeto achatado como o Linked Helper exporta */
+  format?: 'linkleads' | 'linkedhelper';
 }
 
 export function signBody(body: string, secret: string): string {
@@ -21,7 +24,7 @@ export async function sendWebhook(cfg: WebhookConfig, payload: LeadPayload, deli
   if (url.protocol !== 'https:' && !['localhost', '127.0.0.1'].includes(url.hostname)) {
     throw new Error('O webhook precisa usar HTTPS');
   }
-  const body = JSON.stringify(payload);
+  const body = JSON.stringify(cfg.format === 'linkedhelper' ? toLinkedHelperFormat(payload, payload.account.label) : payload);
   const headers: Record<string, string> = {
     'content-type': 'application/json',
     'user-agent': 'LinkLeads-Webhook/1.0',

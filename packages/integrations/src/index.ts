@@ -6,3 +6,4 @@ export * from './hubspot.js';
 export * from './pipedrive.js';
 export * from './apollo.js';
 export * from './notes.js';
+export * from './linkedhelper-format.js';

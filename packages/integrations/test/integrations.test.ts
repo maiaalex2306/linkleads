@@ -136,3 +136,34 @@ describe('nota', () => {
     expect(noteFor(payload)).toContain('Vamos &lt;conversar&gt;');
   });
 });
+
+import { toLinkedHelperFormat } from '../src/index.js';
+describe('formato Linked Helper', () => {
+  it('achata o evento com autoria das mensagens pelo nome', () => {
+    const out = toLinkedHelperFormat({
+      ...payload,
+      person: { ...payload.person, position: 'Diretora de Operações', connectionDegree: 1, phones: ['+5511'] },
+      campaign: { id: 'c', name: 'Prospecção Saneamento' },
+      conversation: [
+        { direction: 'out', body: 'Olá Ana, tudo bem?', sentAt: '2026-11-01T10:00:00Z' },
+        { direction: 'in', body: 'Oi! Tenho interesse.', sentAt: '2026-11-02T09:00:00Z' },
+      ],
+    }, 'Alexandre (LinkLeads)');
+    expect(out).toMatchObject({
+      full_name: 'Ana Silva', profile_url: 'https://www.linkedin.com/in/ana/', public_identifier: 'ana', email: 'ana@acme.com',
+      organization_1: 'ACME', organization_title_1: 'Diretora de Operações', member_distance: 1, my_full_name: 'Alexandre (LinkLeads)',
+      message1_from: 'Alexandre (LinkLeads)', message1_text: 'Olá Ana, tudo bem?', message2_from: 'Ana Silva', message2_text: 'Oi! Tenho interesse.',
+      campaign: 'Prospecção Saneamento', linkleads_reply_label: 'interessado', linkleads_committee: 'ACME: decisor',
+    });
+  });
+
+  it('webhook envia no formato escolhido', async () => {
+    hits.length = 0;
+    respond = () => ({ json: { ok: true, recebidos: 1 } });
+    await sendWebhook({ url: `${base}/?k=escrita&e=empresa1`, format: 'linkedhelper' }, payload, 'd2');
+    const body = JSON.parse(hits[0]!.body);
+    expect(body.full_name).toBe('Ana Silva');
+    expect(body.event).toBeUndefined();
+    expect(hits[0]!.url).toBe('/?k=escrita&e=empresa1');
+  });
+});
