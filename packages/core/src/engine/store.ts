@@ -1,5 +1,4 @@
 import type { BudgetKey, FailureReason, Person, PersonActionStatus } from '../types.js';
-import type { UsageSnapshot } from './pacing.js';
 
 /** Persistência necessária ao motor. Implementada em SQLite por @linkleads/db. */
 export interface CampaignStore {
@@ -16,7 +15,8 @@ export interface CampaignStore {
   enqueue(campaignId: string, actionId: string, personId: string, notBefore?: Date): void;
   /** devolve para a fila, a ser tentada de novo a partir de `notBefore` */
   requeue(campaignId: string, actionId: string, personId: string, notBefore: Date): void;
-  getUsage(accountId: string, now: Date): UsageSnapshot;
+  /** momentos (ms) em que a atividade `key` foi registrada desde `sinceMs`, em ordem crescente */
+  usageTimes(accountId: string, key: BudgetKey, sinceMs: number): number[];
   recordUsage(accountId: string, key: BudgetKey, now: Date): void;
   /** exclusão global: respondeu, pediu para parar, lista de bloqueio */
   isGloballyBlocked(personId: string): FailureReason | undefined;
@@ -30,9 +30,8 @@ export interface CampaignStore {
 export class InMemoryCampaignStore implements CampaignStore {
   people = new Map<string, Person>();
   statuses = new Map<string, { status: PersonActionStatus; reason?: FailureReason; order: number; notBefore?: number }>();
-  usage = new Map<string, number>();
+  usage: Array<{ accountId: string; key: BudgetKey; at: number }> = [];
   blocked = new Map<string, FailureReason>();
-  invitesLast7Days = 0;
   private runs = new Map<string, number>();
   private seq = 0;
 
@@ -71,19 +70,17 @@ export class InMemoryCampaignStore implements CampaignStore {
     return this.statuses.get(this.key(c, a, p));
   }
 
-  getUsage(accountId: string): UsageSnapshot {
-    const today: UsageSnapshot['today'] = {};
-    for (const [k, v] of this.usage) {
-      const [acc, key] = k.split('|');
-      if (acc === accountId) today[key as BudgetKey] = v;
-    }
-    return { today, invitesLast7Days: this.invitesLast7Days };
+  usageTimes(accountId: string, key: BudgetKey, sinceMs: number): number[] {
+    return this.usage.filter((u) => u.accountId === accountId && u.key === key && u.at >= sinceMs).map((u) => u.at).sort((a, b) => a - b);
   }
 
-  recordUsage(accountId: string, key: BudgetKey) {
-    const k = `${accountId}|${key}`;
-    this.usage.set(k, (this.usage.get(k) ?? 0) + 1);
-    if (key === 'invites') this.invitesLast7Days++;
+  /** total registrado (para testes) */
+  used(accountId: string, key: BudgetKey): number {
+    return this.usage.filter((u) => u.accountId === accountId && u.key === key).length;
+  }
+
+  recordUsage(accountId: string, key: BudgetKey, now: Date = new Date()) {
+    this.usage.push({ accountId, key, at: now.getTime() });
   }
 
   isGloballyBlocked(personId: string) {

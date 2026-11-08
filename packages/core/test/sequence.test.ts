@@ -10,7 +10,7 @@ import {
 } from '../src/index.js';
 
 const account: Account = {
-  id: 'acc', label: 'x', tier: 'basic', dailyLimits: {}, paused: false, onboardedAt: '2026-01-01T00:00:00Z',
+  id: 'acc', label: 'x', tier: 'basic', paused: false, onboardedAt: '2026-01-01T00:00:00Z',
   workingHours: { timezone: 'America/Sao_Paulo', days: [0, 1, 2, 3, 4, 5, 6], start: '00:00', end: '23:59' },
 };
 
@@ -86,10 +86,21 @@ describe('sequência de prospecção (curtir → comentar → convite)', () => {
     return { campaign, store, id: (t: string) => campaign.actions.find((a) => a.type === t)!.id };
   };
 
-  it('limita a 5 mensagens e confere o aceite 1 dia depois do convite', () => {
+  it('começa curtindo (sem visita), confere o aceite 1 dia depois por até 30 dias, no máximo 5 mensagens', () => {
     const { campaign } = build();
-    expect(campaign.actions.filter((a) => a.type === 'MessageToPerson')).toHaveLength(5);
-    expect(campaign.actions.find((a) => a.type === 'CheckConnection')!.waitHours).toBe(24);
+    expect(campaign.actions[0]!.type).toBe('LikePosts');
+    expect(campaign.actions.some((a) => a.type === 'VisitAndExtract')).toBe(false);
+    const check = campaign.actions.find((a) => a.type === 'CheckConnection')!;
+    expect(check.waitHours).toBe(24);
+    expect((check.settings as { timeoutDays: number }).timeoutDays).toBe(30);
+    const msgs = campaign.actions.filter((a) => a.type === 'MessageToPerson');
+    expect(msgs).toHaveLength(5);
+    expect(msgs[0]!.waitHours).toBe(0); // mensagem 1 logo após o aceite
+  });
+
+  it('com filtro de ICP, visita o perfil antes (a IA precisa dos dados)', () => {
+    const c = prospectingSequence({ id: 'x', accountId: 'acc', name: 'x', commentMode: 'auto', icpFilter: true, invite: {}, messages: [{ waitDays: 0 }] });
+    expect(c.actions.slice(0, 3).map((a) => a.type)).toEqual(['VisitAndExtract', 'IcpFilter', 'LikePosts']);
   });
 
   it('sem post recente: pula curtir/comentar e segue para o convite', async () => {
@@ -104,10 +115,8 @@ describe('sequência de prospecção (curtir → comentar → convite)', () => {
     const runner = new CampaignRunner({ store, executors, now: () => now, sleep: async () => {} });
     await runner.tick(campaign, account);
     expect(store.statusOf('pro', id('LikePosts'), 'p1')).toMatchObject({ status: 'failed', reason: 'NO_POST' });
-    expect(store.statusOf('pro', id('SendInvite'), 'p1')?.status).toBe('queued');
+    expect(invites).toEqual(['p1']); // no mesmo ciclo, com a mesma pessoa
     now = new Date(now.getTime() + 5 * 3_600_000);
-    await runner.tick(campaign, account);
-    expect(invites).toEqual(['p1']);
   });
 
   it('perfil não encontrado ou bloqueio da plataforma NÃO seguem para o convite', async () => {
@@ -135,23 +144,23 @@ describe('sequência de prospecção (curtir → comentar → convite)', () => {
 });
 
 describe('uma pessoa de cada vez', () => {
-  it('visita → curte → comenta a mesma pessoa antes de visitar a próxima; o convite espera', async () => {
+  it('curte → comenta → convida a mesma pessoa antes de passar para a próxima; o aceite espera 1 dia', async () => {
     const campaign = { ...prospectingSequence({ id: 'o', accountId: 'acc', name: 'O', commentMode: 'auto', invite: { template: 'x' }, messages: [{ waitDays: 0, template: 'm' }] }), active: true };
     const store = new InMemoryCampaignStore();
     for (const id of ['p1', 'p2', 'p3']) { store.addPerson({ id, firstName: id }); store.enqueue('o', campaign.actions[0]!.id, id); }
     const log: string[] = [];
     const ev: string[] = [];
     const ok = (t: string) => ({ type: t, execute: async (ctx: { person: { id: string } }) => { log.push(`${t}:${ctx.person.id}`); return { ok: true as const }; }, verify: async () => true });
-    const executors = new ExecutorRegistry().register(ok('VisitAndExtract')).register(ok('LikePosts')).register(ok('CommentPost')).register(ok('SendInvite'));
+    const executors = new ExecutorRegistry().register(ok('LikePosts')).register(ok('CommentPost')).register(ok('SendInvite'));
     const runner = new CampaignRunner({ store, executors, now: () => new Date('2026-11-09T13:00:00Z'), sleep: async () => {}, onProgress: (e) => ev.push(e.type) });
     await runner.tick(campaign, account);
     expect(log).toEqual([
-      'VisitAndExtract:p1', 'LikePosts:p1', 'CommentPost:p1',
-      'VisitAndExtract:p2', 'LikePosts:p2', 'CommentPost:p2',
-      'VisitAndExtract:p3', 'LikePosts:p3', 'CommentPost:p3',
+      'LikePosts:p1', 'CommentPost:p1', 'SendInvite:p1',
+      'LikePosts:p2', 'CommentPost:p2', 'SendInvite:p2',
+      'LikePosts:p3', 'CommentPost:p3', 'SendInvite:p3',
     ]);
     expect(ev.filter((t) => t === 'pause')).toHaveLength(2);
-    expect(ev.filter((t) => t === 'scheduled')).toHaveLength(3); // convite agendado (espera de 4 h)
+    expect(ev.filter((t) => t === 'scheduled')).toHaveLength(3); // conferir aceite agendado para 1 dia depois
   });
 });
 
@@ -172,7 +181,7 @@ describe('monitoramento recorrente', () => {
     await runner.tick(campaign, account);
     await runner.tick(campaign, account);
     expect(visits).toBe(1);
-    expect(store.getUsage('acc').today.profile_visits).toBe(1);
+    
     now = new Date(now.getTime() + 7 * 86_400_000);
     await runner.tick(campaign, account);
     expect(visits).toBe(2);

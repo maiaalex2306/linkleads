@@ -116,7 +116,7 @@ export interface ProspectingSequenceOptions {
   commentMode: 'manual' | 'auto';
   aboutMe?: string;
   invite: MessageSource & { sendWithoutNote?: boolean };
-  /** horas entre o comentário e o convite (padrão 4) */
+  /** horas entre o comentário e o convite (padrão 0: no mesmo momento, pessoa a pessoa) */
   inviteAfterHours?: number;
   /** horas até conferir o aceite (padrão 24 = espera um dia) */
   checkAfterHours?: number;
@@ -134,10 +134,13 @@ export interface ProspectingSequenceOptions {
 const ENGAGEMENT_SOFT_FAILS: FailureReason[] = ['NO_POST', 'AI_SKIPPED', 'NO_REAL_EFFECT', 'ERROR', 'REJECTED'];
 
 /**
- * Sequência de prospecção completa:
- * visitar → curtir o post → comentar com IA → convite → (1 dia) conferir aceite →
- * até 5 mensagens com espera. Antes de cada mensagem a conversa é lida: se a pessoa
- * respondeu, a sequência para e a resposta vai para o webhook/CRMs ("Resposta recebida").
+ * Sequência de prospecção completa (sem visita separada: abrir o perfil para curtir já "visita"):
+ * curtir o post mais recente ainda não curtido → comentar com IA → convite →
+ * 1 dia depois confere o aceite (e de novo a cada dia, por até 30 dias) →
+ * mensagem 1 assim que aceitar → mensagens seguintes com 1 dia de intervalo.
+ * Antes de cada mensagem a conversa é lida: respondeu → sai do fluxo (um humano assume)
+ * e a resposta vai para o webhook/CRMs ("Resposta recebida").
+ * Com filtro de ICP, visita o perfil antes (a IA precisa dos dados).
  */
 export function prospectingSequence(o: ProspectingSequenceOptions): Campaign {
   const common = { tone: o.tone ?? 'profissional', extraInstructions: o.extraInstructions ?? '' };
@@ -149,8 +152,12 @@ export function prospectingSequence(o: ProspectingSequenceOptions): Campaign {
     name: o.name,
     active: false,
     actions: [
-      { id: `${o.id}-visit`, type: 'VisitAndExtract', name: 'Visitar e extrair perfil', coolDown: 0, maxResults: -1, settings: {} },
-      ...(o.icpFilter ? [{ id: `${o.id}-icp`, type: 'IcpFilter', name: 'Filtrar por ICP (IA)', coolDown: 0, maxResults: -1, settings: {} }] : []),
+      ...(o.icpFilter
+        ? [
+            { id: `${o.id}-visit`, type: 'VisitAndExtract', name: 'Visitar e extrair perfil', coolDown: 0, maxResults: -1, settings: {} },
+            { id: `${o.id}-icp`, type: 'IcpFilter', name: 'Filtrar por ICP (IA)', coolDown: 0, maxResults: -1, settings: {} },
+          ]
+        : []),
       {
         id: `${o.id}-like`, type: 'LikePosts', name: 'Curtir post mais recente', coolDown: 0, maxResults: -1,
         settings: { count: 1, maxPostAgeDays: o.maxPostAgeDays ?? 30 }, continueOnFail: ENGAGEMENT_SOFT_FAILS,
@@ -161,12 +168,12 @@ export function prospectingSequence(o: ProspectingSequenceOptions): Campaign {
         continueOnFail: ENGAGEMENT_SOFT_FAILS,
       },
       {
-        id: `${o.id}-invite`, type: 'SendInvite', name: 'Enviar convite', coolDown: 0, maxResults: -1, waitHours: o.inviteAfterHours ?? 4,
+        id: `${o.id}-invite`, type: 'SendInvite', name: 'Enviar convite', coolDown: 0, maxResults: -1, waitHours: o.inviteAfterHours ?? 0,
         settings: { ...common, ...o.invite, kind: 'invite_note' },
       },
       {
         id: `${o.id}-accept`, type: 'CheckConnection', name: 'Conferir aceite (1 dia depois)', coolDown: 0, maxResults: -1, waitHours: o.checkAfterHours ?? 24,
-        settings: { timeoutDays: o.acceptTimeoutDays ?? 21, withdrawOnTimeout: o.withdrawOnTimeout ?? true, recheckHours: 24 },
+        settings: { timeoutDays: o.acceptTimeoutDays ?? 30, withdrawOnTimeout: o.withdrawOnTimeout ?? true, recheckHours: 24 },
       },
       ...messages.map((m, i) => ({
         id: `${o.id}-msg${i + 1}`,
@@ -174,7 +181,8 @@ export function prospectingSequence(o: ProspectingSequenceOptions): Campaign {
         name: i === 0 ? 'Mensagem 1 (após aceite)' : `Mensagem ${i + 1}`,
         coolDown: 0,
         maxResults: -1,
-        waitHours: Math.max(0, m.waitDays) * 24 || (i === 0 ? 4 : 0),
+        // mensagem 1: assim que o aceite for confirmado; as demais: N dias após a anterior (padrão 1)
+        waitHours: Math.max(0, m.waitDays) * 24,
         settings: { ...common, ...m, kind: 'message', step: i + 1, total: messages.length },
       })),
     ],

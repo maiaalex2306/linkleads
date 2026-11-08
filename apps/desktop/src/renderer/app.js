@@ -33,7 +33,7 @@ async function renderAccounts() {
         const linkedinEmail = String(f.get('linkedinEmail') || '').trim();
         const linkedinPassword = String(f.get('linkedinPassword') || '');
         if (linkedinEmail && !linkedinPassword) return toast('Digite a senha do LinkedIn (ou deixe o e-mail em branco para entrar manualmente)');
-        const a = await safe(() => api.createAccount({ label, tier: f.get('tier'), linkedinEmail, linkedinPassword }));
+        const a = await safe(() => api.createAccount({ label, tier: f.get('tier'), linkedinEmail, linkedinPassword, linkedinAge: f.get('linkedinAge') }));
         if (a) { state.accountId = a.id; e.target.reset(); refresh(); }
       },
     },
@@ -41,6 +41,9 @@ async function renderAccounts() {
       h('input', { name: 'linkedinEmail', type: 'email', placeholder: 'E-mail do LinkedIn', autocomplete: 'off' }),
       h('input', { name: 'linkedinPassword', type: 'password', placeholder: 'Senha do LinkedIn', autocomplete: 'new-password' }),
       h('div', { class: 'muted', style: 'font-size:12px' }, 'A senha fica criptografada neste computador e serve só para entrar sozinho no LinkedIn.'),
+      h('select', { name: 'linkedinAge', title: 'Conta nova no LinkedIn começa devagar e sobe em ~6 semanas' },
+        h('option', { value: 'established' }, 'Conta do LinkedIn com mais de 1 ano'),
+        h('option', { value: 'new' }, 'Conta do LinkedIn nova (aquecimento)')),
       h('div', { class: 'row' },
         h('select', { name: 'tier' }, ...[['basic', 'Basic'], ['premium', 'Premium'], ['sales_navigator', 'Sales Navigator'], ['recruiter', 'Recruiter']].map(([v, l]) => h('option', { value: v }, l))),
         h('button', { class: 'primary' }, 'Adicionar')),
@@ -94,16 +97,18 @@ async function renderView() {
           ]
         : h('button', { class: 'primary', onclick: () => safe(() => api.startInstance(a.id)).then(refresh) }, 'Iniciar (abre o navegador)'),
       h('button', { onclick: () => { state.loginOpen = !state.loginOpen; renderView(); } }, a.hasLinkedinPassword ? 'Login do LinkedIn ✓' : 'Login do LinkedIn'),
+      h('button', { onclick: () => { state.limitsOpen = !state.limitsOpen; renderView(); } }, 'Limites'),
       h('button', { onclick: () => { state.proxyOpen = !state.proxyOpen; renderView(); } }, a.proxy ? `Proxy: ${a.proxy.host}` : 'Proxy'),
       h('button', { onclick: () => safe(() => api.setPaused(a.id, !a.paused)).then(refresh) }, a.paused ? 'Retomar automação' : 'Pausar automação'),
       h('button', { onclick: () => window.confirm(`Remover a conta "${a.label}" e seus dados locais?`) && safe(() => api.removeAccount(a.id)).then(() => { state.accountId = null; refresh(); }) }, 'Remover'),
     ),
-    h('div', { class: 'muted' }, `${a.tier} · ${a.workingHours.start}–${a.workingHours.end} (${a.workingHours.timezone}) · ${a.proxy ? 'proxy ' + a.proxy.host : 'sem proxy'} · ${a.hasLinkedinPassword ? `entra sozinho como ${a.linkedinEmail}` : 'login manual na janela'}`),
+    h('div', { class: 'muted' }, `${a.tier} · ${a.linkedinAge === 'new' ? 'conta nova (aquecendo)' : 'conta estabelecida'} · ${a.workingHours.start}–${a.workingHours.end} (${a.workingHours.timezone}) · ${a.proxy ? 'proxy ' + a.proxy.host : 'sem proxy'} · ${a.hasLinkedinPassword ? `entra sozinho como ${a.linkedinEmail}` : 'login manual na janela'}`),
     h('div', { id: 'health-box' }, healthBar(stats)),
     scheduleBanner(a),
     livePanel(a),
     state.hoursOpen && hoursPanel(a, () => { state.hoursOpen = false; renderView(); }),
     state.loginOpen && loginPanel(a, () => { state.loginOpen = false; renderView(); }),
+    state.limitsOpen && limitsPanel(a, () => { state.limitsOpen = false; renderView(); }),
     state.proxyOpen && proxyPanel(a, () => { state.proxyOpen = false; renderView(); }),
     h('div', { class: 'tabs' }, ...tabs.map(([k, l]) => h('button', { class: state.tab === k ? 'sel' : '', onclick: () => { state.tab = k; renderView(); } }, l))),
   );
@@ -144,16 +149,18 @@ async function collectionsView(a) {
   return out;
 }
 
-/** Saúde da conta: uso do dia vs. limite e taxa de aceite. */
+/** Saúde da conta: uso em cada janela (últimas 24 h / 7 dias) vs. limite, e taxa de aceite. */
+const METER_SHORT = { activity: 'Atividade', profile_load: 'Perfis abertos', profile_url: 'Perfis pelo link', invites: 'Convites', messages: 'Mensagens', likes: 'Curtidas', comments: 'Comentários' };
 function healthBar(st) {
-  const LABEL = { invites: 'Convites', messages: 'Mensagens', profile_visits: 'Visitas', engagement: 'Engajamento' };
   const acc = st.acceptance.matured ? Math.round((100 * st.acceptance.accepted) / st.acceptance.matured) : null;
+  const win = (h) => (h === 168 ? '7 dias' : h === 24 ? '24 h' : `${h} h`);
   return h('div', { class: 'health' },
-    ...Object.entries(st.today).map(([k, v]) =>
-      h('div', { class: 'meter' }, h('span', { class: 'muted' }, LABEL[k] + ' hoje'),
-        h('strong', {}, `${v.used}/${v.limit}`),
-        h('div', { class: 'bar' }, h('i', { style: `width:${v.limit ? Math.min(100, (100 * v.used) / v.limit) : 0}%` })))),
-    h('div', { class: 'meter' }, h('span', { class: 'muted' }, 'Convites 7 dias'), h('strong', {}, `${st.invitesLast7Days}/100`)),
+    ...st.meters.map((m) =>
+      h('div', { class: 'meter' + (m.limit != null && m.used >= m.limit ? ' full' : ''), title: m.label + (m.rules > 1 ? ' (mostrando a regra mais apertada)' : '') },
+        h('span', { class: 'muted' }, `${METER_SHORT[m.key] || m.label} · ${win(m.hours)}`),
+        h('strong', {}, m.limit == null ? String(m.used) : `${m.used}/${m.limit}`),
+        h('div', { class: 'bar' }, h('i', { style: `width:${m.limit ? Math.min(100, (100 * m.used) / m.limit) : 0}%` })),
+        m.nextFreeAt && h('span', { class: 'muted' }, `libera às ${new Date(m.nextFreeAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`))),
     h('div', { class: 'meter' + (acc != null && acc < 25 ? ' bad' : '') }, h('span', { class: 'muted' }, 'Taxa de aceite'),
       h('strong', {}, acc == null ? '—' : `${acc}%`), h('span', { class: 'muted' }, acc == null ? 'convites com 14+ dias' : `${st.acceptance.accepted}/${st.acceptance.matured}`)),
   );

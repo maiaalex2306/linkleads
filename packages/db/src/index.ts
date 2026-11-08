@@ -15,7 +15,6 @@ import type {
   FailureReason,
   Person,
   PersonActionStatus,
-  UsageSnapshot,
 } from '@linkleads/core';
 
 /**
@@ -112,6 +111,14 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
       UPDATE company_people SET buying_role = 'decisor_economico' WHERE buying_role = 'decisor';
       UPDATE company_people SET buying_role = 'tecnico' WHERE buying_role = 'influenciador_tecnico';
       UPDATE company_people SET buying_role = 'champion' WHERE buying_role = 'patrocinador';
+    `,
+  },
+  {
+    version: 7,
+    // limites em janela móvel (últimas 24 h / 168 h): cada atividade com seu horário
+    sql: `
+      CREATE TABLE IF NOT EXISTS usage_events (at INTEGER NOT NULL, key TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS usage_events_key_at ON usage_events (key, at);
     `,
   },
 ];
@@ -243,26 +250,14 @@ export class SqliteCampaignStore implements CampaignStore {
       .run(notBefore.getTime(), actionId, personId);
   }
 
-  getUsage(_accountId: string, now: Date): UsageSnapshot {
-    const today: UsageSnapshot['today'] = {};
-    const rows = this.db
-      .prepare('SELECT budget_key, count FROM action_usage WHERE day = ?')
-      .all(localDay(now, this.timezone)) as Row[];
-    for (const r of rows) today[r.budget_key as BudgetKey] = r.count as number;
-    const weekAgo = localDay(new Date(now.getTime() - 6 * 86_400_000), this.timezone);
-    const w = this.db
-      .prepare(`SELECT COALESCE(SUM(count), 0) AS n FROM action_usage WHERE budget_key = 'invites' AND day >= ?`)
-      .get(weekAgo) as Row;
-    return { today, invitesLast7Days: Number(w.n) };
+  usageTimes(_accountId: string, key: BudgetKey, sinceMs: number): number[] {
+    return (this.db.prepare('SELECT at FROM usage_events WHERE key = ? AND at >= ? ORDER BY at').all(key, sinceMs) as Row[]).map((r) => Number(r.at));
   }
 
   recordUsage(_accountId: string, key: BudgetKey, now: Date): void {
-    this.db
-      .prepare(
-        `INSERT INTO action_usage (day, budget_key, count) VALUES (?, ?, 1)
-         ON CONFLICT(day, budget_key) DO UPDATE SET count = count + 1`,
-      )
-      .run(localDay(now, this.timezone), key);
+    this.db.prepare('INSERT INTO usage_events (at, key) VALUES (?, ?)').run(now.getTime(), key);
+    // guarda só ~30 dias de histórico de uso
+    if (Math.random() < 0.01) this.db.prepare('DELETE FROM usage_events WHERE at < ?').run(now.getTime() - 30 * 86_400_000);
   }
 
   block(personId: string, reason: FailureReason): void {

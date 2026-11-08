@@ -1,6 +1,6 @@
 import { app, BrowserWindow, session, type Session } from 'electron';
 import type { Account, Campaign, ExecutionResult, Person, ProgressEvent, TickReport } from '@linkleads/core';
-import { CampaignRunner, ExecutorRegistry, resolveApproval, shouldAutoBrake } from '@linkleads/core';
+import { CampaignRunner, ExecutorRegistry, nextFreeAt, remainingBudget, resolveApproval, shouldAutoBrake } from '@linkleads/core';
 import { LlmPostInterpreter, createLlm, type LlmClient } from '@linkleads/ai';
 import type { CommentDraft, IntegrationCrm } from '@linkleads/db';
 import { ApolloProvider } from '@linkleads/integrations';
@@ -11,6 +11,7 @@ import {
   BASE,
   commentWithAi,
   likeLatestPost,
+  navigationKeys,
   publishComment,
   saveCurrentProfile,
   visitAndExtract,
@@ -183,6 +184,14 @@ export class AccountInstance {
         return cfg ? { provider: new ApolloProvider(cfg.key, fetch, cfg.baseUrl), onlyWhenNoEmail: cfg.onlyWhenNoEmail } : null;
       },
       withBrowser: (fn) => this.withBrowser(fn),
+      limits: {
+        left: (key) => remainingBudget(this.effectiveAccount(), key, (k, since) => this.crm.usageTimes(this.account.id, k, since), now()),
+        freeAt: (key) => nextFreeAt(this.effectiveAccount(), key, (k, since) => this.crm.usageTimes(this.account.id, k, since), now()),
+      },
+    };
+    // cada página aberta conta nos limites (atividade, perfis, perfis pelo link…)
+    this.driver.onNavigate = (url, prev, how) => {
+      for (const key of navigationKeys(url, prev, how)) this.crm.recordUsage(this.account.id, key, now());
     };
     this.executors
       .register(visitAndExtract(this.deps))
@@ -360,6 +369,11 @@ export class AccountInstance {
   }
 
   private pausedForSession = false;
+
+  /** Conta com os tetos da equipe aplicados. */
+  private effectiveAccount(): Account {
+    return withTeamCaps(this.account, this.settings.teamCaps());
+  }
 
   /** Cliente de IA do provedor escolhido (Anthropic ou OpenAI); null sem chave. */
   private llm(): LlmClient | null {
@@ -586,7 +600,7 @@ export class AccountInstance {
     if (result.ok) {
       if (draft.kind === 'comment') {
         this.crm.markPostCommented(draft.postUrl, text, draft.interpretation);
-        this.crm.recordUsage(this.account.id, 'engagement', now());
+        this.crm.recordUsage(this.account.id, 'comments', now());
       } else this.crm.recordUsage(this.account.id, draft.kind === 'invite_note' ? 'invites' : 'messages', now());
       this.crm.updateDraft(draftId, { status: 'posted' });
       if (campaign) resolveApproval(this.crm, campaign, draft.actionId, draft.personId, { executed: true }, now());

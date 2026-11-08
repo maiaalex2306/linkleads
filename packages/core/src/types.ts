@@ -53,22 +53,49 @@ export interface Account {
   tier: AccountTier;
   proxy?: ProxyConfig;
   workingHours: WorkingHours;
-  /** limites diários por chave de orçamento */
-  dailyLimits: Partial<Record<BudgetKey, number>>;
-  /** data em que a conta entrou no app (para rampa de aquecimento) */
+  /** legado (antes das regras por janela); ignorado pelo motor */
+  dailyLimits?: Partial<Record<string, number>>;
+  /** data em que a conta entrou no app */
   onboardedAt: string;
   paused: boolean;
+  /**
+   * Regras de limite no estilo "N por H horas" (janela móvel), com variação aleatória.
+   * Ausente = regras padrão (DEFAULT_LIMIT_RULES).
+   */
+  limitRules?: LimitRule[];
+  /** idade da conta NO LINKEDIN: 'new' aplica aquecimento gradual; padrão 'established' */
+  linkedinAge?: 'new' | 'established';
 }
 
-/** Cada tipo de ação consome de um "orçamento" diário. */
+/**
+ * Tipos de atividade com limite próprio (modelo do Linked Helper):
+ * activity = atividade total da conta (cada página de perfil/empresa aberta);
+ * profile_load = páginas de perfil abertas (por link ou navegando);
+ * profile_url = perfis abertos colando o link (o LinkedIn desconecta quem abusa: ~40/dia).
+ */
 export type BudgetKey =
+  | 'activity'
+  | 'profile_load'
+  | 'profile_url'
+  | 'company_url'
+  | 'search_pages'
   | 'invites'
   | 'messages'
   | 'inmails'
-  | 'profile_visits'
-  | 'engagement'
+  | 'likes'
+  | 'comments'
   | 'withdrawals'
   | 'extractions';
+
+export interface LimitRule {
+  key: BudgetKey;
+  /** máximo na janela */
+  max: number;
+  /** tamanho da janela móvel em horas (1, 24, 168…) */
+  hours: number;
+  /** variação %: reduz o máximo de forma aleatória (estável dentro do dia) para não repetir o mesmo número */
+  variation?: number;
+}
 
 export interface ActionConfig<S = Record<string, unknown>> {
   id: string;

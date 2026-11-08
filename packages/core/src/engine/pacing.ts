@@ -1,28 +1,48 @@
-import type { Account, BudgetKey, WorkingHours } from '../types.js';
+import type { Account, BudgetKey, LimitRule, WorkingHours } from '../types.js';
 
-/** Limites diários conservadores (ponto de partida). */
-export const DEFAULT_DAILY_LIMITS: Record<BudgetKey, number> = {
-  invites: 15,
-  messages: 40,
-  inmails: 10,
-  profile_visits: 60,
-  engagement: 30,
-  withdrawals: 20,
-  extractions: 80,
+/**
+ * Regras padrão, baseadas nas recomendações do Linked Helper para contas com mais de 1 ano:
+ * atividade total 150/24 h; perfis por link 40/24 h (acima disso o LinkedIn costuma desconectar);
+ * convites 100/semana e no máximo 20/dia; variação de 10% para não repetir números exatos.
+ */
+export const DEFAULT_LIMIT_RULES: LimitRule[] = [
+  { key: 'activity', max: 150, hours: 24, variation: 10 },
+  { key: 'profile_load', max: 150, hours: 24, variation: 10 },
+  { key: 'profile_url', max: 40, hours: 24, variation: 10 },
+  { key: 'company_url', max: 40, hours: 24, variation: 10 },
+  { key: 'search_pages', max: 100, hours: 24, variation: 10 },
+  { key: 'invites', max: 100, hours: 168, variation: 10 },
+  { key: 'invites', max: 20, hours: 24, variation: 10 },
+  { key: 'messages', max: 100, hours: 24, variation: 10 },
+  { key: 'inmails', max: 30, hours: 24, variation: 10 },
+  { key: 'likes', max: 30, hours: 24, variation: 10 },
+  { key: 'comments', max: 20, hours: 24, variation: 10 },
+  { key: 'withdrawals', max: 50, hours: 24 },
+  { key: 'extractions', max: 100, hours: 24 },
+];
+
+/** Teto por 24 h que nenhuma regra ultrapassa (o produto protege o cliente de si mesmo). */
+export const HARD_CAP_24H: Record<BudgetKey, number> = {
+  activity: 250, profile_load: 250, profile_url: 80, company_url: 80, search_pages: 200,
+  invites: 50, messages: 150, inmails: 50, likes: 100, comments: 50, withdrawals: 100, extractions: 200,
 };
+/** Convites: teto semanal do próprio LinkedIn. */
+export const WEEKLY_INVITE_CAP = 150;
 
-/** Teto que o usuário não pode ultrapassar (o produto protege o cliente de si mesmo). */
-export const HARD_CAP_DAILY_LIMITS: Record<BudgetKey, number> = {
-  invites: 25,
-  messages: 100,
-  inmails: 30,
-  profile_visits: 150,
-  engagement: 80,
-  withdrawals: 50,
-  extractions: 200,
+export const LIMIT_LABELS: Record<BudgetKey, string> = {
+  activity: 'Atividade total da conta',
+  profile_load: 'Páginas de perfil abertas',
+  profile_url: 'Perfis abertos pelo link',
+  company_url: 'Empresas abertas pelo link',
+  search_pages: 'Páginas de busca',
+  invites: 'Convites de conexão',
+  messages: 'Mensagens',
+  inmails: 'InMails',
+  likes: 'Curtidas em posts',
+  comments: 'Comentários',
+  withdrawals: 'Convites retirados',
+  extractions: 'Leitura de contato (e-mail/telefone)',
 };
-
-export const WEEKLY_INVITE_CAP = 100;
 
 function localParts(date: Date, timezone: string): { day: number; minutes: number } {
   const fmt = new Intl.DateTimeFormat('en-US', {
@@ -49,36 +69,77 @@ export function isWithinWorkingHours(now: Date, wh: WorkingHours): boolean {
 }
 
 /**
- * Rampa de aquecimento: conta nova começa com 25% do limite e chega a 100% em ~3 semanas.
+ * Aquecimento (só contas NOVAS no LinkedIn): começa em 25% e chega a 100% em ~6 semanas,
+ * como recomenda o Linked Helper (10–15 convites/dia no início, subindo aos poucos).
  */
-export function warmupFactor(onboardedAt: Date, now: Date, rampDays = 21, start = 0.25): number {
+export function warmupFactor(onboardedAt: Date, now: Date, rampDays = 42, start = 0.25): number {
   const days = (now.getTime() - onboardedAt.getTime()) / 86_400_000;
   if (days <= 0) return start;
   if (days >= rampDays) return 1;
   return start + (1 - start) * (days / rampDays);
 }
 
-/** Limite efetivo do dia para uma chave de orçamento. */
-export function effectiveDailyLimit(account: Account, key: BudgetKey, now: Date): number {
-  const configured = account.dailyLimits[key] ?? DEFAULT_DAILY_LIMITS[key];
-  const capped = Math.min(configured, HARD_CAP_DAILY_LIMITS[key]);
-  return Math.max(0, Math.floor(capped * warmupFactor(new Date(account.onboardedAt), now)));
+/** Número pseudoaleatório estável em [0,1) para (texto, dia): a variação não muda a cada consulta. */
+function stableRandom(seed: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < seed.length; i++) h = Math.imul(h ^ seed.charCodeAt(i), 16777619);
+  return ((h >>> 0) % 10_000) / 10_000;
 }
 
-export interface UsageSnapshot {
-  today: Partial<Record<BudgetKey, number>>;
-  invitesLast7Days: number;
+export function rulesOf(account: Account): LimitRule[] {
+  return account.limitRules?.length ? account.limitRules : DEFAULT_LIMIT_RULES;
 }
 
-export function remainingBudget(
-  account: Account,
-  key: BudgetKey,
-  usage: UsageSnapshot,
-  now: Date,
-): number {
-  let left = effectiveDailyLimit(account, key, now) - (usage.today[key] ?? 0);
-  if (key === 'invites') left = Math.min(left, WEEKLY_INVITE_CAP - usage.invitesLast7Days);
-  return Math.max(0, left);
+/** Máximo efetivo de uma regra agora: aquecimento (conta nova), variação do dia e teto do produto. */
+export function effectiveMax(account: Account, rule: LimitRule, now: Date): number {
+  let max = rule.max;
+  if (account.linkedinAge === 'new') max *= warmupFactor(new Date(account.onboardedAt), now);
+  const v = Math.min(50, Math.max(0, rule.variation ?? 0));
+  if (v) max *= 1 - (v / 100) * stableRandom(`${account.id}|${rule.key}|${rule.hours}|${now.toISOString().slice(0, 10)}`);
+  const cap = rule.hours <= 24 ? HARD_CAP_24H[rule.key] * Math.max(rule.hours, 1) / 24 : rule.key === 'invites' ? WEEKLY_INVITE_CAP * rule.hours / 168 : Infinity;
+  return Math.max(0, Math.floor(Math.min(max, Math.max(1, cap))));
+}
+
+/** Momentos (ms) em que a atividade foi registrada, desde `sinceMs`, em ordem crescente. */
+export type UsageReader = (key: BudgetKey, sinceMs: number) => number[];
+
+export interface LimitStatus {
+  key: BudgetKey;
+  hours: number;
+  used: number;
+  limit: number;
+  /** quando uma vaga volta a ficar livre (se a regra está esgotada) */
+  nextFreeAt?: Date;
+}
+
+/** Situação de cada regra de uma chave. */
+export function limitStatus(account: Account, key: BudgetKey, usage: UsageReader, now: Date): LimitStatus[] {
+  return rulesOf(account).filter((r) => r.key === key).map((r) => {
+    const since = now.getTime() - r.hours * 3_600_000;
+    const times = usage(key, since);
+    const limit = effectiveMax(account, r, now);
+    const st: LimitStatus = { key, hours: r.hours, used: times.length, limit };
+    if (times.length >= limit && times.length) {
+      // a vaga volta exatamente H horas depois da ação mais antiga que ainda conta
+      const idx = Math.max(0, times.length - limit);
+      st.nextFreeAt = new Date((times[idx] ?? times[0]!) + r.hours * 3_600_000);
+    }
+    return st;
+  });
+}
+
+/** Quantas ações da chave ainda cabem agora (o menor entre todas as regras). Sem regra = ilimitado. */
+export function remainingBudget(account: Account, key: BudgetKey, usage: UsageReader, now: Date): number {
+  const st = limitStatus(account, key, usage, now);
+  if (!st.length) return Infinity;
+  return Math.max(0, Math.min(...st.map((s) => s.limit - s.used)));
+}
+
+/** Quando a próxima vaga da chave abre (se esgotada). */
+export function nextFreeAt(account: Account, key: BudgetKey, usage: UsageReader, now: Date): Date | undefined {
+  const st = limitStatus(account, key, usage, now).filter((s) => s.used >= s.limit);
+  if (!st.length) return undefined;
+  return new Date(Math.max(...st.map((s) => (s.nextFreeAt ?? now).getTime())));
 }
 
 /**

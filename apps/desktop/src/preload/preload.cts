@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('linkleads', {
   setPaused: invoke('accounts:setPaused'),
   setProxy: invoke('accounts:setProxy'),
   setLogin: invoke('accounts:setLogin'),
+  accountLimits: invoke('accounts:limits'),
   checkProxy: invoke('accounts:checkProxy'),
   removeAccount: invoke('accounts:remove'),
   startInstance: invoke('instance:start'),

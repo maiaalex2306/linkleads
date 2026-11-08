@@ -49,10 +49,10 @@ function textSourceEditor(src, { kind, allowNoNote } = {}) {
 const MAX_MESSAGES = 5;
 const DEFAULT_MESSAGES = [
   { goal: 'Agradecer a conexão e fazer uma pergunta sobre o trabalho dela', waitDays: 0 },
-  { goal: 'Trazer um dado ou caso útil para o contexto dela (microvalor)', waitDays: 3 },
-  { goal: 'Mostrar como resolvemos um problema parecido em outra empresa do setor', waitDays: 4 },
-  { goal: 'Convidar para uma conversa rápida de 15 minutos, sem pressão', waitDays: 5 },
-  { goal: 'Encerrar com gentileza e deixar a porta aberta', waitDays: 7 },
+  { goal: 'Trazer um dado ou caso útil para o contexto dela (microvalor)', waitDays: 1 },
+  { goal: 'Mostrar como resolvemos um problema parecido em outra empresa do setor', waitDays: 1 },
+  { goal: 'Convidar para uma conversa rápida de 15 minutos, sem pressão', waitDays: 1 },
+  { goal: 'Encerrar com gentileza e deixar a porta aberta', waitDays: 1 },
 ];
 
 function messageStepEditor(step, index, onRemove, numOffset = 3) {
@@ -62,7 +62,7 @@ function messageStepEditor(step, index, onRemove, numOffset = 3) {
     el: h('div', { class: 'step' },
       h('div', { class: 'head' }, h('span', { class: 'num' }, String(index + numOffset)),
         h('strong', { style: 'flex:1' }, index === 0 ? 'Mensagem 1 (após o aceite)' : `Mensagem ${index + 1}`),
-        h('span', { class: 'muted' }, 'esperar'), wait, h('span', { class: 'muted' }, index === 0 ? 'dias após o aceite' : 'dias após a anterior'),
+        h('span', { class: 'muted' }, 'esperar'), wait, h('span', { class: 'muted' }, index === 0 ? 'dias após o aceite (0 = assim que aceitar)' : 'dia(s) após a anterior, só se ainda não respondeu'),
         onRemove && h('button', { type: 'button', class: 'link', onclick: onRemove }, 'remover')),
       text.el),
     read: () => ({ waitDays: Number(wait.value) || 0, ...text.read() }),
@@ -73,7 +73,7 @@ function sequenceForm(a, cols, settings, integ) {
   const steps = [];
   const engage = h('input', { type: 'checkbox', checked: true });
   const commentMode = h('select', {}, h('option', { value: 'manual' }, 'Eu aprovo cada comentário (recomendado)'), h('option', { value: 'auto' }, 'Publicar automaticamente'));
-  const numOffset = () => (engage.checked ? 4 : 3);
+  const numOffset = () => 3;
   const stepsBox = h('div', { class: 'stack' });
   const renderSteps = () => stepsBox.replaceChildren(...steps.map((s) => s.el));
   const addStep = (init) => {
@@ -97,22 +97,20 @@ function sequenceForm(a, cols, settings, integ) {
   const name = h('input', { value: 'Prospecção', required: true });
   const collection = h('select', { required: true }, ...cols.map((c) => h('option', { value: c.id }, `${c.name} (${c.size})`)));
   const tone = h('select', {}, h('option', { value: 'profissional' }, 'Profissional'), h('option', { value: 'consultivo' }, 'Consultivo'), h('option', { value: 'caloroso' }, 'Caloroso'));
-  const timeout = h('input', { type: 'number', min: 3, max: 60, value: '21', style: 'width:70px' });
+  const timeout = h('input', { type: 'number', min: 3, max: 60, value: '30', style: 'width:70px' });
   const withdraw = h('input', { type: 'checkbox', checked: true });
   const extra = h('textarea', { placeholder: 'Ex.: somos da BioSolvit; quando fizer sentido, conecte com eficiência hídrica.' });
-  const icpFilter = h('input', { type: 'checkbox', checked: !!settings.decision.icp });
+  const icpFilter = h('input', { type: 'checkbox', checked: false });
 
   const engageBox = h('div', { class: 'step' },
-    h('div', { class: 'head' }, h('span', { class: 'num' }, '2'), h('strong', { style: 'flex:1' }, 'Curtir e comentar o post mais recente'),
+    h('div', { class: 'head' }, h('span', { class: 'num' }, '1'), h('strong', { style: 'flex:1' }, 'Curtir e comentar o post mais recente ainda não curtido'),
       h('label', { class: 'row', style: 'display:flex' }, engage, 'começar engajando')),
     h('div', { class: 'row' }, h('span', { class: 'muted' }, 'Comentário com IA:'), commentMode),
-    h('div', { class: 'muted' }, 'Curte o post mais recente (até 30 dias) e comenta com IA, profissional, mostrando interesse no trabalho da pessoa. Sem post recente, segue direto para o convite.'));
+    h('div', { class: 'muted' }, 'Abre o perfil pela busca, curte o post mais recente que você ainda não curtiu (até 30 dias) e comenta com IA, profissional, mostrando interesse no trabalho da pessoa. Sem post recente, segue direto para o convite. Tudo com a mesma pessoa antes de passar para a próxima.'));
   const syncNums = () => {
     commentMode.disabled = !engage.checked;
-    engageBox.querySelector('.num').textContent = engage.checked ? '2' : '—';
+    engageBox.querySelector('.num').textContent = engage.checked ? '1' : '—';
     engageBox.style.opacity = engage.checked ? '' : '0.6';
-    const inv = invite.el.parentElement && invite.el.parentElement.querySelector('.num');
-    if (inv) inv.textContent = engage.checked ? '3' : '2';
     rebuild();
   };
   engage.addEventListener('change', syncNums);
@@ -131,21 +129,20 @@ function sequenceForm(a, cols, settings, integ) {
   },
     !settings.hasAiKey && h('div', { class: 'muted', style: 'color:var(--warn)' }, 'A IA escolhida ainda não tem chave (Configurações da IA). Etapas "personalizadas pela IA" vão falhar até lá.'),
     h('div', { class: 'row' }, h('label', {}, 'Nome', name), h('label', {}, 'Coleção', collection), h('label', {}, 'Tom', tone)),
-    h('div', { class: 'step' }, h('div', { class: 'head' }, h('span', { class: 'num' }, '1'), h('strong', {}, 'Visitar o perfil'), h('span', { class: 'muted' }, 'aquece o lead e atualiza os dados')),
-      h('label', { class: 'row', style: 'display:flex' }, icpFilter, 'Filtrar pelo ICP com IA antes do convite',
-        h('span', { class: 'muted' }, settings.decision.icp ? `(nota mínima ${settings.decision.icpThreshold})` : '(defina o ICP em Configurações)'))),
     engageBox,
     h('div', { class: 'step' },
-      h('div', { class: 'head' }, h('span', { class: 'num', 'data-n': 'invite' }, '3'), h('strong', { style: 'flex:1' }, 'Convite de conexão'), h('span', { class: 'muted' }, 'nota de até 300 caracteres')),
+      h('div', { class: 'head' }, h('span', { class: 'num', 'data-n': 'invite' }, '2'), h('strong', { style: 'flex:1' }, 'Convite de conexão'), h('span', { class: 'muted' }, 'logo depois do comentário · nota de até 300 caracteres')),
       invite.el),
     h('div', { class: 'step' },
       h('div', { class: 'head' }, h('span', { class: 'num' }, '↻'), h('strong', { style: 'flex:1' }, 'Espera 1 dia e confere se aceitou'),
         h('span', { class: 'muted' }, 'desistir após'), timeout, h('span', { class: 'muted' }, 'dias'),
         h('label', { class: 'row', style: 'display:flex' }, withdraw, h('span', {}, 'retirar o convite'))),
-      h('div', { class: 'muted' }, 'Confere 1 dia depois do convite e, se ainda não aceitou, de novo a cada dia. Aceitou: começa a sequência de mensagens. Antes de cada mensagem, o app lê a conversa: quem responder sai da sequência na hora.')),
+      h('div', { class: 'muted' }, 'Confere 1 dia depois do convite e, se ainda não aceitou, de novo a cada dia até o prazo. Só quem aceitou recebe a mensagem 1. Antes de cada mensagem o app lê a conversa: quem respondeu sai do fluxo (um humano assume) e vai para o webhook.')),
     stepsBox,
     h('div', {}, addBtn),
     replyStep(integ),
+    h('label', { class: 'row', style: 'display:flex' }, icpFilter, 'Filtrar pelo ICP com IA antes de engajar (visita o perfil primeiro para a IA ler os dados)',
+      h('span', { class: 'muted' }, settings.decision.icp ? `(nota mínima ${settings.decision.icpThreshold})` : '(defina o ICP em Configurações)')),
     h('label', {}, 'Instruções extras para a IA (opcional)', extra),
     h('div', {}, h('button', { class: 'primary', disabled: !cols.length }, 'Criar sequência')),
   );

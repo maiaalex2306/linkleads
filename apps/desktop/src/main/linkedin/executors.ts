@@ -1,4 +1,4 @@
-import type { ActionExecutor, ExecutionContext, ExecutionResult, Person, PostSnapshot } from '@linkleads/core';
+import type { ActionExecutor, BudgetKey, ExecutionContext, ExecutionResult, Person, PostSnapshot } from '@linkleads/core';
 import { detectJobChange, getActionDefinition, parseRelativeAgeDays, publicIdFromUrl } from '@linkleads/core';
 import type { CommentSettings, LlmClient, PostInterpreter } from '@linkleads/ai';
 import type { IntegrationCrm } from '@linkleads/db';
@@ -19,7 +19,6 @@ export function profileSlug(href: string): string | undefined {
 }
 
 export const profileUrl = (p: Person) => `${BASE}/in/${encodeURIComponent(p.publicId ?? p.id)}/`;
-const activityUrl = (p: Person) => `${BASE}/in/${encodeURIComponent(p.publicId ?? p.id)}/recent-activity/all/`;
 const postUrl = (urn: string) => `${BASE}/feed/update/${urn}/`;
 
 export interface ExecutorDeps {
@@ -37,6 +36,8 @@ export interface ExecutorDeps {
   aboutMe: () => string;
   /** serializa o uso do navegador entre o agendador e ações manuais */
   withBrowser: <T>(fn: () => Promise<T>) => Promise<T>;
+  /** limites da conta (vagas e quando abrem); ausente = sem controle (testes de unidade) */
+  limits?: { left: (key: BudgetKey) => number; freeAt: (key: BudgetKey) => Date | undefined };
 }
 
 /** Converte bloqueio da plataforma em THROTTLED (o motor pausa a conta). */
@@ -110,7 +111,8 @@ export function visitAndExtract(d: ExecutorDeps): ActionExecutor {
     execute: (ctx) =>
       d.withBrowser(() =>
         guard(async () => {
-          await d.driver.goto(profileUrl(ctx.person));
+          const open = await gotoProfile(d, ctx.person);
+          if (open !== 'ok') return noUrlSlot(open.retryAt);
           const st = await awaitProfile(d);
           if (st === 'not_found') return { ok: false, reason: 'NOT_FOUND', message: `O LinkedIn mostrou "página não encontrada" para ${profileUrl(ctx.person)}` };
           if (st === 'timeout') return { ok: false, reason: 'RETRY_LATER', retryAfterMs: 3 * 3_600_000, message: 'O perfil não carregou (página lenta ou layout diferente); tenta de novo em 3 h' };
@@ -135,7 +137,7 @@ interface LikeSettings {
 /** Escolhe o post mais recente do próprio autor, dentro da janela de idade. */
 export function pickPost(posts: PostExtract[], publicId: string, s: LikeSettings): PostExtract | undefined {
   const maxAge = s.maxPostAgeDays ?? 30;
-  return posts.find((p) => {
+  const eligible = posts.filter((p) => {
     if (!p.text && !p.hasMedia) return false;
     if (p.isReshare && !s.includeReshares) return false;
     const actor = p.actorHref ? profileSlug(p.actorHref) : undefined;
@@ -143,6 +145,8 @@ export function pickPost(posts: PostExtract[], publicId: string, s: LikeSettings
     const age = p.age ? parseRelativeAgeDays(p.age) : undefined;
     return age === undefined || age <= maxAge;
   });
+  // o mais recente que você ainda não curtiu; se todos já foram curtidos, o mais recente
+  return eligible.find((p) => p.liked !== true) ?? eligible[0];
 }
 
 export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
@@ -152,7 +156,8 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
       d.withBrowser(() =>
         guard(async () => {
           const s = ctx.action.settings as LikeSettings;
-          await d.driver.goto(activityUrl(ctx.person));
+          const open = await gotoProfile(d, ctx.person, 'recent-activity/all/');
+          if (open !== 'ok') return noUrlSlot(open.retryAt);
           await d.driver.waitUntil(async () => (await d.driver.exists('postItem')) || (await d.driver.exists('emptyActivity')), 20_000);
           const posts = await d.driver.read(extractPosts, d.driver.sel as unknown as Record<string, readonly string[]>, 10);
           const post = pickPost(posts, ctx.person.publicId ?? ctx.person.id, s);
@@ -273,3 +278,137 @@ export function commentWithAi(d: ExecutorDeps): ActionExecutor {
 
 /** Checagem de consistência com o catálogo. */
 for (const t of ['VisitAndExtract', 'LikePosts', 'CommentPost']) getActionDefinition(t);
+
+// ─── Abrir perfil sem colar o link (busca) ────────────────────────────────
+
+/** Atividades registradas por página aberta. Perfil pelo link conta à parte (o LinkedIn desconecta quem abusa). */
+export function navigationKeys(url: string, prevUrl: string, how: 'url' | 'click'): BudgetKey[] {
+  let path: string;
+  let prev = '';
+  try {
+    path = new URL(url).pathname;
+    prev = prevUrl ? new URL(prevUrl).pathname : '';
+  } catch {
+    return [];
+  }
+  const prof = path.match(/^\/in\/([^/]+)/);
+  if (prof) {
+    const same = prev.startsWith(`/in/${prof[1]}`);
+    if (same) return []; // mesma pessoa (ex.: perfil → atividade → contato): não é nova página de perfil
+    return how === 'url' ? ['activity', 'profile_load', 'profile_url'] : ['activity', 'profile_load'];
+  }
+  const comp = path.match(/^\/company\/([^/]+)/);
+  if (comp) return prev.startsWith(`/company/${comp[1]}`) ? [] : how === 'url' ? ['activity', 'company_url'] : ['activity'];
+  if (path.startsWith('/search/results')) return ['search_pages'];
+  return [];
+}
+
+const slugOf = (url: string) => {
+  try {
+    const m = new URL(url).pathname.match(/^\/in\/([^/]+)/);
+    return m ? decodeURIComponent(m[1]!).toLowerCase() : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+/** Procura, só dentro das sugestões/resultados da busca, um link visível para o perfil `slug`. */
+function findProfileLink(slug: string, scopes: readonly string[]): { x: number; y: number } | null {
+  const roots = scopes.flatMap((s) => Array.from(document.querySelectorAll(s)));
+  const links = roots.flatMap((r) => Array.from(r.querySelectorAll('a[href*="/in/"]'))) as HTMLAnchorElement[];
+  for (const a of links) {
+    let s = '';
+    try {
+      s = decodeURIComponent(new URL(a.href, location.href).pathname.split('/')[2] || '').toLowerCase();
+    } catch {
+      continue;
+    }
+    if (s !== slug) continue;
+    const r = a.getBoundingClientRect();
+    if (r.width > 0 && r.height > 0 && r.top >= 0 && r.bottom <= window.innerHeight) return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  }
+  return null;
+}
+
+async function waitForProfileUrl(d: ExecutorDeps, slug: string, ms = 15_000): Promise<boolean> {
+  return d.driver.waitUntil(async () => slugOf(d.driver.wc.getURL()) === slug && !d.driver.wc.isLoading(), ms, 400);
+}
+
+/**
+ * Abre o perfil digitando o nome na busca do LinkedIn e clicando no resultado,
+ * como uma pessoa faria (o Linked Helper chama isso de "in-page navigation").
+ * Não consome o limite de "perfis abertos pelo link". Devolve false se não achou.
+ */
+async function openProfileBySearch(d: ExecutorDeps, p: Person, slug: string): Promise<boolean> {
+  const name = [p.firstName, p.lastName].filter(Boolean).join(' ').trim();
+  if (!name || name.split(/\s+/).length < 2) return false;
+  if (!(await d.driver.exists('searchInput'))) return false;
+  const prev = d.driver.wc.getURL();
+  await d.driver.read((c: readonly string[]) => {
+    const el = c.map((s) => document.querySelector(s)).find(Boolean) as HTMLInputElement | undefined;
+    if (el) el.value = '';
+  }, d.driver.sel.searchInput);
+  if (!(await d.driver.click('searchInput'))) return false;
+  await d.driver.input.type(name);
+  // 1º: sugestões enquanto digita
+  const found: { link: { x: number; y: number } | null } = { link: null };
+  // só aceita a posição quando ela para de mudar (a lista de sugestões empurra a página ao abrir)
+  const scopes = { list: d.driver.sel.searchTypeahead as readonly string[] };
+  const look = async () => {
+    const a = await d.driver.read(findProfileLink, slug, scopes.list);
+    if (!a) return false;
+    await new Promise((r) => setTimeout(r, 350));
+    const b = await d.driver.read(findProfileLink, slug, scopes.list);
+    if (!b || Math.abs(a.x - b.x) > 1 || Math.abs(a.y - b.y) > 1) return false;
+    found.link = b;
+    return true;
+  };
+  await d.driver.waitUntil(look, 6_000, 400);
+  if (!found.link) {
+    // 2º: página de resultados da busca
+    await d.driver.press('Enter');
+    await d.driver.waitUntil(async () => /\/search\/results/.test(d.driver.wc.getURL()) && !d.driver.wc.isLoading(), 15_000, 500);
+    if (!/\/search\/results/.test(d.driver.wc.getURL())) return false;
+    d.driver.onNavigate?.(d.driver.wc.getURL(), prev, 'click');
+    await d.driver.input.think(1200, 2500);
+    scopes.list = [...d.driver.sel.searchResultsPage, 'main'];
+    await d.driver.waitUntil(look, 8_000, 500);
+  }
+  const link = found.link as { x: number; y: number } | null;
+  if (!link) return false;
+  const before = d.driver.wc.getURL();
+  await d.driver.input.click(Math.round(link.x), Math.round(link.y));
+  if (!(await waitForProfileUrl(d, slug))) return false;
+  d.driver.onNavigate?.(d.driver.wc.getURL(), before, 'click');
+  return true;
+}
+
+export type OpenResult = 'ok' | { retryAt: Date | undefined };
+
+/** Sem nome para buscar e sem vaga para abrir pelo link: espera a vaga abrir. */
+export function noUrlSlot(retryAt: Date | undefined): ExecutionResult {
+  const ms = Math.max(15 * 60_000, (retryAt?.getTime() ?? Date.now() + 3_600_000) - Date.now());
+  return { ok: false, reason: 'RETRY_LATER', retryAfterMs: ms, message: 'Limite de perfis abertos pelo link atingido; abre de novo quando a vaga liberar' };
+}
+
+/**
+ * Abre o perfil da pessoa do jeito mais seguro:
+ * já está nele → nada; tem nome → pela busca; senão → pelo link (se ainda houver vaga no limite de links).
+ */
+export async function gotoProfile(d: ExecutorDeps, p: Person, suffix = ''): Promise<OpenResult> {
+  const slug = (p.publicId ?? p.id).toLowerCase();
+  const target = `${profileUrl(p)}${suffix}`;
+  if (slugOf(d.driver.wc.getURL()) === slug) {
+    // já está no perfil: recarrega para ler o estado atual (não conta como novo perfil)
+    await d.driver.goto(target);
+    return 'ok';
+  }
+  if (d.limits && (await openProfileBySearch(d, p, slug).catch(() => false))) {
+    if (suffix) await d.driver.goto(target);
+    await d.driver.assertNotBlocked();
+    return 'ok';
+  }
+  if (d.limits && d.limits.left('profile_url') <= 0) return { retryAt: d.limits.freeAt('profile_url') };
+  await d.driver.goto(target);
+  return 'ok';
+}

@@ -24,10 +24,28 @@ const COLLEAGUES = {
   'diego-alves': { name: 'Diego Alves', headline: 'Estagiário de Engenharia' },
 };
 const URN = 'urn:li:activity:7001';
+// busca global: sugestões enquanto digita e página de resultados com Enter
+const PEOPLE = [['ana-silva', 'Ana Silva'], ['bruno-lima', 'Bruno Lima'], ['carla-souza', 'Carla Souza'], ['diego-alves', 'Diego Alves']];
+const searchScript = String.raw`
+(() => {
+  const people = ${JSON.stringify([['ana-silva', 'Ana Silva'], ['bruno-lima', 'Bruno Lima'], ['carla-souza', 'Carla Souza'], ['diego-alves', 'Diego Alves']])};
+  const input = document.querySelector('.search-global-typeahead__input');
+  const box = document.querySelector('.typeahead');
+  input.addEventListener('input', () => {
+    const q = input.value.trim().toLowerCase();
+    clearTimeout(window.__ta);
+    window.__ta = setTimeout(() => {
+      box.innerHTML = q.length < 3 || window.__noTypeahead ? '' : people.filter(([, n]) => n.toLowerCase().includes(q)).map(([s, n]) => '<a href="/in/' + s + '/">' + n + '</a>').join('');
+    }, 250);
+  });
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') location.href = '/search/results/people/?keywords=' + encodeURIComponent(input.value); });
+})();`;
 const page = (body, script = '') => `<!doctype html><html><head><meta charset="utf-8"><style>
   body{font-family:sans-serif;margin:0} main{padding:20px} .spacer{height:900px}
   button{padding:8px 14px;margin:4px} [contenteditable]{border:1px solid #999;min-height:40px;padding:6px}
-</style></head><body><main>${body}</main><script>window.__thread = ${JSON.stringify(typeof threadHtml === 'function' ? threadHtml() : '')};${script}</script></body></html>`;
+  .typeahead a{display:block;padding:6px}
+</style></head><body><header><input class="search-global-typeahead__input" aria-label="Search" placeholder="Search"><div class="typeahead"></div></header>
+<main>${body}</main><script>window.__thread = ${JSON.stringify(typeof threadHtml === 'function' ? threadHtml() : '')};${searchScript}${script}</script></body></html>`;
 
 const postHtml = (withEditor) => `
 <div class="feed-shared-update-v2" data-urn="${URN}">
@@ -129,7 +147,10 @@ document.addEventListener('click', async (e) => {
 export function startFakeSite(port = 0) {
   const server = createServer((req, res) => {
     const url = decodeURIComponent(req.url ?? '/');
-    const html = (b, s) => { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); res.end(page(b, s)); };
+    const html = (b, s) => { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); res.end(page(b, (state.noTypeahead ? 'window.__noTypeahead = true;' : '') + (s || ''))); };
+    // como cada perfil foi aberto: com Referer = clicando dentro do site; sem = colando o link
+    const prof = url.match(/^\/in\/([a-z-]+)\/$/);
+    if (prof && req.method === 'GET') (state.profileLoads ||= []).push({ slug: prof[1], clicked: !!req.headers.referer });
     if (req.method === 'POST') {
       let body = '';
       req.on('data', (c) => (body += c));
@@ -156,6 +177,11 @@ export function startFakeSite(port = 0) {
     }
     if (url === '/login' || url.startsWith('/login?')) return html(loginHtml, loginScript);
     if (state.loggedOut && !url.startsWith('/api')) { res.writeHead(302, { location: '/login' }); return res.end(); }
+    if (url.startsWith('/search/results/people/')) {
+      state.searches = (state.searches || 0) + 1;
+      const q = new URL(url, 'http://x').searchParams.get('keywords')?.toLowerCase() ?? '';
+      return html(`<ul class="search-results-container">${PEOPLE.filter(([, n]) => n.toLowerCase().includes(q)).map(([s, n]) => `<li class="entity-result"><a href="/in/${s}/">${n}</a></li>`).join('')}</ul>`);
+    }
     if (url.startsWith('/feed/update/')) return html(postHtml(true), commentScript);
     if (url === '/in/ana-silva/recent-activity/all/') return html(`<div class="spacer"></div>${postHtml(false)}<div class="spacer"></div>`, likeScript);
     if (url === '/in/ana-silva/') return html(profileHtml(), profileScript);

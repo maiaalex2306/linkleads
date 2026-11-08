@@ -52,7 +52,7 @@ describe('aprovação humana', () => {
       .register({ type: 'LikePosts', execute: async () => ({ ok: true }), verify: async () => true })
       .register({ type: 'CommentPost', execute: async () => ({ ok: false, reason: 'AWAITING_APPROVAL' }) });
     const account: Account = {
-      id: 'acc', label: 'x', tier: 'basic', dailyLimits: {}, paused: false, onboardedAt: '2026-01-01T00:00:00Z',
+      id: 'acc', label: 'x', tier: 'basic', paused: false, onboardedAt: '2026-01-01T00:00:00Z',
       workingHours: { timezone: 'America/Sao_Paulo', days: [1, 2, 3, 4, 5], start: '09:00', end: '18:00' },
     };
     const runner = new CampaignRunner({ store, executors, now: () => new Date('2026-11-09T13:00:00Z'), sleep: async () => {} });

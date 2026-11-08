@@ -4,7 +4,11 @@ import { readFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  DEFAULT_DAILY_LIMITS,
+  DEFAULT_LIMIT_RULES,
+  LIMIT_LABELS,
+  limitStatus,
+  type BudgetKey,
+  type LimitRule,
   engagementCampaign,
   importPeopleFromCsv,
   outreachSequence,
@@ -124,12 +128,12 @@ ipcMain.handle('accounts:setLogin', (_e, id: string, input: { email: string; pas
   return accounts.loginInfo(id);
 });
 
-ipcMain.handle('accounts:create', (_e, input: { label: string; tier: Account['tier']; linkedinEmail?: string; linkedinPassword?: string }) => {
+ipcMain.handle('accounts:create', (_e, input: { label: string; tier: Account['tier']; linkedinEmail?: string; linkedinPassword?: string; linkedinAge?: 'new' | 'established' }) => {
   const a: Account = {
     id: randomUUID(),
     label: input.label,
     tier: input.tier,
-    dailyLimits: { ...DEFAULT_DAILY_LIMITS },
+    linkedinAge: input.linkedinAge === 'new' ? 'new' : 'established',
     workingHours: { timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, ...DEFAULT_HOURS },
     onboardedAt: new Date().toISOString(),
     paused: false,
@@ -153,10 +157,37 @@ ipcMain.handle('accounts:update', (_e, a: Account) => {
       throw new Error('Fuso horário inválido');
     }
   }
+  if (a.limitRules) a.limitRules = validRules(a.limitRules);
+  if (a.linkedinAge && a.linkedinAge !== 'new' && a.linkedinAge !== 'established') throw new Error('Idade da conta inválida');
   accounts.save({ ...a, proxy: current.proxy });
   // conta em execução: aplica na hora (sem reiniciar)
   const inst = instances.get(a.id);
-  if (inst) Object.assign(inst.account, { label: a.label, workingHours: a.workingHours, dailyLimits: a.dailyLimits, tier: a.tier });
+  if (inst) Object.assign(inst.account, { label: a.label, workingHours: a.workingHours, tier: a.tier, limitRules: a.limitRules, linkedinAge: a.linkedinAge });
+});
+
+function validRules(rules: LimitRule[]): LimitRule[] {
+  if (!Array.isArray(rules)) throw new Error('Regras de limite inválidas');
+  return rules.map((r) => {
+    if (!(r.key in LIMIT_LABELS)) throw new Error(`Atividade desconhecida: ${r.key}`);
+    const max = Math.floor(Number(r.max));
+    const hours = Number(r.hours);
+    const variation = Math.floor(Number(r.variation ?? 0));
+    if (!(max >= 0 && max <= 5000)) throw new Error(`${LIMIT_LABELS[r.key]}: máximo entre 0 e 5000`);
+    if (!(hours >= 1 && hours <= 720)) throw new Error(`${LIMIT_LABELS[r.key]}: janela entre 1 e 720 horas`);
+    if (!(variation >= 0 && variation <= 50)) throw new Error(`${LIMIT_LABELS[r.key]}: variação entre 0 e 50%`);
+    return { key: r.key, max, hours, ...(variation ? { variation } : {}) };
+  });
+}
+
+/** Painel "Limites": regras (da conta ou padrão), uso em cada janela e quando a próxima vaga abre. */
+ipcMain.handle('accounts:limits', (_e, id: string) => {
+  const a = instances.get(id)?.account ?? account(id);
+  const crm = crms.get(a);
+  const t = now();
+  const read = (k: BudgetKey, since: number) => crm.usageTimes(a.id, k, since);
+  const rules = a.limitRules?.length ? a.limitRules : DEFAULT_LIMIT_RULES;
+  const status = (Object.keys(LIMIT_LABELS) as BudgetKey[]).flatMap((k) => limitStatus(a, k, read, t).map((s) => ({ ...s, nextFreeAt: s.nextFreeAt?.toISOString() })));
+  return { rules, custom: !!a.limitRules?.length, defaults: DEFAULT_LIMIT_RULES, labels: LIMIT_LABELS, linkedinAge: a.linkedinAge ?? 'established', status };
 });
 
 ipcMain.handle('accounts:setProxy', (_e, id: string, proxy: ProxyConfig | null) => {

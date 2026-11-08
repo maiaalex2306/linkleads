@@ -2,7 +2,7 @@ import type { ActionExecutor, ExecutionResult } from '@linkleads/core';
 import { linkedinUrl } from '@linkleads/integrations';
 import { now } from '../clock.js';
 import { extractContactInfo } from './dom-scripts.js';
-import { guard, profileUrl, type ExecutorDeps } from './executors.js';
+import { gotoProfile, guard, noUrlSlot, type ExecutorDeps } from './executors.js';
 import type { SelectorMap } from './selectors.js';
 
 const sel = (m: SelectorMap) => m as unknown as Record<string, readonly string[]>;
@@ -15,7 +15,8 @@ export function extractEmail(d: ExecutorDeps): ActionExecutor {
       d.withBrowser(() =>
         guard(async () => {
           const p = d.crm.getPerson(ctx.person.id) ?? ctx.person;
-          await d.driver.goto(`${profileUrl(p)}overlay/contact-info/`);
+          const open = await gotoProfile(d, p, 'overlay/contact-info/');
+          if (open !== 'ok') return noUrlSlot(open.retryAt);
           await d.driver.waitFor('contactInfoPanel', 8_000);
           await d.driver.input.think(800, 2000);
           const info = await d.driver.read(extractContactInfo, sel(d.driver.sel));

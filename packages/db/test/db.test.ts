@@ -31,14 +31,15 @@ describe('SqliteCampaignStore', () => {
         ],
       },
       {
-        id: 'acc', label: 'x', tier: 'basic', dailyLimits: {}, paused: false, onboardedAt: '2026-01-01T00:00:00Z',
+        id: 'acc', label: 'x', tier: 'basic', paused: false, onboardedAt: '2026-01-01T00:00:00Z',
         workingHours: { timezone: 'America/Sao_Paulo', days: [1, 2, 3, 4, 5], start: '09:00', end: '18:00' },
       },
     );
 
     expect(r.successful).toBe(2);
     expect(r.failed).toEqual([{ personId: 'p2', actionId: 'a1', reason: 'OPTED_OUT' }]);
-    expect(store.getUsage('acc', NOW)).toEqual({ today: { profile_visits: 1, invites: 1 }, invitesLast7Days: 1 });
+    expect(store.usageTimes('acc', 'invites', 0)).toEqual([NOW.getTime()]);
+    expect(store.usageTimes('acc', 'invites', NOW.getTime() + 1)).toEqual([]);
     expect(store.findByPublicId('slug-p1')?.firstName).toBe('P1');
     expect(store.lastRunAt('c1', 'a2')).toBe(NOW.getTime());
   });

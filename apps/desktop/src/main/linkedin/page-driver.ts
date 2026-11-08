@@ -45,8 +45,13 @@ export class PageDriver {
     this.wc.sendInputEvent({ type: 'keyUp', keyCode });
   }
 
+  /** avisado a cada página aberta (para os limites: perfis por link, atividade…) */
+  onNavigate?: (url: string, prevUrl: string, how: 'url' | 'click') => void;
+
   async goto(url: string, readyKey?: SelectorKey, timeoutMs = 30_000): Promise<void> {
+    const prev = this.wc.getURL();
     await this.wc.loadURL(url);
+    this.onNavigate?.(this.wc.getURL() || url, prev, 'url');
     await this.assertNotBlocked();
     if (readyKey) await this.waitFor(readyKey, timeoutMs);
     await this.input.think(1200, 3500);

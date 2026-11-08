@@ -66,6 +66,10 @@ export const DEFAULT_SELECTORS = {
   contactInfoPhone: ['section.ci-phone li span.t-14', '.pv-contact-info__contact-type.ci-phone li span', 'a[href^="tel:"]'],
   // sinais de bloqueio / sessão
   checkpoint: ['form#captcha-challenge', '#challenge', 'iframe[src*="captcha"]'],
+  // busca global (abrir perfil pela busca, sem colar o link)
+  searchInput: ['input.search-global-typeahead__input', 'input[aria-label="Search"]', 'input[aria-label="Pesquisar"]', 'input[placeholder="Search"]', 'input[placeholder="Pesquisar"]'],
+  searchTypeahead: ['.search-global-typeahead__hits', '.basic-typeahead__triggered-content', '[role="listbox"]', '.typeahead'],
+  searchResultsPage: ['.search-results-container', '.reusable-search__entity-result-list', 'ul[role="list"] .entity-result'],
   // página de login (entrada automática com o e-mail e a senha salvos na conta)
   loginEmail: ['#username', 'input[name="session_key"]'],
   loginPassword: ['#password', 'input[name="session_password"]'],

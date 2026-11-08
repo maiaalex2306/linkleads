@@ -4,7 +4,9 @@ import {
   CampaignRunner,
   ExecutorRegistry,
   InMemoryCampaignStore,
-  effectiveDailyLimit,
+  effectiveMax,
+  nextFreeAt,
+  remainingBudget,
   humanDelay,
   isWithinWorkingHours,
   renderMessage,
@@ -23,7 +25,6 @@ const account = (over: Partial<Account> = {}): Account => ({
   label: 'Conta piloto',
   tier: 'basic',
   workingHours: { timezone: 'America/Sao_Paulo', days: [1, 2, 3, 4, 5], start: '09:00', end: '18:00' },
-  dailyLimits: {},
   onboardedAt: '2026-01-01T00:00:00Z',
   paused: false,
   ...over,
@@ -45,11 +46,42 @@ describe('ritmo', () => {
     expect(isWithinWorkingHours(new Date('2026-11-08T13:00:00Z'), wh)).toBe(false); // domingo
   });
 
-  it('aplica rampa de aquecimento e teto rígido', () => {
-    const fresh = account({ onboardedAt: MONDAY_10AM.toISOString() });
-    expect(effectiveDailyLimit(fresh, 'invites', MONDAY_10AM)).toBe(3); // 25% de 15
-    const greedy = account({ dailyLimits: { invites: 500 } });
-    expect(effectiveDailyLimit(greedy, 'invites', MONDAY_10AM)).toBe(25);
+  it('aquecimento só para conta NOVA no LinkedIn; teto rígido sempre', () => {
+    const rule = { key: 'invites' as const, max: 20, hours: 24 };
+    const fresh = account({ onboardedAt: MONDAY_10AM.toISOString(), limitRules: [rule] });
+    expect(effectiveMax(fresh, rule, MONDAY_10AM)).toBe(20); // conta antiga (padrão): sem aquecimento
+    expect(effectiveMax({ ...fresh, linkedinAge: 'new' }, rule, MONDAY_10AM)).toBe(5); // 25%
+    expect(effectiveMax(fresh, { ...rule, max: 500 }, MONDAY_10AM)).toBe(50);
+  });
+
+  it('variação reduz até o % pedido e fica estável no mesmo dia', () => {
+    const rule = { key: 'profile_load' as const, max: 100, hours: 24, variation: 10 };
+    const a = account();
+    const v = effectiveMax(a, rule, MONDAY_10AM);
+    expect(v).toBeGreaterThanOrEqual(90);
+    expect(v).toBeLessThanOrEqual(100);
+    expect(effectiveMax(a, rule, new Date(MONDAY_10AM.getTime() + 3_600_000))).toBe(v);
+  });
+
+  it('janela móvel: a vaga volta H horas depois de cada ação (não à meia-noite)', () => {
+    const a = account({ limitRules: [{ key: 'invites', max: 2, hours: 24 }] });
+    const t0 = MONDAY_10AM.getTime();
+    const times = [t0, t0 + 3_600_000];
+    const read = (_k: string, since: number) => times.filter((t) => t >= since);
+    const at = (h: number) => new Date(t0 + h * 3_600_000);
+    expect(remainingBudget(a, 'invites', read, at(2))).toBe(0);
+    expect(nextFreeAt(a, 'invites', read, at(2))?.getTime()).toBe(t0 + 24 * 3_600_000);
+    expect(remainingBudget(a, 'invites', read, at(14))).toBe(0); // meia-noite não zera
+    expect(remainingBudget(a, 'invites', read, at(24.5))).toBe(1);
+    expect(remainingBudget(a, 'invites', read, at(25.5))).toBe(2);
+  });
+
+  it('várias regras para a mesma atividade: vale a mais apertada (ex.: 100/semana e 20/dia)', () => {
+    const a = account({ limitRules: [{ key: 'invites', max: 100, hours: 168 }, { key: 'invites', max: 20, hours: 24 }] });
+    const t = MONDAY_10AM.getTime();
+    const times = Array.from({ length: 90 }, (_, i) => t - (i + 1) * 3_600_000 * 1.5); // 90 nos últimos ~5,6 dias
+    const read = (_k: string, since: number) => times.filter((x) => x >= since).sort((x, y) => x - y);
+    expect(remainingBudget(a, 'invites', read, MONDAY_10AM)).toBe(4); // 20/dia teria 4 (16 nas últimas 24 h); semana teria 10
   });
 
   it('atraso humano fica dentro da faixa', () => {
@@ -116,7 +148,7 @@ describe('CampaignRunner', () => {
     expect(store.statusOf('c1', 'a1', 'p4')?.reason).toBe('REPLIED');
     expect(store.statusOf('c1', 'a2', 'p1')?.status).toBe('successful');
     expect(store.statusOf('c1', 'a2', 'p2')?.reason).toBe('NO_REAL_EFFECT');
-    expect(store.getUsage('acc1').today.invites).toBe(2);
+    expect(store.used('acc1', 'invites')).toBe(2);
     expect(report.successful).toBe(3);
   });
 
@@ -128,7 +160,7 @@ describe('CampaignRunner', () => {
     expect((await night.tick(campaign, account())).skipped).toBe('outside_hours');
 
     const runner = new CampaignRunner({ store, executors, now: () => MONDAY_10AM, sleep: async () => {} });
-    const r = await runner.tick(campaign, account({ dailyLimits: { profile_visits: 2 } }));
+    const r = await runner.tick(campaign, account({ limitRules: [{ key: 'profile_load', max: 2, hours: 24 }] }));
     expect(r.processed).toBe(2);
   });
 

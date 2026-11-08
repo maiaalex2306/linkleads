@@ -2,7 +2,24 @@ import type { ActionExecutor, ExecutionContext, ExecutionResult, Person } from '
 import { renderMessage } from '@linkleads/core';
 import { classifyReply, looksLikeOptOut, writeOutreachMessage, type OutreachContext } from '@linkleads/ai';
 import { listConversations, conversationBox, messageEditorText, readThread, threadProfileHref, type ThreadEvent } from './dom-scripts.js';
-import { BASE, awaitProfile, guard, profileSlug, profileUrl, type ExecutorDeps } from './executors.js';
+import { BASE, awaitProfile, gotoProfile, guard as baseGuard, noUrlSlot, profileSlug, profileUrl, type ExecutorDeps } from './executors.js';
+
+/** Sem vaga para abrir perfil pelo link (e sem conseguir pela busca). */
+class NoUrlSlot extends Error {
+  constructor(readonly retryAt: Date | undefined) {
+    super('sem vaga de perfil pelo link');
+  }
+}
+
+const guard = (fn: () => Promise<ExecutionResult>): Promise<ExecutionResult> =>
+  baseGuard(async () => {
+    try {
+      return await fn();
+    } catch (e) {
+      if (e instanceof NoUrlSlot) return noUrlSlot(e.retryAt);
+      throw e;
+    }
+  });
 import type { SelectorMap } from './selectors.js';
 import { now } from '../clock.js';
 
@@ -31,7 +48,8 @@ export interface ProfileState {
 }
 
 async function openProfile(d: ExecutorDeps, p: Person): Promise<ProfileState | 'not_found'> {
-  await d.driver.goto(profileUrl(p));
+  const open = await gotoProfile(d, p);
+  if (open !== 'ok') throw new NoUrlSlot(open.retryAt);
   return (await awaitProfile(d)) === 'ok' ? profileState(d) : 'not_found';
 }
 

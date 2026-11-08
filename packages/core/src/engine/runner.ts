@@ -1,5 +1,5 @@
 import { getActionDefinition } from '../actions/catalog.js';
-import type { Account, ActionConfig, Campaign, FailureReason, Person } from '../types.js';
+import type { Account, ActionConfig, BudgetKey, Campaign, FailureReason, Person } from '../types.js';
 import type { ExecutorRegistry, ExecutionResult } from './executor.js';
 import { isWithinWorkingHours, remainingBudget } from './pacing.js';
 import { defaultRng, humanDelay, type Rng } from './random.js';
@@ -92,6 +92,10 @@ export class CampaignRunner {
     return report;
   }
 
+  private leftFor(account: Account, key: BudgetKey): number {
+    return remainingBudget(account, key, (k, since) => this.opts.store.usageTimes(account.id, k, since), this.now());
+  }
+
   /** Quantas pessoas a etapa `i` ainda pode processar agora (0 = não roda). */
   private limitFor(campaign: Campaign, i: number, account: Account): number {
     const action = campaign.actions[i]!;
@@ -100,10 +104,11 @@ export class CampaignRunner {
     const last = this.opts.store.lastRunAt(campaign.id, action.id);
     if (last !== undefined && this.now().getTime() - last < action.coolDown) return 0;
     let limit = action.maxResults;
-    if (def.budget) {
-      const left = remainingBudget(account, def.budget, this.opts.store.getUsage(account.id, this.now()), this.now());
+    for (const key of def.needs) {
+      const left = this.leftFor(account, key);
       limit = limit < 0 ? left : Math.min(limit, left);
     }
+    if (!Number.isFinite(limit)) limit = -1;
     return limit;
   }
 
@@ -162,9 +167,9 @@ export class CampaignRunner {
       if (!verified) result = { ok: false, reason: 'NO_REAL_EFFECT' };
     }
 
-    if (def.budget && (result.ok || ['NO_REAL_EFFECT', 'RETRY_LATER', 'NOT_FOUND'].includes(result.reason))) {
-      // conta no orçamento tudo que abriu página: sucesso, tentativa sem prova, perfil inexistente e "volta depois"
-      store.recordUsage(account.id, def.budget, this.now());
+    if (result.ok || result.reason === 'NO_REAL_EFFECT') {
+      // conta no limite o efeito (convite, mensagem, curtida…) e a tentativa sem prova (evita repetir)
+      for (const key of def.consumes) store.recordUsage(account.id, key, this.now());
     }
 
     if (!result.ok && result.reason === 'RETRY_LATER') {
