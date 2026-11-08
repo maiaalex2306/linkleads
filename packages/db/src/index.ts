@@ -84,6 +84,26 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
       ALTER TABLE people ADD COLUMN icp_reason TEXT;
     `,
   },
+  {
+    version: 5,
+    sql: `
+      ALTER TABLE outbox ADD COLUMN destination TEXT;
+      ALTER TABLE outbox ADD COLUMN event TEXT;
+      ALTER TABLE outbox ADD COLUMN person_id TEXT;
+      ALTER TABLE outbox ADD COLUMN status TEXT NOT NULL DEFAULT 'pending';
+      ALTER TABLE outbox ADD COLUMN last_error TEXT;
+      ALTER TABLE outbox ADD COLUMN created_at TEXT;
+      CREATE INDEX IF NOT EXISTS idx_outbox_due ON outbox (status, next_attempt_at);
+      CREATE TABLE IF NOT EXISTS crm_links (
+        person_id TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+        destination TEXT NOT NULL,
+        external_id TEXT NOT NULL,
+        synced_at TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (person_id, destination)
+      );
+      ALTER TABLE people ADD COLUMN enriched_at TEXT;
+    `,
+  },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.version;
@@ -933,5 +953,163 @@ export class DecisionCrm extends OutreachCrm {
 
   markSignalSeen(id: number): void {
     this.db.prepare('UPDATE signals SET seen = 1 WHERE id = ?').run(id);
+  }
+}
+
+export type DeliveryStatus = 'pending' | 'delivered' | 'failed';
+
+export interface Delivery {
+  id: number;
+  destination: string;
+  event: string;
+  personId: string | null;
+  personName: string | null;
+  payload: unknown;
+  attempts: number;
+  status: DeliveryStatus;
+  lastError: string | null;
+  nextAttemptAt: string;
+  deliveredAt: string | null;
+  createdAt: string | null;
+}
+
+/** Fila de entregas (webhooks/CRMs), vínculos com ids externos, contatos e exportação. */
+export class IntegrationCrm extends DecisionCrm {
+  contactsOf(personId: string): { emails: string[]; phones: string[] } {
+    const rows = this.db.prepare('SELECT kind, value FROM person_contacts WHERE person_id = ? ORDER BY rowid').all(personId) as Row[];
+    return {
+      emails: rows.filter((r) => r.kind === 'email').map((r) => r.value as string),
+      phones: rows.filter((r) => r.kind === 'phone').map((r) => r.value as string),
+    };
+  }
+
+  markEnriched(personId: string, now = new Date()): void {
+    this.db.prepare('UPDATE people SET enriched_at = ? WHERE id = ?').run(now.toISOString(), personId);
+  }
+
+  enrichedAt(personId: string): string | null {
+    return ((this.db.prepare('SELECT enriched_at FROM people WHERE id = ?').get(personId) as Row | undefined)?.enriched_at as string) ?? null;
+  }
+
+  enqueueDelivery(d: { destination: string; event: string; personId?: string; payload: unknown }, now = new Date()): number {
+    const r = this.db
+      .prepare(
+        `INSERT INTO outbox (kind, destination, event, person_id, payload_json, status, next_attempt_at, created_at)
+         VALUES ('integration', ?, ?, ?, ?, 'pending', ?, ?)`,
+      )
+      .run(d.destination, d.event, d.personId ?? null, JSON.stringify(d.payload), now.toISOString(), now.toISOString());
+    return Number(r.lastInsertRowid);
+  }
+
+  dueDeliveries(now = new Date(), limit = 20): Delivery[] {
+    return this.deliveries(`WHERE o.status = 'pending' AND o.next_attempt_at <= ? ORDER BY o.id LIMIT ?`, now.toISOString(), limit);
+  }
+
+  listDeliveries(limit = 100): Delivery[] {
+    return this.deliveries(`WHERE o.kind = 'integration' ORDER BY o.id DESC LIMIT ?`, limit);
+  }
+
+  private deliveries(where: string, ...args: (string | number)[]): Delivery[] {
+    return (
+      this.db
+        .prepare(`SELECT o.*, p.first_name, p.last_name, p.public_id FROM outbox o LEFT JOIN people p ON p.id = o.person_id ${where}`)
+        .all(...args) as Row[]
+    ).map((r) => ({
+      id: Number(r.id),
+      destination: r.destination as string,
+      event: r.event as string,
+      personId: (r.person_id as string) ?? null,
+      personName: [r.first_name, r.last_name].filter(Boolean).join(' ') || ((r.public_id as string) ?? null),
+      payload: JSON.parse(r.payload_json as string),
+      attempts: Number(r.attempts),
+      status: r.status as DeliveryStatus,
+      lastError: (r.last_error as string) ?? null,
+      nextAttemptAt: r.next_attempt_at as string,
+      deliveredAt: (r.delivered_at as string) ?? null,
+      createdAt: (r.created_at as string) ?? null,
+    }));
+  }
+
+  markDelivered(id: number, now = new Date()): void {
+    this.db
+      .prepare(`UPDATE outbox SET status = 'delivered', attempts = attempts + 1, delivered_at = ?, last_error = NULL WHERE id = ?`)
+      .run(now.toISOString(), id);
+  }
+
+  /** Falha: re-tenta com espera exponencial (1, 2, 4… min, até 6 h) ou desiste após `maxAttempts`. */
+  markAttemptFailed(id: number, error: string, retryable: boolean, now = new Date(), maxAttempts = 8): DeliveryStatus {
+    const r = this.db.prepare('SELECT attempts FROM outbox WHERE id = ?').get(id) as Row;
+    const attempts = Number(r.attempts) + 1;
+    const status: DeliveryStatus = retryable && attempts < maxAttempts ? 'pending' : 'failed';
+    const waitMs = Math.min(6 * 3_600_000, 60_000 * 2 ** (attempts - 1));
+    this.db
+      .prepare(`UPDATE outbox SET attempts = ?, status = ?, last_error = ?, next_attempt_at = ? WHERE id = ?`)
+      .run(attempts, status, error.slice(0, 500), new Date(now.getTime() + waitMs).toISOString(), id);
+    return status;
+  }
+
+  retryDelivery(id: number, now = new Date()): void {
+    this.db.prepare(`UPDATE outbox SET status = 'pending', next_attempt_at = ? WHERE id = ?`).run(now.toISOString(), id);
+  }
+
+  externalId(personId: string, destination: string): string | undefined {
+    return ((this.db.prepare('SELECT external_id FROM crm_links WHERE person_id = ? AND destination = ?').get(personId, destination) as Row | undefined)
+      ?.external_id as string) ?? undefined;
+  }
+
+  setExternalId(personId: string, destination: string, externalId: string): void {
+    this.db
+      .prepare(
+        `INSERT INTO crm_links (person_id, destination, external_id) VALUES (?, ?, ?)
+         ON CONFLICT(person_id, destination) DO UPDATE SET external_id = excluded.external_id, synced_at = datetime('now')`,
+      )
+      .run(personId, destination, externalId);
+  }
+
+  /** Linhas para exportação (uma por pessoa), com contatos, relacionamento, comitê e sinais. */
+  exportRows(scope: { collectionId?: string; campaign?: Campaign; companyId?: string }): Array<Record<string, unknown>> {
+    let people: Person[];
+    let stage = new Map<string, { step: string; status: string; reason?: string }>();
+    if (scope.collectionId) people = this.listCollectionPeople(scope.collectionId);
+    else if (scope.companyId) people = this.committee(scope.companyId).map((m) => this.getPerson(m.personId)!).filter(Boolean);
+    else if (scope.campaign) {
+      const rows = this.campaignPeople(scope.campaign);
+      stage = new Map(rows.map((r) => [r.personId, { step: r.actionName, status: r.status, reason: r.reason }]));
+      people = rows.map((r) => this.getPerson(r.personId)!).filter(Boolean);
+    } else people = [];
+
+    return people.map((p) => {
+      const c = this.contactsOf(p.id);
+      const invite = this.getInvite(p.id);
+      const companies = this.companiesOf(p.id);
+      const roles = companies.map((co) => {
+        const m = this.committee(co.id).find((x) => x.personId === p.id);
+        return `${co.name}: ${m?.role ?? '—'}${m?.roleConfirmed ? ' (confirmado)' : ''}`;
+      });
+      const thread = this.thread(p.id);
+      const lastIn = [...thread].reverse().find((m) => m.direction === 'in');
+      const st = stage.get(p.id);
+      const icp = this.db.prepare('SELECT icp_score FROM people WHERE id = ?').get(p.id) as Row | undefined;
+      return {
+        nome: [p.firstName, p.lastName].filter(Boolean).join(' '),
+        linkedin: p.publicId ? `https://www.linkedin.com/in/${encodeURIComponent(p.publicId)}/` : '',
+        titulo: p.headline ?? '',
+        cargo: p.position ?? '',
+        empresa: p.company ?? '',
+        local: p.location ?? '',
+        emails: [...new Set([...(p.email ? [p.email] : []), ...c.emails])],
+        telefones: c.phones,
+        grau: p.connectionDegree ?? '',
+        convite: invite?.status ?? '',
+        respondeu: lastIn ? 'sim' : 'não',
+        ultima_resposta: lastIn?.body ?? '',
+        rotulo_resposta: lastIn?.aiLabel ?? '',
+        comite: roles,
+        nota_icp: icp?.icp_score ?? '',
+        sinais: this.listSignals({ personId: p.id, limit: 5 }).map((s) => s.title),
+        ...(st ? { etapa: st.step, situacao: st.status, motivo: st.reason ?? '' } : {}),
+        ...Object.fromEntries(Object.entries(p.custom ?? {}).map(([k, v]) => [`custom.${k}`, v])),
+      };
+    });
   }
 }

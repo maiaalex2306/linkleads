@@ -196,6 +196,7 @@ function campaignCard(a, c, cols) {
       h('strong', { style: 'flex:1' }, c.name),
       h('span', { class: 'muted' }, Object.entries(counts).map(([s, n]) => `${n} ${STATUS[s]}`).join(' · ') || 'vazia'),
       addCol,
+      exportButton(a, { campaignId: c.id, name: c.name }),
       h('button', { onclick: () => body.replaceChildren(campaignEditor(a, c, () => renderView())) }, 'Editar etapas'),
       h('button', { class: c.active ? '' : 'primary', onclick: () => safe(() => api.setCampaignActive(a.id, c.id, !c.active)).then(renderView) }, c.active ? 'Pausar' : 'Ativar'),
     ),

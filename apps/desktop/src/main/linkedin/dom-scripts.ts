@@ -215,3 +215,14 @@ export function extractJobCards(sel: Record<string, readonly string[]>): JobCard
   }
   return out;
 }
+
+/** E-mails e telefones visíveis em "Informações de contato". */
+export function extractContactInfo(sel: Record<string, readonly string[]>): { emails: string[]; phones: string[] } {
+  const emails = sel.contactInfoEmail!.flatMap((c) => Array.from(document.querySelectorAll(c)))
+    .map((a) => (a as HTMLAnchorElement).href.replace(/^mailto:/i, '').split('?')[0]!.trim().toLowerCase())
+    .filter((e) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e));
+  const phones = sel.contactInfoPhone!.flatMap((c) => Array.from(document.querySelectorAll(c)))
+    .map((el) => ((el as HTMLAnchorElement).href?.startsWith('tel:') ? (el as HTMLAnchorElement).href.slice(4) : (el as HTMLElement).innerText ?? '').replace(/\s+/g, ' ').trim())
+    .filter((t) => (t.match(/\d/g) ?? []).length >= 8);
+  return { emails: [...new Set(emails)], phones: [...new Set(phones)] };
+}

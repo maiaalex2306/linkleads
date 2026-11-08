@@ -12,6 +12,9 @@ const ACTION_SWITCHES = [
   ['CommentPost', 'Comentar posts'],
   ['IcpFilter', 'Filtro de ICP (IA)'],
   ['MonitorSignals', 'Monitorar sinais'],
+  ['ExtractEmail', 'Ler contato no LinkedIn'],
+  ['EnrichProfile', 'Enriquecer (Apollo)'],
+  ['SendToCrm', 'Enviar para CRM (etapa)'],
 ];
 
 async function settingsView() {
@@ -75,6 +78,7 @@ async function settingsView() {
           h('input', { type: 'checkbox', checked: !disabled.has(type), onchange: (e) => safe(() => api.setActionEnabled(type, e.target.checked), e.target.checked ? `${label}: ligado` : `${label}: desligado`) }),
           label)),
     ),
+    ...(await integrationsCards()),
     h('button', { class: 'link', onclick: () => { state.tab = 'collections'; renderView(); } }, '← Voltar'),
   );
 }

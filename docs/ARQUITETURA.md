@@ -143,3 +143,18 @@ Conta ─► summarizeAccount (comitê + sinais + respostas) ─► resumo salvo
 - **Sinais não disparam mensagens**: viram tarefas na aba Sinais e evidências na página da empresa.
 - **Orçamento**: o monitoramento consome visitas de perfil, inclusive quando volta para a fila.
 - **"Rodar agora"** espera o ciclo automático em andamento terminar e roda em seguida.
+
+## Integrações (Fase 4)
+
+```
+Executores / inbox ──emit(evento, pessoa)──► IntegrationHub ──► outbox (banco da conta)
+                                                                  │  a cada 30 s e logo após cada evento
+                                                                  ▼
+                                      webhook (HMAC) · HubSpot (upsert + nota) · Pipedrive (upsert + nota)
+                                      sucesso → delivered · erro temporário → nova tentativa (1 min…6 h) · erro definitivo → failed
+```
+
+- `packages/integrations`: clientes sem dependência do Electron, com `fetch` injetável (testes contra servidor local).
+- `crm_links` guarda o id de cada pessoa em cada CRM, para atualizar em vez de duplicar.
+- Migração 5: colunas de destino, evento, status e erro no `outbox`; `crm_links`; `people.enriched_at`.
+- Detalhes de uso: `docs/INTEGRACOES.md`.

@@ -59,6 +59,10 @@ export const DEFAULT_SELECTORS = {
   companyJobCard: ['.job-card-container', '.org-jobs-recently-posted-jobs-module__job-card', 'li.jobs-search-results__list-item'],
   companyJobTitle: ['.job-card-list__title', '.job-card-container__link', 'a[href*="/jobs/view/"]'],
   companyNotFound: ['.not-found__container', '.org-page-not-found'],
+  // informações de contato (overlay /overlay/contact-info/)
+  contactInfoPanel: ['.pv-contact-info', 'section.pv-contact-info__contact-type', 'div[role="dialog"] .artdeco-modal__content'],
+  contactInfoEmail: ['a[href^="mailto:"]'],
+  contactInfoPhone: ['section.ci-phone li span.t-14', '.pv-contact-info__contact-type.ci-phone li span', 'a[href^="tel:"]'],
   // sinais de bloqueio / sessão
   checkpoint: ['form#captcha-challenge', '#challenge', 'iframe[src*="captcha"]'],
   loggedOut: ['form.login__form', 'a[href*="/login"].nav__button-secondary', '.authwall-join-form'],

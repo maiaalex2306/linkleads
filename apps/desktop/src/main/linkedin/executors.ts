@@ -1,7 +1,8 @@
 import type { ActionExecutor, ExecutionContext, ExecutionResult, Person, PostSnapshot } from '@linkleads/core';
 import { detectJobChange, getActionDefinition, parseRelativeAgeDays, publicIdFromUrl } from '@linkleads/core';
 import type { CommentSettings, LlmClient, PostInterpreter } from '@linkleads/ai';
-import type { DecisionCrm } from '@linkleads/db';
+import type { IntegrationCrm } from '@linkleads/db';
+import type { EnrichmentProvider } from '@linkleads/integrations';
 import { commentPublished, editorText, extractPosts, extractProfile, likeState, type PostExtract } from './dom-scripts.js';
 import { BlockedError, type PageDriver } from './page-driver.js';
 
@@ -23,7 +24,11 @@ const postUrl = (urn: string) => `${BASE}/feed/update/${urn}/`;
 
 export interface ExecutorDeps {
   driver: PageDriver;
-  crm: DecisionCrm;
+  crm: IntegrationCrm;
+  /** dispara um evento para as integrações (webhook/CRMs) */
+  emit: (event: 'reply_received' | 'invite_accepted' | 'signal_detected' | 'person_enriched' | 'campaign_step', personId: string, extra?: Record<string, unknown>) => void;
+  /** provedor de enriquecimento configurado (Apollo) ou null */
+  enrichment: () => { provider: EnrichmentProvider; onlyWhenNoEmail: boolean } | null;
   /** oferta, ICP e temas de sinais (Configurações) */
   decision: () => { offer: string; icp: string; icpThreshold: number; signalTopics: string[] };
   /** null quando a IA não está configurada */
@@ -77,16 +82,11 @@ async function captureOpenProfile(d: ExecutorDeps, base?: Person): Promise<Execu
   const change = before ? detectJobChange(before, person) : undefined;
   if (change) {
     const label = { company: 'Mudou de empresa', position: 'Mudou de cargo', headline: 'Atualizou o título' }[change.field];
-    d.crm.addSignal({
-      type: 'job_change',
-      personId: person.id,
-      title: `${label}: ${change.to}`,
-      detail: `Antes: ${change.from}`,
-      url: data.url,
-      dedupeKey: `job_change:${person.id}:${change.field}:${change.to.toLowerCase()}`,
-    });
-  }
-  d.crm.upsertPerson(person);
+    const signal = { type: 'job_change' as const, title: `${label}: ${change.to}`, detail: `Antes: ${change.from}`, url: data.url };
+    d.crm.upsertPerson(person);
+    if (d.crm.addSignal({ ...signal, personId: person.id, dedupeKey: `job_change:${person.id}:${change.field}:${change.to.toLowerCase()}` }))
+      d.emit('signal_detected', person.id, { signal });
+  } else d.crm.upsertPerson(person);
   return { ok: true, data: { person } };
 }
 

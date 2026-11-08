@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, safeStorage } from 'electron';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
@@ -10,6 +10,7 @@ import {
   importPeopleFromCsv,
   outreachSequence,
   monitorCampaign,
+  contactsCampaign,
   committeeCoverage,
   BUYING_ROLES,
   type BuyingRole,
@@ -23,10 +24,17 @@ import type { CommentDraft } from '@linkleads/db';
 import { AccountStore } from './account-store.js';
 import { advanceClock } from './clock.js';
 import { CrmRegistry } from './crm-registry.js';
+import { IntegrationHub } from './integration-hub.js';
+import { IntegrationSettings } from './integration-settings.js';
+import { toCsv } from '@linkleads/integrations';
+import { writeFileSync } from 'node:fs';
 import { InstanceManager } from './instance-manager.js';
 import { Settings } from './settings.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
+
+// Testes e2e em Linux sem chaveiro do sistema: armazenamento básico para o safeStorage funcionar.
+if (process.env.LINKLEADS_TEST_BASE_URL && process.platform === 'linux') app.commandLine.appendSwitch('password-store', 'basic');
 
 // Porta CDP opcional para automação externa/CLI (ex.: LINKLEADS_CDP_PORT=9222)
 if (process.env.LINKLEADS_CDP_PORT) {
@@ -39,13 +47,19 @@ const send = (channel: string, ...args: unknown[]) => launcher?.webContents.send
 const accounts = new AccountStore();
 const settings = new Settings();
 const crms = new CrmRegistry();
+const integrationSettings = new IntegrationSettings();
+const hub = new IntegrationHub(
+  integrationSettings,
+  () => accounts.list().map((a) => ({ account: a, crm: crms.get(a) })),
+  (accountId, line) => send('log', { accountId, line, at: new Date().toISOString() }),
+);
 const instances = new InstanceManager(crms, settings, {
   onLog: (accountId, line) => send('log', { accountId, line, at: new Date().toISOString() }),
   onAccountChanged: (account) => {
     accounts.save(account);
     send('accounts:changed');
   },
-});
+}, { hub, settings: integrationSettings });
 
 function account(id: string): Account {
   const a = accounts.get(id);
@@ -263,6 +277,50 @@ ipcMain.handle('campaigns:createMonitor', (_e, id: string, input: { name: string
 ipcMain.handle('signals:list', (_e, id: string, onlyUnseen?: boolean) => crms.get(account(id)).listSignals({ onlyUnseen: !!onlyUnseen }));
 ipcMain.handle('signals:markSeen', (_e, id: string, signalId: number) => crms.get(account(id)).markSignalSeen(signalId));
 
+// Integrações e dados ----------------------------------------------------------
+ipcMain.handle('integrations:get', () => integrationSettings.public());
+ipcMain.handle('integrations:update', (_e, patch: Parameters<IntegrationSettings['update']>[0]) => integrationSettings.update(patch));
+ipcMain.handle('deliveries:list', (_e, id: string) => crms.get(account(id)).listDeliveries(100));
+ipcMain.handle('deliveries:retry', (_e, id: string, deliveryId: number) => {
+  crms.get(account(id)).retryDelivery(deliveryId);
+  return hub.flush();
+});
+ipcMain.handle('deliveries:flush', () => hub.flush());
+
+/** Envia uma pessoa agora para os destinos ligados (teste da integração). */
+ipcMain.handle('integrations:sendPerson', (_e, id: string, personId: string) => {
+  const a = account(id);
+  return hub.emit(a, crms.get(a), 'campaign_step', personId, { destinations: integrationSettings.enabledDestinations(), campaign: { id: 'manual', name: 'Envio manual' } });
+});
+
+ipcMain.handle('campaigns:createContacts', (_e, id: string, input: { name: string; collectionId?: string; companyId?: string; useEnrichment: boolean; sendTo?: string[] }) => {
+  const crm = crms.get(account(id));
+  const campaign = contactsCampaign({ id: randomUUID(), accountId: id, name: input.name, useEnrichment: input.useEnrichment, sendTo: input.sendTo });
+  crm.saveCampaign(campaign);
+  let enqueued = 0;
+  if (input.collectionId) enqueued += crm.enqueueCollection(campaign, input.collectionId);
+  if (input.companyId)
+    for (const m of crm.committee(input.companyId).filter((x) => x.role !== 'fora_do_comite')) {
+      crm.enqueue(campaign.id, campaign.actions[0]!.id, m.personId);
+      enqueued++;
+    }
+  return { campaignId: campaign.id, enqueued };
+});
+
+/** Exporta CSV (separador ";" por padrão, o que o Excel em português espera). */
+ipcMain.handle('export:csv', async (_e, id: string, scope: { collectionId?: string; campaignId?: string; companyId?: string; name: string }, separator: ',' | ';' = ';') => {
+  const crm = crms.get(account(id));
+  const campaign = scope.campaignId ? crm.loadCampaign(scope.campaignId, id) : undefined;
+  const rows = crm.exportRows({ collectionId: scope.collectionId, companyId: scope.companyId, campaign });
+  const safeName = scope.name.replace(/[^\p{L}\p{N} _-]+/gu, '').trim() || 'linkleads';
+  const pick = process.env.LINKLEADS_TEST_EXPORT_PATH
+    ? { canceled: false, filePath: process.env.LINKLEADS_TEST_EXPORT_PATH }
+    : await dialog.showSaveDialog(launcher!, { title: 'Exportar CSV', defaultPath: `${safeName}.csv`, filters: [{ name: 'CSV', extensions: ['csv'] }] });
+  if (pick.canceled || !pick.filePath) return null;
+  writeFileSync(pick.filePath, toCsv(rows, { separator }), 'utf8');
+  return { path: pick.filePath, rows: rows.length };
+});
+
 // Saúde da conta -------------------------------------------------------------
 ipcMain.handle('accounts:stats', (_e, id: string) => {
   const a = account(id);
@@ -311,7 +369,12 @@ ipcMain.handle('settings:setAboutMe', (_e, text: string) => settings.setAboutMe(
 // Somente testes e2e: adianta o relógio do app para simular esperas de dias.
 if (process.env.LINKLEADS_TEST_BASE_URL) (globalThis as Record<string, unknown>).__linkleadsTest = { advanceClock };
 
-app.whenReady().then(createLauncher);
+app.whenReady().then(() => {
+  // só nos testes e2e em Linux sem chaveiro (o switch password-store=basic já foi aplicado acima)
+  if (process.env.LINKLEADS_TEST_BASE_URL && process.platform === 'linux') safeStorage.setUsePlainTextEncryption(true);
+  createLauncher();
+  hub.start();
+});
 app.on('window-all-closed', async () => {
   await instances.stopAll();
   if (process.platform !== 'darwin') app.quit();

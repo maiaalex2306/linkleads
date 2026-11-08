@@ -14,6 +14,7 @@ linkleads/
 ├─ packages/core     # domínio: catálogo de ações, motor de campanhas, ritmo/limites, templates
 ├─ packages/db       # SQLite local por conta (CRM: pessoas, coleções, campanhas, posts, rascunhos)
 ├─ packages/ai       # IA (Anthropic Claude ou OpenAI): interpreta posts e escreve comentários
+├─ packages/integrations # webhook, HubSpot, Pipedrive, Apollo e CSV
 ├─ apps/desktop      # Electron: Launcher + uma instância isolada por conta
 │  └─ e2e/           # teste ponta a ponta contra um site falso local
 └─ docs/             # arquitetura, roadmap, riscos
@@ -77,6 +78,16 @@ npm run ai:demo -- "Concluímos a telemetria de 120 km de rede e reduzimos as pe
 5. **Filtrar pelo ICP com IA antes do convite** (opção da sequência): quem fica abaixo da nota mínima sai antes de receber
    convite, o que protege a taxa de aceite.
 6. **Resumo da conta (IA)**: antes de uma reunião, tudo o que o LinkedIn revelou sobre o comitê, com lacunas e próximos passos.
+
+## Como usar (Fase 4: dados e integrações)
+
+1. **Configurações → Integrações**: webhook (Zapier, Make, n8n, Google Sheets), HubSpot, Pipedrive e Apollo.io.
+   Para cada destino, escolha os eventos que ele recebe. Detalhes, formato do JSON e o script do Google Sheets
+   estão em `docs/INTEGRACOES.md`.
+2. **Buscar contatos** (em coleções e empresas): cria uma campanha que visita o perfil, lê e-mail e telefone em
+   "Informações de contato" e, se a Apollo estiver configurada, enriquece quem ficou sem e-mail.
+3. **Exportar CSV** em coleções, campanhas e empresas.
+4. Aba **Entregas**: o que foi enviado, o que está na fila e o que falhou, com "tentar de novo".
 
 > ⚠️ Os seletores do LinkedIn (`apps/desktop/src/main/linkedin/selectors.ts`) ainda não foram validados numa conta real.
 > Valide primeiro com uma conta própria, com volume baixo. Para ajustar sem gerar nova versão, use `<userData>/selectors.json`.

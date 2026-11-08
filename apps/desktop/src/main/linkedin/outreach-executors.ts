@@ -202,6 +202,7 @@ export function checkConnection(d: ExecutorDeps): ActionExecutor {
           if (st === 'not_found') return { ok: false, reason: 'NOT_FOUND' };
           if (st.degree === 1) {
             d.crm.resolveInvite(ctx.person.id, 'accepted');
+            d.emit('invite_accepted', ctx.person.id, { campaign: { id: ctx.campaignId, name: ctx.action.name } });
             return { ok: true };
           }
           const invite = d.crm.getInvite(ctx.person.id);
@@ -380,6 +381,7 @@ export async function scanInbox(d: ExecutorDeps, maxConversations = 15): Promise
     if (!label && looksLikeOptOut(last.body)) label = 'opt_out';
     if (label) d.crm.labelMessage(last.id, label, summary ?? '');
     d.crm.block(person.id, label === 'opt_out' ? 'OPTED_OUT' : 'REPLIED');
+    d.emit('reply_received', person.id, { reply: { text: last.body, label: label ?? null, summary: summary ?? null } });
     result.newReplies.push({ personId: person.id, name: [person.firstName, person.lastName].filter(Boolean).join(' '), label, summary });
   }
   return result;

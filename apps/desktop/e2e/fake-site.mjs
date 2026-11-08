@@ -138,6 +138,12 @@ export function startFakeSite(port = 0) {
     if (url === '/in/ana-silva/recent-activity/all/') return html(`<div class="spacer"></div>${postHtml(false)}<div class="spacer"></div>`, likeScript);
     if (url === '/in/ana-silva/') return html(profileHtml(), profileScript);
     if (url === '/messaging/') return html(inboxHtml(), inboxScript);
+    if (url.match(/^\/in\/[a-z-]+\/overlay\/contact-info\/$/)) {
+      const isAna = url.startsWith('/in/ana-silva/');
+      const email = isAna && state.connection === 'connected'
+        ? '<section class="pv-contact-info__contact-type ci-email"><a href="mailto:ana.silva@aguasdovale.com.br">ana.silva@aguasdovale.com.br</a></section>' : '';
+      return html(`<div role="dialog" class="artdeco-modal"><div class="pv-contact-info">${email || '<p>Sem informações</p>'}</div></div>`);
+    }
     const colleague = url.match(/^\/in\/([a-z-]+)\/$/);
     if (colleague && COLLEAGUES[colleague[1]]) {
       const p = COLLEAGUES[colleague[1]];

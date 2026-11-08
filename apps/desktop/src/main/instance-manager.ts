@@ -2,6 +2,8 @@ import type { Account } from '@linkleads/core';
 import type { CrmRegistry } from './crm-registry.js';
 import { AccountInstance, type InstanceEvents } from './instance.js';
 import type { Settings } from './settings.js';
+import type { IntegrationHub } from './integration-hub.js';
+import type { IntegrationSettings } from './integration-settings.js';
 
 export class InstanceManager {
   private instances = new Map<string, AccountInstance>();
@@ -10,6 +12,7 @@ export class InstanceManager {
     private crms: CrmRegistry,
     private settings: Settings,
     private events: InstanceEvents,
+    private integrations?: { hub: IntegrationHub; settings: IntegrationSettings },
   ) {}
 
   isRunning(accountId: string): boolean {
@@ -28,7 +31,7 @@ export class InstanceManager {
 
   start(account: Account): AccountInstance {
     if (this.instances.has(account.id)) throw new Error('A conta já está em execução');
-    const inst = new AccountInstance(account, this.crms.get(account), this.settings, this.events);
+    const inst = new AccountInstance(account, this.crms.get(account), this.settings, this.events, this.integrations);
     inst.window.on('closed', () => {
       inst.stopScheduler();
       this.instances.delete(account.id);

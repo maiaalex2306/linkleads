@@ -2,7 +2,11 @@ import { BrowserWindow, session, type Session } from 'electron';
 import type { Account, Campaign, ExecutionResult, ProxyConfig, TickReport } from '@linkleads/core';
 import { CampaignRunner, ExecutorRegistry, resolveApproval, shouldAutoBrake } from '@linkleads/core';
 import { LlmPostInterpreter, createLlm, type LlmClient } from '@linkleads/ai';
-import type { CommentDraft, DecisionCrm } from '@linkleads/db';
+import type { CommentDraft, IntegrationCrm } from '@linkleads/db';
+import { ApolloProvider } from '@linkleads/integrations';
+import type { EmitExtra, IntegrationHub } from './integration-hub.js';
+import type { IntegrationSettings } from './integration-settings.js';
+import { enrichProfile, extractEmail, sendToIntegrations } from './linkedin/contact-executors.js';
 import {
   BASE,
   commentWithAi,
@@ -87,9 +91,10 @@ export class AccountInstance {
 
   constructor(
     readonly account: Account,
-    readonly crm: DecisionCrm,
+    readonly crm: IntegrationCrm,
     private settings: Settings,
     private events: InstanceEvents,
+    private integrations?: { hub: IntegrationHub; settings: IntegrationSettings },
   ) {
     this.session = session.fromPartition(`persist:linkleads-${account.id}`);
     if (account.proxy) void this.session.setProxy({ proxyRules: proxyRules(account.proxy) });
@@ -118,6 +123,14 @@ export class AccountInstance {
       },
       aboutMe: () => this.settings.aboutMe(),
       decision: () => this.settings.decision(),
+      emit: (event, personId, extra) => {
+        const n = this.integrations?.hub.emit(this.account, this.crm, event, personId, extra as EmitExtra) ?? 0;
+        if (n) this.log(`Integrações: ${n} entrega(s) na fila (${event})`);
+      },
+      enrichment: () => {
+        const cfg = this.integrations?.settings.apollo();
+        return cfg ? { provider: new ApolloProvider(cfg.key, fetch, cfg.baseUrl), onlyWhenNoEmail: cfg.onlyWhenNoEmail } : null;
+      },
       withBrowser: (fn) => this.withBrowser(fn),
     };
     this.executors
@@ -129,7 +142,11 @@ export class AccountInstance {
       .register(withdrawInvite(this.deps))
       .register(messageToPerson(this.deps))
       .register(icpFilter(this.deps))
-      .register(monitorSignals(this.deps));
+      .register(monitorSignals(this.deps))
+      .register(extractEmail(this.deps))
+      .register(enrichProfile(this.deps))
+      .register(sendToIntegrations(this.deps, 'SendToCrm'))
+      .register(sendToIntegrations(this.deps, 'SendToWebhook'));
     this.runner = new CampaignRunner({
       store: crm,
       executors: this.executors,

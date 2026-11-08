@@ -168,14 +168,9 @@ export function monitorSignals(d: ExecutorDeps): ActionExecutor {
               const hits = matchTopics(post.text, topics);
               if (!hits.length) continue;
               d.crm.savePost(p.id, { url: post.urn, text: post.text, postedAt: post.age ?? undefined, hasMedia: post.hasMedia });
-              d.crm.addSignal({
-                type: 'topic_post',
-                personId: p.id,
-                title: `Publicou sobre ${hits.join(', ')}`,
-                detail: post.text.slice(0, 280),
-                url: `${BASE}/feed/update/${post.urn}/`,
-                dedupeKey: `post:${post.urn}`,
-              }, now());
+              const signal = { type: 'topic_post', title: `Publicou sobre ${hits.join(', ')}`, detail: post.text.slice(0, 280), url: `${BASE}/feed/update/${post.urn}/` };
+              if (d.crm.addSignal({ ...signal, type: 'topic_post', personId: p.id, dedupeKey: `post:${post.urn}` }, now()))
+                d.emit('signal_detected', p.id, { signal });
             }
             return { ok: true } as ExecutionResult;
           }),

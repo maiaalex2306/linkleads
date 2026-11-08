@@ -65,6 +65,7 @@ async function renderView() {
     ['inbox', `Inbox${stats.unhandledReplies ? ` (${stats.unhandledReplies})` : ''}`],
     ['companies', 'Empresas'],
     ['signals', `Sinais${stats.unseenSignals ? ` (${stats.unseenSignals})` : ''}`],
+    ['deliveries', 'Entregas'],
     ['activity', 'Atividade'],
   ];
   const header = h('div', {},
@@ -84,7 +85,7 @@ async function renderView() {
     healthBar(stats),
     h('div', { class: 'tabs' }, ...tabs.map(([k, l]) => h('button', { class: state.tab === k ? 'sel' : '', onclick: () => { state.tab = k; renderView(); } }, l))),
   );
-  const body = await ({ collections: collectionsView, campaigns: campaignsView, approvals: approvalsView, inbox: inboxView, companies: companiesView, signals: signalsView, activity: activityView }[state.tab] || collectionsView)(a);
+  const body = await ({ collections: collectionsView, campaigns: campaignsView, approvals: approvalsView, inbox: inboxView, companies: companiesView, signals: signalsView, deliveries: deliveriesView, activity: activityView }[state.tab] || collectionsView)(a);
   view.replaceChildren(header, body);
 }
 
@@ -108,6 +109,7 @@ async function collectionsView(a) {
     const people = h('div');
     out.append(h('div', { class: 'card' },
       h('div', { class: 'row' }, h('strong', { style: 'flex:1' }, c.name), h('span', { class: 'muted' }, `${c.size} pessoas · ${c.origin}`),
+        exportButton(a, { collectionId: c.id, name: c.name }), contactsButton(a, { collectionId: c.id }, c.name),
         h('button', { class: 'link', onclick: async () => {
           if (people.childElementCount) return people.replaceChildren();
           const ps = await api.collectionPeople(a.id, c.id);

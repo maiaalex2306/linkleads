@@ -125,3 +125,20 @@ export function monitorCampaign(o: { id: string; accountId: string; name: string
     ],
   };
 }
+
+/** Buscar contatos: e-mail/telefone no LinkedIn e, se configurado, enriquecimento (Apollo) para quem ficou sem e-mail. */
+export function contactsCampaign(o: { id: string; accountId: string; name: string; useEnrichment: boolean; sendTo?: string[] }): Campaign {
+  return {
+    id: o.id,
+    accountId: o.accountId,
+    name: o.name,
+    active: false,
+    actions: [
+      // a visita garante nome, cargo e grau de conexão antes de mandar a pessoa para CRMs
+      { id: `${o.id}-visit`, type: 'VisitAndExtract', name: 'Visitar e extrair perfil', coolDown: 0, maxResults: -1, settings: {} },
+      { id: `${o.id}-email`, type: 'ExtractEmail', name: 'Ler contato no LinkedIn', coolDown: 0, maxResults: -1, settings: {} },
+      ...(o.useEnrichment ? [{ id: `${o.id}-enrich`, type: 'EnrichProfile', name: 'Enriquecer (Apollo)', coolDown: 0, maxResults: -1, settings: {} }] : []),
+      ...(o.sendTo?.length ? [{ id: `${o.id}-crm`, type: 'SendToCrm', name: 'Enviar para CRM', coolDown: 0, maxResults: -1, settings: { destinations: o.sendTo } }] : []),
+    ],
+  };
+}

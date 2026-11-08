@@ -12,7 +12,8 @@
   "dependencies": {
     "@linkleads/core": "0.1.0",
     "@linkleads/db": "0.1.0",
-    "@linkleads/ai": "0.1.0"
+    "@linkleads/ai": "0.1.0",
+    "@linkleads/integrations": "0.1.0"
   },
   "devDependencies": {
     "electron": "^37.2.0"

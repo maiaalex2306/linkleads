@@ -91,6 +91,8 @@ async function companyDetail(a, companyId) {
         if (r) toast(`${r.found} pessoa(s), ${r.added} nova(s), ${r.classified} papel(is) proposto(s) pela IA, ${r.hiringSignals} vaga(s) relevante(s)`, 8000);
         renderView();
       } }, 'Mapear comitê'),
+      exportButton(a, { companyId, name: company.name }),
+      contactsButton(a, { companyId }, company.name),
       h('button', { onclick: () => window.confirm(`Remover ${company.name}? As pessoas continuam no CRM.`) && safe(() => api.removeCompany(a.id, companyId)).then(() => { openCompanyId = null; renderView(); }) }, 'Remover'),
     ),
     h('div', { class: 'muted' }, `Cargos-chave: ${company.roleKeywords.join(', ') || '—'}`),
