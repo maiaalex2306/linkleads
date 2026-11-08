@@ -23,6 +23,7 @@ export interface TickReport {
   skipped?: 'paused' | 'inactive' | 'outside_hours';
   processed: number;
   successful: number;
+  awaitingApproval: number;
   failed: Array<{ personId: string; actionId: string; reason: FailureReason }>;
 }
 
@@ -49,7 +50,7 @@ export class CampaignRunner {
   }
 
   async tick(campaign: Campaign, account: Account, signal?: AbortSignal): Promise<TickReport> {
-    const report: TickReport = { processed: 0, successful: 0, failed: [] };
+    const report: TickReport = { processed: 0, successful: 0, awaitingApproval: 0, failed: [] };
     if (!campaign.active) return { ...report, skipped: 'inactive' };
     if (account.paused) return { ...report, skipped: 'paused' };
     if (!isWithinWorkingHours(this.now(), account.workingHours))
@@ -102,7 +103,7 @@ export class CampaignRunner {
         report.processed++;
         store.setStatus(campaign.id, action.id, person.id, 'processed');
 
-        const ctx = { account, person, action, signal };
+        const ctx = { account, person, action, campaignId: campaign.id, signal };
         let result: ExecutionResult;
         try {
           result = await executor.execute(ctx);
@@ -120,6 +121,13 @@ export class CampaignRunner {
         if (def.budget && (result.ok || result.reason === 'NO_REAL_EFFECT')) {
           // tentativa conta no orçamento mesmo sem prova — evita repetir e estourar limites
           store.recordUsage(account.id, def.budget, this.now());
+        }
+
+        if (!result.ok && result.reason === 'AWAITING_APPROVAL') {
+          // fica em `processed` até o usuário aprovar (ver resolveApproval)
+          store.setStatus(campaign.id, action.id, person.id, 'processed', 'AWAITING_APPROVAL');
+          report.awaitingApproval++;
+          continue;
         }
 
         if (result.ok) {
@@ -154,4 +162,26 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
       },
     );
   });
+}
+
+/**
+ * Conclui uma ação que estava aguardando aprovação humana.
+ * `executed=true`: a ação foi executada e confirmada depois da aprovação.
+ */
+export function resolveApproval(
+  store: CampaignStore,
+  campaign: Campaign,
+  actionId: string,
+  personId: string,
+  outcome: { executed: true } | { executed: false; reason: FailureReason },
+): void {
+  const idx = campaign.actions.findIndex((a) => a.id === actionId);
+  if (idx < 0) throw new Error(`Ação ${actionId} não pertence à campanha`);
+  if (outcome.executed) {
+    store.setStatus(campaign.id, actionId, personId, 'successful');
+    const next = campaign.actions[idx + 1];
+    if (next) store.enqueue(campaign.id, next.id, personId);
+  } else {
+    store.setStatus(campaign.id, actionId, personId, 'failed', outcome.reason);
+  }
 }

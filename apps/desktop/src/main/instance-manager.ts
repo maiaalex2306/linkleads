@@ -1,17 +1,38 @@
 import type { Account } from '@linkleads/core';
-import { AccountInstance } from './instance.js';
+import type { CrmRegistry } from './crm-registry.js';
+import { AccountInstance, type InstanceEvents } from './instance.js';
+import type { Settings } from './settings.js';
 
 export class InstanceManager {
   private instances = new Map<string, AccountInstance>();
+
+  constructor(
+    private crms: CrmRegistry,
+    private settings: Settings,
+    private events: InstanceEvents,
+  ) {}
 
   isRunning(accountId: string): boolean {
     return this.instances.has(accountId);
   }
 
+  get(accountId: string): AccountInstance | undefined {
+    return this.instances.get(accountId);
+  }
+
+  require(accountId: string): AccountInstance {
+    const inst = this.instances.get(accountId);
+    if (!inst) throw new Error('Inicie a conta antes (a janela do navegador precisa estar aberta)');
+    return inst;
+  }
+
   start(account: Account): AccountInstance {
     if (this.instances.has(account.id)) throw new Error('A conta já está em execução');
-    const inst = new AccountInstance(account);
-    inst.window.on('closed', () => this.instances.delete(account.id));
+    const inst = new AccountInstance(account, this.crms.get(account), this.settings, this.events);
+    inst.window.on('closed', () => {
+      inst.stopScheduler();
+      this.instances.delete(account.id);
+    });
     this.instances.set(account.id, inst);
     inst.startScheduler();
     return inst;
@@ -24,9 +45,5 @@ export class InstanceManager {
 
   async stopAll(): Promise<void> {
     await Promise.all([...this.instances.keys()].map((id) => this.stop(id)));
-  }
-
-  running(): string[] {
-    return [...this.instances.keys()];
   }
 }

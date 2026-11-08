@@ -53,3 +53,34 @@ Dados por conta: `<userData>/Partitions/linkleads-account-<id>/linkleads.db` (SQ
 | Visitas/dia | 60 | 150 |
 | Intervalo entre pessoas | 20 s a 3 min (log-normal) | — |
 | Conta nova | começa em 25% do limite e chega a 100% em 21 dias | — |
+
+## Como o navegador é dirigido (`apps/desktop/src/main/linkedin`)
+
+- **Leitura**: funções puras rodam num *mundo JavaScript isolado* (`executeJavaScriptInIsolatedWorld`).
+  Elas leem o DOM, mas não o alteram e ficam invisíveis para os scripts da página.
+- **Ação**: o mouse se move em curva, o clique cai num ponto aleatório do botão, a rolagem é gradual e a digitação
+  vai tecla a tecla, tudo via `webContents.sendInputEvent`. A página recebe eventos com `isTrusted = true`.
+- **Seletores**: há vários candidatos por elemento (a interface muda e varia por idioma), com versão.
+  Podem ser sobrescritos por `<userData>/selectors.json`.
+- **Bloqueio**: se aparecer um checkpoint/captcha ou a sessão cair, a ação vira `THROTTLED` e a conta é pausada.
+- **Uma operação por vez**: o agendador e as ações manuais (aprovar comentário, salvar perfil) passam por uma fila única.
+
+## Comentário com IA (`packages/ai`)
+
+Uma chamada ao Claude (`claude-opus-5-5`, saída estruturada e fallback automático em caso de recusa) devolve:
+
+| Campo | Uso |
+|---|---|
+| `summary`, `mainPoint`, `authorWork`, `topics`, `postType`, `sentiment` | Interpretação exibida na tela de aprovação |
+| `sensitive`, `shouldComment`, `skipReason` | Se o tema for sensível (luto, demissão, política…), se o post for vazio ou se só desse para escrever algo genérico, **não comenta** (`AI_SKIPPED`) |
+| `comment` | 1 a 3 frases, profissionais, citando algo concreto do post e mostrando interesse em conhecer o trabalho da pessoa |
+
+Regras aplicadas em código, depois da IA: sem hashtags e sem links, limite de caracteres, e tema sensível nunca é comentado.
+
+Fluxo da campanha de engajamento:
+
+```
+VisitAndExtract ─► LikePosts (post próprio mais recente, ≤ N dias, prova: aria-pressed=true)
+                ─► CommentPost ─┬─ manual: rascunho → tela Aprovações → publicar → prova: comentário visível
+                                └─ auto:   publicar → prova: comentário visível
+```

@@ -4,6 +4,7 @@ export interface ExecutionContext {
   account: Account;
   person: Person;
   action: ActionConfig;
+  campaignId: string;
   signal?: AbortSignal;
 }
 

@@ -1,0 +1,148 @@
+import type { WebContents } from 'electron';
+import { HumanInput } from '../human-input.js';
+import type { SelectorKey, SelectorMap } from './selectors.js';
+
+/** Mundo JS isolado: lê o DOM sem ser visível aos scripts da página e sem alterá-la. */
+const ISOLATED_WORLD = 1987;
+
+export class BlockedError extends Error {
+  constructor(readonly kind: 'checkpoint' | 'logged_out') {
+    super(kind === 'checkpoint' ? 'Verificação de segurança exibida pela plataforma' : 'Sessão desconectada');
+  }
+}
+
+export interface Box {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Dirige uma página: leitura via mundo isolado (somente leitura),
+ * ação via eventos de input nativos (mouse/teclado), como um usuário.
+ */
+export class PageDriver {
+  readonly input: HumanInput;
+
+  constructor(
+    readonly wc: WebContents,
+    readonly sel: SelectorMap,
+  ) {
+    this.input = new HumanInput(wc);
+  }
+
+  /** Executa uma função pura no mundo isolado. A função não pode usar closures. */
+  async read<T, A extends unknown[]>(fn: (...args: A) => T, ...args: A): Promise<T> {
+    const code = `(${fn.toString()})(...${JSON.stringify(args)})`;
+    return (await this.wc.executeJavaScriptInIsolatedWorld(ISOLATED_WORLD, [{ code }])) as T;
+  }
+
+  async goto(url: string, readyKey?: SelectorKey, timeoutMs = 30_000): Promise<void> {
+    await this.wc.loadURL(url);
+    await this.assertNotBlocked();
+    if (readyKey) await this.waitFor(readyKey, timeoutMs);
+    await this.input.think(1200, 3500);
+  }
+
+  async assertNotBlocked(): Promise<void> {
+    const url = this.wc.getURL();
+    if (/\/checkpoint\/|\/challenge/.test(url)) throw new BlockedError('checkpoint');
+    if (/\/(login|authwall|uas\/login)/.test(url)) throw new BlockedError('logged_out');
+    if (await this.exists('checkpoint')) throw new BlockedError('checkpoint');
+    if (await this.exists('loggedOut')) throw new BlockedError('logged_out');
+  }
+
+  exists(key: SelectorKey): Promise<boolean> {
+    return this.read((cands: readonly string[]) => cands.some((c) => document.querySelector(c)), this.sel[key]);
+  }
+
+  async waitFor(key: SelectorKey, timeoutMs = 15_000): Promise<boolean> {
+    const end = Date.now() + timeoutMs;
+    while (Date.now() < end) {
+      if (await this.exists(key)) return true;
+      await new Promise((r) => setTimeout(r, 400));
+    }
+    return false;
+  }
+
+  async waitUntil(check: () => Promise<boolean>, timeoutMs = 15_000, everyMs = 600): Promise<boolean> {
+    const end = Date.now() + timeoutMs;
+    while (Date.now() < end) {
+      if (await check()) return true;
+      await new Promise((r) => setTimeout(r, everyMs));
+    }
+    return false;
+  }
+
+  /**
+   * Caixa (coordenadas da viewport) de um elemento. `scope` restringe a busca a um container
+   * identificado por atributo data-urn; `nth` escolhe a ocorrência.
+   */
+  box(key: SelectorKey, scope?: { urn: string; containerKey: SelectorKey }): Promise<Box | null> {
+    return this.read(
+      (cands: readonly string[], containerCands: readonly string[] | null, urn: string | null) => {
+        let root: ParentNode = document;
+        if (urn && containerCands) {
+          const container = containerCands
+            .flatMap((c) => Array.from(document.querySelectorAll(c)))
+            .find((el) => el.getAttribute('data-urn') === urn);
+          if (!container) return null;
+          root = container;
+        }
+        for (const c of cands) {
+          const el = root.querySelector(c) as HTMLElement | null;
+          if (el) {
+            const r = el.getBoundingClientRect();
+            if (r.width > 0 && r.height > 0) return { x: r.x, y: r.y, width: r.width, height: r.height };
+          }
+        }
+        return null;
+      },
+      this.sel[key],
+      scope ? this.sel[scope.containerKey] : null,
+      scope?.urn ?? null,
+    );
+  }
+
+  /** Rola como um humano até o elemento ficar visível; devolve o ponto de clique. */
+  async scrollIntoView(key: SelectorKey, scope?: { urn: string; containerKey: SelectorKey }): Promise<{ x: number; y: number } | null> {
+    for (let i = 0; i < 25; i++) {
+      const b = await this.box(key, scope);
+      if (!b) return null;
+      const { vh, scrollY, maxScroll } = await this.read(() => ({
+        vh: window.innerHeight,
+        scrollY: window.scrollY,
+        maxScroll: document.documentElement.scrollHeight - window.innerHeight,
+      }));
+      const margin = 120;
+      const comfortable = b.y >= margin && b.y + b.height <= vh - margin;
+      // perto do topo/fim da página não dá para centralizar: basta estar inteiro na tela
+      const atEdge = (b.y < margin && scrollY <= 0) || (b.y + b.height > vh - margin && scrollY >= maxScroll - 1);
+      const visible = b.y >= 0 && b.y + b.height <= vh;
+      if (comfortable || (atEdge && visible)) {
+        return {
+          x: Math.round(b.x + b.width * (0.35 + Math.random() * 0.3)),
+          y: Math.round(b.y + b.height * (0.35 + Math.random() * 0.3)),
+        };
+      }
+      const delta = b.y < margin ? b.y - vh / 3 : b.y - vh / 2;
+      await this.input.scroll(Math.max(-900, Math.min(900, delta)));
+      await new Promise((r) => setTimeout(r, 300 + Math.random() * 500));
+    }
+    return null;
+  }
+
+  async click(key: SelectorKey, scope?: { urn: string; containerKey: SelectorKey }): Promise<boolean> {
+    const p = await this.scrollIntoView(key, scope);
+    if (!p) return false;
+    await this.input.click(p.x, p.y);
+    return true;
+  }
+
+  /** Rolagem "de leitura" para não ir direto ao alvo. */
+  async browse(minPx = 300, maxPx = 1200): Promise<void> {
+    await this.input.scroll(Math.round(minPx + Math.random() * (maxPx - minPx)));
+    await this.input.think(800, 2500);
+  }
+}

@@ -4,34 +4,19 @@
   <meta charset="utf-8" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'" />
   <title>LinkLeads</title>
-  <style>
-    :root { --bg:#f7f7f8; --fg:#1d1d20; --muted:#6b6b75; --card:#fff; --line:#e4e4e8; --accent:#2b59c3; }
-    @media (prefers-color-scheme: dark) { :root { --bg:#151518; --fg:#ececf1; --muted:#9a9aa5; --card:#1e1e22; --line:#2e2e34; --accent:#7aa2ff; } }
-    body { margin:0; font:14px/1.5 system-ui, sans-serif; background:var(--bg); color:var(--fg); }
-    header { padding:16px 24px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:12px; }
-    h1 { font-size:18px; margin:0; }
-    main { padding:24px; max-width:900px; }
-    form { display:flex; gap:8px; margin-bottom:20px; }
-    input, select, button { font:inherit; padding:6px 10px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--fg); }
-    button { cursor:pointer; } button.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
-    .acc { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:12px 16px; display:flex; align-items:center; gap:12px; margin-bottom:8px; }
-    .acc .name { flex:1; } .muted { color:var(--muted); font-size:12px; }
-    .dot { width:8px; height:8px; border-radius:50%; background:var(--muted); } .dot.on { background:#2fa36b; }
-  </style>
+  <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <header><h1>LinkLeads</h1><span class="muted">Launcher — contas e instâncias</span></header>
-  <main>
-    <form id="new">
-      <input name="label" placeholder="Nome da conta" required />
-      <select name="tier">
-        <option value="basic">Basic</option><option value="premium">Premium</option>
-        <option value="sales_navigator">Sales Navigator</option><option value="recruiter">Recruiter</option>
-      </select>
-      <button class="primary">Adicionar conta</button>
-    </form>
-    <div id="list"></div>
-  </main>
+  <header>
+    <h1>LinkLeads</h1>
+    <nav id="topnav"></nav>
+  </header>
+  <div id="layout">
+    <aside id="accounts"></aside>
+    <main id="view"></main>
+  </div>
+  <div id="toast" hidden></div>
+  <script src="ui.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

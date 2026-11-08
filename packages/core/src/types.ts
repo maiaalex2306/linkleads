@@ -17,6 +17,9 @@ export type FailureReason =
   | 'NOT_FOUND'
   | 'LIMIT_REACHED'
   | 'THROTTLED'           // plataforma sinalizou limite/aviso
+  | 'AWAITING_APPROVAL'   // aguardando aprovação humana (ex.: comentário da IA)
+  | 'AI_SKIPPED'          // IA decidiu não agir (tema sensível, nada a comentar)
+  | 'NO_POST'             // perfil sem post recente elegível
   | 'ERROR';
 
 export type AccountTier = 'basic' | 'premium' | 'sales_navigator' | 'recruiter';
@@ -100,4 +103,15 @@ export interface Person {
   email?: string;
   connectionDegree?: 1 | 2 | 3;
   custom?: Record<string, string>;
+}
+
+/** Post lido na tela (apenas texto visível). */
+export interface PostSnapshot {
+  /** URL permanente do post (ou urn) */
+  url: string;
+  authorName?: string;
+  text: string;
+  postedAt?: string;
+  hasMedia: boolean;
+  alreadyLiked?: boolean;
 }

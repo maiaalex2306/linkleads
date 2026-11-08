@@ -3,18 +3,25 @@
   "version": "0.1.0",
   "private": true,
   "license": "UNLICENSED",
-  "description": "LinkLeads — app desktop de prospecção B2B com automação de ritmo humano, multi-conta e CRM local.",
-  "workspaces": ["packages/*", "apps/*"],
+  "description": "LinkLeads \u2014 app desktop de prospec\u00e7\u00e3o B2B com automa\u00e7\u00e3o de ritmo humano, multi-conta e CRM local.",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
   "scripts": {
-    "build": "npm run build -w @linkleads/core -w @linkleads/db",
-    "test": "npm test -w @linkleads/core -w @linkleads/db",
-    "typecheck": "tsc -b packages/core packages/db",
-    "dev": "npm run dev -w @linkleads/desktop"
+    "build": "npm run build -w @linkleads/core -w @linkleads/db -w @linkleads/ai -w @linkleads/desktop",
+    "test": "npm test -w @linkleads/core -w @linkleads/db -w @linkleads/ai",
+    "typecheck": "tsc -b packages/core packages/db packages/ai && npm run typecheck -w @linkleads/desktop",
+    "dev": "npm run dev -w @linkleads/desktop",
+    "e2e": "npm run build && xvfb-run -a node apps/desktop/e2e/run.mjs",
+    "ai:demo": "node packages/ai/demo.mjs"
   },
   "devDependencies": {
     "typescript": "^5.6.3",
     "vitest": "^2.1.8",
     "@types/node": "^22.10.0"
   },
-  "engines": { "node": ">=22" }
+  "engines": {
+    "node": ">=22"
+  }
 }

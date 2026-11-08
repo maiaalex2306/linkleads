@@ -136,3 +136,34 @@ CREATE TABLE IF NOT EXISTS outbox (
   next_attempt_at TEXT NOT NULL DEFAULT (datetime('now')),
   delivered_at TEXT
 );
+
+-- Posts lidos (curtidos/comentados) ------------------------------------------
+CREATE TABLE IF NOT EXISTS posts (
+  url TEXT PRIMARY KEY,
+  person_id TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+  text TEXT NOT NULL,
+  posted_at TEXT,
+  has_media INTEGER NOT NULL DEFAULT 0,
+  liked_at TEXT,
+  commented_at TEXT,
+  comment TEXT,
+  interpretation_json TEXT,
+  seen_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_posts_person ON posts (person_id, seen_at);
+
+-- Comentários gerados pela IA aguardando aprovação ---------------------------
+CREATE TABLE IF NOT EXISTS comment_drafts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  campaign_id TEXT NOT NULL,
+  action_id TEXT NOT NULL,
+  person_id TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+  post_url TEXT NOT NULL,
+  comment TEXT NOT NULL,
+  interpretation_json TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected','posted','failed')),
+  error TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  decided_at TEXT,
+  UNIQUE (action_id, person_id)
+);

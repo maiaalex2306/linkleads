@@ -12,8 +12,10 @@ injetar código na página e sem chamar API não oficial.
 ```
 linkleads/
 ├─ packages/core     # domínio: catálogo de ações, motor de campanhas, ritmo/limites, templates
-├─ packages/db       # SQLite local por conta (schema + CampaignStore)
+├─ packages/db       # SQLite local por conta (CRM: pessoas, coleções, campanhas, posts, rascunhos)
+├─ packages/ai       # IA (Claude): interpreta posts e escreve comentários
 ├─ apps/desktop      # Electron: Launcher + uma instância isolada por conta
+│  └─ e2e/           # teste ponta a ponta contra um site falso local
 └─ docs/             # arquitetura, roadmap, riscos
 ```
 
@@ -24,9 +26,29 @@ Requer Node.js 22 ou mais recente.
 ```bash
 npm install
 npm run build
-npm test
-npm run dev        # abre o Launcher (Electron)
+npm test           # testes unitários
+npm run e2e        # app real (Electron) contra um site falso local (Linux: precisa de xvfb)
+npm run dev        # abre o Launcher
 ```
+
+Testar a IA com um post (precisa de `ANTHROPIC_API_KEY`):
+
+```bash
+npm run ai:demo -- "Concluímos a telemetria de 120 km de rede e reduzimos as perdas em 18%." "Ana Silva" "Engenheira de Saneamento"
+```
+
+## Como usar (Fase 1)
+
+1. **Configurações da IA**: cole a chave da API da Anthropic (fica criptografada no cofre do sistema) e escreva o "Sobre mim".
+2. **Adicione uma conta** e clique em **Iniciar**. Na janela que abrir, faça login no LinkedIn uma vez (a sessão fica só nesta máquina).
+3. **Coleções → Importar CSV**: o arquivo precisa de uma coluna com a URL do perfil (`profileUrl`, `linkedin_url` ou `url`).
+   Colunas como nome, empresa e cargo são reconhecidas; as demais viram variáveis `{{custom.coluna}}`.
+4. **Campanhas → Nova campanha** (Visitar → Curtir post → Comentar com IA) e **Ativar**.
+5. **Aprovações**: para cada post, a IA mostra o que entendeu (resumo, ponto central, trabalho do autor) e sugere
+   o comentário. Edite se quiser e clique em **Aprovar e publicar**. O modo automático também existe, mas não é o padrão.
+
+> ⚠️ Os seletores do LinkedIn (`apps/desktop/src/main/linkedin/selectors.ts`) ainda não foram validados numa conta real.
+> Valide primeiro com uma conta própria, com volume baixo. Para ajustar sem gerar nova versão, use `<userData>/selectors.json`.
 
 Porta CDP opcional, para automação externa: `LINKLEADS_CDP_PORT=9222 npm run dev`.
 
