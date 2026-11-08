@@ -50,5 +50,7 @@ describe('TRACE JSONL', () => {
   it('remove identificadores sensíveis das URLs', () => {
     expect(safeRoute('https://www.linkedin.com/in/pessoa-123/?x=secret')).toBe('www.linkedin.com/in/[id]/');
     expect(safeRoute('https://www.linkedin.com/feed/update/urn:li:activity:123?x=1')).toBe('www.linkedin.com/feed/update/[id]');
+    expect(safeRoute('file:///C:/Users/usuario-privado/AppData/Roaming/linkleads/index.html')).toBe('[local-page]');
+    expect(safeRoute('https://www.linkedin.com/messaging/thread/abc123/?key=secret')).toBe('www.linkedin.com/messaging/thread/[id]/');
   });
 });

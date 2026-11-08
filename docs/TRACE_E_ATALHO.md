@@ -10,7 +10,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-deskto
 
 O instalador cria **LINKLEADS.lnk** na Área de Trabalho do Windows, inclusive se redirecionada ao OneDrive. O atalho executa, na pasta do repositório:
 
-1. `git pull --ff-only` (não substitui nem destrói alterações locais)
+1. `git pull` (usa a branch e o upstream existentes; falhas interrompem a inicialização)
 2. `npm.cmd run build`
 3. `npm.cmd run dev -w @linkleads/desktop` (inicia o Electron sem compilar o desktop novamente)
 

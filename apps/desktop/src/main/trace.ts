@@ -40,7 +40,9 @@ const safeId = (v: string) => v.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 90) || 
 export function safeRoute(raw: string): string {
   try {
     const u = new URL(raw);
+    if (!['http:', 'https:'].includes(u.protocol)) return '[local-page]';
     return u.hostname + u.pathname
+      .replace(/\/messaging\/(?:thread|detail)\/[^/]+/gi, '/messaging/thread/[id]')
       .replace(/\/(in|pub|company)\/[^/]+/gi, '/$1/[id]')
       .replace(/\/feed\/update\/[^/]+/gi, '/feed/update/[id]')
       .replace(/\/posts\/[^/]+/gi, '/posts/[id]')
