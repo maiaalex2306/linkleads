@@ -568,7 +568,11 @@ const BUILD: { id: string; commit: string; builtAt: string } = (() => {
     return { id: 'dev', commit: 'dev', builtAt: '' };
   }
 })();
-ipcMain.handle('app:info', () => ({ version: app.getVersion(), ...BUILD }));
+ipcMain.handle('app:info', () => ({
+  version: app.getVersion(), ...BUILD,
+  // tela inicial padrão: modo simples (testes antigos usam o avançado, salvo LINKLEADS_UI_MODE)
+  defaultMode: process.env.LINKLEADS_UI_MODE || (process.env.LINKLEADS_TEST_BASE_URL ? 'advanced' : 'simple'),
+}));
 
 // uma janela por vez; a nova cópia avisa qual versão é (a antiga reinicia se estiver desatualizada)
 if (!process.env.LINKLEADS_TEST_BASE_URL && !app.requestSingleInstanceLock({ build: BUILD.id })) {

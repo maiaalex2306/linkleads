@@ -161,6 +161,7 @@ export function startFakeSite(port = 0) {
       req.on('data', (c) => (body += c));
       req.on('end', () => {
         if (url === '/api/like') state.liked = true;
+        if (url === '/api/like2') { state.liked2 = true; state.liked2Post = body; }
         if (url === '/api/invite') { state.connection = 'pending'; state.inviteNote = body || null; state.invites++; }
         if (url === '/api/withdraw') { state.connection = 'none'; state.withdrawals++; }
         if (url === '/api/message') state.messages.push({ from: 'me', body });
@@ -201,6 +202,21 @@ export function startFakeSite(port = 0) {
     if (url === '/in/layout-novo/') {
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
       return res.end(page('<section><h2 class="profile-name-x">Marina Costa</h2><div>Gerente Industrial</div></section>').replace('<head>', '<head><title>(3) Marina Costa | LinkedIn</title>'));
+    }
+    // atividade no LAYOUT NOVO (como no print do usuário): sem data-urn no bloco, urn só no link da data,
+    // botão de reação só com ícone e aria-label "Reagir com Gostei"; um repost de outra pessoa antes do post próprio
+    if (url === '/in/layout-novo/recent-activity/all/') {
+      const card = (urn, who, slug, when, text) => `<div class="x1a2b"><div class="x9"><a href="/in/${slug}/"><span>${who}</span></a>
+        <span>Gerente Industrial</span><a href="/feed/update/${urn}/"><span>${when}</span></a></div>
+        <div class="x7"><span dir="ltr"><span>${text}</span></span></div>
+        <div class="x8"><button aria-label="Reagir com Gostei" aria-pressed="${urn.endsWith('8002') ? state.liked2 : false}" class="r1"><svg></svg></button>
+        <button aria-label="Comentar"><svg></svg></button><button aria-label="Compartilhar"><svg></svg></button></div></div>`;
+      return html(`<h2>Todas as atividades</h2>${card('urn:li:activity:8001', 'Outra Pessoa', 'outra-pessoa', 'há 2 d • ', 'Marina Costa compartilhou: notícia do setor automotivo sobre eficiência.')}
+        ${card('urn:li:activity:8002', 'Marina Costa', 'layout-novo', 'há 1 sem • Editado', 'Conquistamos o 4º lugar no ranking das empresas mais inovadoras de 2026, com projetos de reúso de água na planta de Taubaté.')}
+        ${card('urn:li:activity:8003', 'Marina Costa', 'layout-novo', 'há 5 m', 'Post antigo sobre a feira do ano passado.')}`,
+        `document.querySelectorAll('button[aria-label="Reagir com Gostei"]').forEach((b) => b.addEventListener('click', async (e) => {
+          if (!e.isTrusted) return; await fetch('/api/like2', { method: 'POST', body: b.closest('.x1a2b').querySelector('a[href*="/feed/update/"]').getAttribute('href') });
+          b.setAttribute('aria-pressed', 'true'); }));`);
     }
     // página que nunca termina de mostrar o perfil (nem nome nem título)
     if (url === '/in/sem-nada/') return html('<div class="loading">...</div>');

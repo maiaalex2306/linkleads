@@ -1,3 +1,4 @@
+import { llPostContainers } from './dom-scripts.js';
 import type { WebContents } from 'electron';
 import { HumanInput } from '../human-input.js';
 import type { LabelKey, SelectorKey, SelectorMap } from './selectors.js';
@@ -22,6 +23,8 @@ export interface Box {
  * Dirige uma página: leitura via mundo isolado (somente leitura),
  * ação via eventos de input nativos (mouse/teclado), como um usuário.
  */
+declare function __llPostContainers(sel: { postItem: readonly string[]; likeButton: readonly string[] }): Array<{ el: Element; urn: string }>;
+
 export class PageDriver {
   readonly input: HumanInput;
 
@@ -34,7 +37,8 @@ export class PageDriver {
 
   /** Executa uma função pura no mundo isolado. A função não pode usar closures. */
   async read<T, A extends unknown[]>(fn: (...args: A) => T, ...args: A): Promise<T> {
-    const code = `(${fn.toString()})(...${JSON.stringify(args)})`;
+    // cada leitura num escopo próprio (o ajudante de posts não pode ser redeclarado no mesmo mundo isolado)
+    const code = `(() => { const __llPostContainers = ${llPostContainers.toString()};\nreturn (${fn.toString()})(...${JSON.stringify(args)}); })()`;
     return (await this.wc.executeJavaScriptInIsolatedWorld(ISOLATED_WORLD, [{ code }])) as T;
   }
 
@@ -93,7 +97,7 @@ export class PageDriver {
    */
   box(key: SelectorKey, scope?: { urn: string; containerKey: SelectorKey }, label?: LabelKey): Promise<Box | null> {
     return this.read(
-      (cands: readonly string[], containerCands: readonly string[] | null, urn: string | null, labelRe: string | null) => {
+      (cands: readonly string[], containerCands: readonly string[] | null, urn: string | null, labelRe: string | null, likeCands: readonly string[], fallbackRe: string | null) => {
         const re = labelRe ? new RegExp(labelRe, 'i') : null;
         const matches = (el: Element) => {
           if (!re) return true;
@@ -103,9 +107,7 @@ export class PageDriver {
         };
         let root: ParentNode = document;
         if (urn && containerCands) {
-          const container = containerCands
-            .flatMap((c) => Array.from(document.querySelectorAll(c)))
-            .find((el) => el.getAttribute('data-urn') === urn);
+          const container = __llPostContainers({ postItem: containerCands, likeButton: likeCands }).find((c) => c.urn === urn)?.el;
           if (!container) return null;
           root = container;
         }
@@ -116,12 +118,25 @@ export class PageDriver {
             if (r.width > 0 && r.height > 0) return { x: r.x, y: r.y, width: r.width, height: r.height };
           }
         }
+        // layout novo: botão de reação/comentário reconhecido pelo rótulo dentro do post
+        if (urn && fallbackRe) {
+          const re2 = new RegExp(fallbackRe, 'i');
+          const NOT = /(repost|compart|share|enviar|send|salvar|save)/i;
+          for (const el of Array.from(root.querySelectorAll('button')) as HTMLElement[]) {
+            const l = `${el.getAttribute('aria-label') ?? ''} ${el.innerText ?? ''}`;
+            if (!re2.test(l) || NOT.test(l)) continue;
+            const r = el.getBoundingClientRect();
+            if (r.width > 0 && r.height > 0) return { x: r.x, y: r.y, width: r.width, height: r.height };
+          }
+        }
         return null;
       },
       this.sel[key],
       scope ? this.sel[scope.containerKey] : null,
       scope?.urn ?? null,
       label ? this.sel.labels[label] : null,
+      this.sel.likeButton,
+      key === 'likeButton' ? '(gostei|like|reagir|react|curtir)' : key === 'commentButton' ? '(coment|comment)' : null,
     );
   }
 

@@ -1,4 +1,4 @@
-/* global h, api, state, healthBar, safe, toast, REASONS */
+/* global h, api, state, healthBar, safe, toast, REASONS, refreshSimpleFunnel */
 /* Painel "Agora": o que a conta está fazendo, o que vem depois e o que já foi feito. Atualiza a cada segundo. */
 
 const fmtLeft = (iso, nowIso) => {
@@ -102,6 +102,7 @@ async function refreshLive() {
   }
   if (health) health.replaceChildren(healthBar(stats));
   if (state.tab === 'campaigns') refreshCampaignTables(id).catch(() => {});
+  if (state.mode === 'simple') refreshSimpleFunnel(id).catch(() => {});
 }
 
 // tabelas das campanhas: atualizam sozinhas (a cada 5 s) sem apagar formulários abertos

@@ -161,7 +161,7 @@ export function monitorSignals(d: ExecutorDeps): ActionExecutor {
             const p = d.crm.getPerson(ctx.person.id) ?? ctx.person;
             const open = await gotoProfile(d, p, 'recent-activity/all/');
             if (open !== 'ok') return openFailed(open);
-            await d.driver.waitUntil(async () => (await d.driver.exists('postItem')) || (await d.driver.exists('emptyActivity')), 15_000);
+            await d.driver.waitUntil(async () => (await d.driver.read(extractPosts, d.driver.sel as unknown as Record<string, readonly string[]>, 1)).length > 0 || (await d.driver.exists('emptyActivity')), 15_000);
             const posts = await d.driver.read(extractPosts, sel(d.driver.sel), 8);
             for (const post of posts) {
               const actor = post.actorHref ? profileSlug(post.actorHref) : undefined;

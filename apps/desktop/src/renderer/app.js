@@ -1,5 +1,11 @@
 /* global window, document, h, toast, safe */
-const state = { accountId: null, tab: 'collections', logs: [] };
+const state = { accountId: null, tab: 'collections', logs: [], mode: 'simple' };
+let storedMode = null;
+try {
+  // tela inicial: modo simples (3 passos + painel); o avançado fica a um clique
+  storedMode = localStorage.getItem('ll-mode');
+  if (storedMode === 'advanced') state.mode = 'advanced';
+} catch {}
 
 const REASONS = {
   NO_REAL_EFFECT: 'sem efeito confirmado', EXCLUDED: 'excluída', REJECTED: 'rejeitado na aprovação', REPLIED: 'respondeu', OPTED_OUT: 'pediu para parar',
@@ -34,7 +40,7 @@ async function renderAccounts() {
         const linkedinPassword = String(f.get('linkedinPassword') || '');
         if (linkedinEmail && !linkedinPassword) return toast('Digite a senha do LinkedIn (ou deixe o e-mail em branco para entrar manualmente)');
         const a = await safe(() => api.createAccount({ label, tier: f.get('tier'), linkedinEmail, linkedinPassword, linkedinAge: f.get('linkedinAge') }));
-        if (a) { state.accountId = a.id; e.target.reset(); refresh(); }
+        if (a) { state.accountId = a.id; state.newAccountOpen = false; e.target.reset(); refresh(); }
       },
     },
       h('input', { name: 'label', placeholder: 'Nova conta (nome)', required: true, autocomplete: 'off' }),
@@ -49,8 +55,14 @@ async function renderAccounts() {
         h('button', { class: 'primary' }, 'Adicionar')),
     );
     listBox = h('div', { class: 'account-list' });
-    box.replaceChildren(form, h('h3', {}, 'Contas'), listBox);
+    const addBtn = h('button', { class: 'link add-account', onclick: () => { state.newAccountOpen = !state.newAccountOpen; renderAccounts(); } }, '+ Adicionar conta');
+    box.replaceChildren(h('h3', {}, 'Contas'), listBox, addBtn, form);
   }
+  // com contas já criadas, o formulário fica recolhido (botão "+ Adicionar conta")
+  form.hidden = list.length > 0 && !state.newAccountOpen;
+  const addBtn = box.querySelector('.add-account');
+  addBtn.hidden = list.length === 0;
+  addBtn.textContent = state.newAccountOpen ? 'Fechar' : '+ Adicionar conta';
   listBox.replaceChildren(
     ...list.map((a) =>
       h('div', { class: 'acc' + (a.id === state.accountId ? ' sel' : ''), onclick: () => { state.accountId = a.id; refresh(); } },
@@ -81,6 +93,7 @@ async function renderView() {
   const a = accounts.find((x) => x.id === state.accountId);
   if (!a) return view.replaceChildren(h('p', { class: 'muted' }, 'Adicione uma conta para começar.'));
 
+  if (state.mode === 'simple') return view.replaceChildren(await simpleView(a));
   const stats = await api.accountStats(a.id);
   const tabs = [
     ['collections', 'Coleções'], ['campaigns', 'Campanhas'],
@@ -94,6 +107,7 @@ async function renderView() {
   ];
   const header = h('div', {},
     h('div', { class: 'row' },
+      h('button', { class: 'link', onclick: () => { state.mode = 'simple'; try { localStorage.setItem('ll-mode', 'simple'); } catch {} renderView(); } }, '← Modo simples'),
       h('h2', { style: 'margin:0;flex:1' }, a.label),
       a.running
         ? [
@@ -205,5 +219,5 @@ api.onDeepLink((l) => {
 });
 api.updateStatus().then(renderUpdate).catch(() => {});
 topNav();
-refresh();
+api.appInfo().then((i) => { if (!storedMode && i.defaultMode) state.mode = i.defaultMode; }).catch(() => {}).finally(refresh);
 setInterval(renderAccounts, 10000);

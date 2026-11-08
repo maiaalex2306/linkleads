@@ -76,6 +76,10 @@ try {
   const ppl = (await call('listCampaigns', acc.id)).find((c) => c.name === 'Layout').people;
   const marina = ppl.find((p) => p.publicId === 'layout-novo');
   check(marina && marina.name === 'Marina Costa' && marina.actionName !== 'Visitar e extrair perfil', 'layout novo: reconhece o perfil pelo título da aba e segue o fluxo', marina);
+  check(site.state.liked2 && /8002/.test(site.state.liked2Post || ''), 'layout novo: achou e curtiu o post PRÓPRIO mais recente (pulou o compartilhado e o antigo)', { liked: site.state.liked2, post: site.state.liked2Post });
+  const drafts = await call('listDrafts', acc.id);
+  const d = drafts.find((x) => /Marina/.test(x.personName || ''));
+  check(d && d.kind === 'comment' && d.comment, 'layout novo: a IA leu o post e montou o comentário para aprovar', drafts.map((x) => [x.personName, x.kind]));
   const semNada = ppl.find((p) => p.publicId === 'sem-nada');
   check(semNada && semNada.reason === 'RETRY_LATER', 'página sem perfil: tenta de novo mais tarde', semNada);
   const L2 = await call('liveStatus', acc.id);

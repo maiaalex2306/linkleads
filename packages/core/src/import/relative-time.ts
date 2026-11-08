@@ -8,6 +8,8 @@ export function parseRelativeAgeDays(label: string): number | undefined {
   if (!m) return /agora|now|just/.test(s) ? 0 : undefined;
   const n = Number(m[1]);
   const unit = m[2]!;
+  // LinkedIn em português: "há 5 m" = 5 MESES (minutos aparecem como "5 min"); em inglês "5m" (sem espaço) = minutos
+  if (unit === 'm' && (/\d+\s+m\b/.test(s) || /\bha\s/.test(s))) return n * 30;
   if (/^(s|seg|sec|min|m|h|hr|hora)/.test(unit) && !/^(sem|mes|mo)/.test(unit)) return 0;
   if (/^(d|dia|day)/.test(unit)) return n;
   if (/^(w|sem|wk)/.test(unit)) return n * 7;

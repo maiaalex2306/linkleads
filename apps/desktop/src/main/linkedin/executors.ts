@@ -142,18 +142,47 @@ interface LikeSettings {
 }
 
 /** Escolhe o post mais recente do próprio autor, dentro da janela de idade. */
-export function pickPost(posts: PostExtract[], publicId: string, s: LikeSettings): PostExtract | undefined {
+export function pickPost(posts: PostExtract[], publicId: string, s: LikeSettings, personName = ''): PostExtract | undefined {
+  return choosePost(posts, publicId, s, personName).post;
+}
+
+/** Como pickPost, mas explica por que nenhum post serviu (para a tela). */
+export function choosePost(posts: PostExtract[], publicId: string, s: LikeSettings, personName = ''): { post?: PostExtract; why: string } {
   const maxAge = s.maxPostAgeDays ?? 30;
-  const eligible = posts.filter((p) => {
-    if (!p.text && !p.hasMedia) return false;
-    if (p.isReshare && !s.includeReshares) return false;
+  const norm = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const last = norm(personName).split(/\s+/).filter(Boolean).pop() ?? '';
+  const isOwn = (p: PostExtract) => {
     const actor = p.actorHref ? profileSlug(p.actorHref) : undefined;
-    if (actor && actor !== publicId.toLowerCase()) return false;
+    if (!actor) return true;
+    if (actor === publicId.toLowerCase()) return true;
+    if (/^acoaa|^acwaa/i.test(actor)) return !last || !p.actorName || norm(p.actorName).includes(last); // link pelo id interno
+    return !!last && !!p.actorName && norm(p.actorName).includes(last);
+  };
+  let empty = 0;
+  let reshare = 0;
+  let others = 0;
+  let old = 0;
+  let newest: number | undefined;
+  const eligible = posts.filter((p) => {
+    if (!p.text && !p.hasMedia) return (empty++, false);
+    if (p.isReshare && !s.includeReshares) return (reshare++, false);
+    if (!isOwn(p)) return (others++, false);
     const age = p.age ? parseRelativeAgeDays(p.age) : undefined;
-    return age === undefined || age <= maxAge;
+    if (age !== undefined) newest = newest === undefined ? age : Math.min(newest, age);
+    if (age !== undefined && age > maxAge) return (old++, false);
+    return true;
   });
   // o mais recente que você ainda não curtiu; se todos já foram curtidos, o mais recente
-  return eligible.find((p) => p.liked !== true) ?? eligible[0];
+  const post = eligible.find((p) => p.liked !== true) ?? eligible[0];
+  if (post) return { post, why: '' };
+  if (!posts.length) return { why: 'Não reconheci nenhum post na página de atividade (layout diferente ou a página não carregou)' };
+  const parts = [
+    old && `${old} com mais de ${maxAge} dias${newest !== undefined ? ` (o mais recente há ${newest} dias)` : ''}`,
+    reshare && `${reshare} compartilhado(s) de outras pessoas`,
+    others && `${others} de outro autor`,
+    empty && `${empty} sem texto`,
+  ].filter(Boolean);
+  return { why: `Achei ${posts.length} post(s), nenhum serve: ${parts.join(', ')}` };
 }
 
 export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
@@ -165,10 +194,15 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
           const s = ctx.action.settings as LikeSettings;
           const open = await gotoProfile(d, ctx.person, 'recent-activity/all/');
           if (open !== 'ok') return openFailed(open);
-          await d.driver.waitUntil(async () => (await d.driver.exists('postItem')) || (await d.driver.exists('emptyActivity')), 20_000);
+          await d.driver.waitUntil(async () => (await d.driver.read(extractPosts, d.driver.sel as unknown as Record<string, readonly string[]>, 1)).length > 0 || (await d.driver.exists('emptyActivity')), 20_000);
           const posts = await d.driver.read(extractPosts, d.driver.sel as unknown as Record<string, readonly string[]>, 10);
-          const post = pickPost(posts, ctx.person.publicId ?? ctx.person.id, s);
-          if (!post) return { ok: false, reason: 'NO_POST', message: 'Nenhum post próprio recente' };
+          const pick = choosePost(posts, ctx.person.publicId ?? ctx.person.id, s, [ctx.person.firstName, ctx.person.lastName].filter(Boolean).join(' '));
+          const post = pick.post;
+          if (!post) {
+            const empty = await d.driver.exists('emptyActivity').catch(() => false);
+            const file = !posts.length && !empty ? await d.reportUnrecognized?.().catch(() => undefined) : undefined;
+            return { ok: false, reason: 'NO_POST', message: empty ? 'A pessoa não tem publicações' : `${pick.why}${file ? `. Relatório para ajuste: ${file}` : ''}` };
+          }
 
           const snapshot: PostSnapshot = { url: post.urn, text: post.text, postedAt: post.age ?? undefined, hasMedia: post.hasMedia };
           d.crm.savePost(ctx.person.id, snapshot);
