@@ -371,6 +371,41 @@ ipcMain.handle('campaigns:list', (_e, id: string) => {
   return crm.listCampaigns(id).map((c) => ({ ...c, people: crm.campaignPeople(c) }));
 });
 
+/**
+ * Resumo leve por campanha: uma única agregação SQL, sem enviar milhares
+ * de pessoas para o renderizador apenas para montar o menu lateral.
+ */
+ipcMain.handle('campaigns:summaries', (_e, id: string) => {
+  const a = account(id);
+  const crm = crms.get(a);
+  const rows = crm.db.prepare(`
+    SELECT campaign_id, COUNT(DISTINCT person_id) AS contacts,
+      SUM(CASE WHEN status = 'queued' THEN 1 ELSE 0 END) AS queued,
+      SUM(CASE WHEN status = 'processed' THEN 1 ELSE 0 END) AS processing,
+      SUM(CASE WHEN status = 'successful' THEN 1 ELSE 0 END) AS successful,
+      SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed
+    FROM campaign_action_people GROUP BY campaign_id
+  `).all() as Array<{ campaign_id: string; contacts: number; queued: number; processing: number; successful: number; failed: number }>;
+  const byId = new Map(rows.map((r) => [r.campaign_id, r]));
+  const runnerEnabled = instances.get(id)?.schedulerRunning() ?? false;
+  return crm.listCampaigns(id).map((c) => {
+    const r = byId.get(c.id);
+    const queued = r?.queued ?? 0;
+    const processing = r?.processing ?? 0;
+    const successful = r?.successful ?? 0;
+    const failed = r?.failed ?? 0;
+    const status = !c.actions.length ? 'draft'
+      : !c.active ? 'stopped'
+      : a.paused ? 'blocked'
+      : runnerEnabled && (queued > 0 || processing > 0) ? 'running'
+      : queued > 0 || processing > 0 ? 'queued'
+      : 'completed';
+    return { id: c.id, name: c.name, active: c.active, status,
+      actions: c.actions.length, contacts: r?.contacts ?? 0,
+      queued, processing, successful, failed };
+  });
+});
+
 ipcMain.handle(
   'campaigns:createEngagement',
   (
