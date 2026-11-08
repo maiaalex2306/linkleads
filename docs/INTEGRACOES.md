@@ -57,8 +57,11 @@ const ok = timingSafeEqual(Buffer.from(expected), Buffer.from(req.headers['x-lin
 
 ## Ponte do IAD CRM (formato Linked Helper)
 
-Para quem já usa a ponte (Cloudflare Worker) do IAD CRM com o Linked Helper, o LinkLeads entrega no **mesmo balde**
-e as respostas aparecem no botão **Importar LH**, sem mudar nada na ponte nem no IAD CRM:
+O LinkLeads entrega no **mesmo balde** da ponte (Cloudflare Worker) que o Linked Helper usa, sem mudar o Worker.
+No IAD CRM (v286.94 ou posterior), as respostas aparecem no botão **LinkLeads** do Pipeline, ao lado do **Importar LH**.
+Cada botão leva só os itens da sua origem, pela marca `linkleads_origem`. O papel no grupo comprador confirmado no
+LinkLeads chega como "Papel na compra", e a IA da importação não o substitui. O menu **LinkLeads** do IAD CRM abre
+este app pelo link `linkleads://`.
 
 1. **Configurações → Integrações → Webhook**, em **Formato**, escolha **Linked Helper**.
 2. **URL**: o mesmo endereço de entrada colado no Linked Helper,

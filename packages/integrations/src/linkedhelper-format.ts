@@ -29,7 +29,8 @@ export function toLinkedHelperFormat(p: LeadPayload, operatorName: string): Reco
   set('organization_1', person.company);
   set('company_name', person.company);
   set('organization_title_1', person.position);
-  set('member_distance', person.connectionDegree);
+  // mesmo formato do Linked Helper ("DISTANCE_1"…), que o IAD CRM usa nas notas
+  if (person.connectionDegree) set('member_distance', `DISTANCE_${person.connectionDegree}`);
   set('my_full_name', operatorName);
   set('campaign', p.campaign?.name);
 

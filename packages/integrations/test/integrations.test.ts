@@ -151,7 +151,7 @@ describe('formato Linked Helper', () => {
     }, 'Alexandre (LinkLeads)');
     expect(out).toMatchObject({
       full_name: 'Ana Silva', profile_url: 'https://www.linkedin.com/in/ana/', public_identifier: 'ana', email: 'ana@acme.com',
-      organization_1: 'ACME', organization_title_1: 'Diretora de Operações', member_distance: 1, my_full_name: 'Alexandre (LinkLeads)',
+      organization_1: 'ACME', organization_title_1: 'Diretora de Operações', member_distance: 'DISTANCE_1', my_full_name: 'Alexandre (LinkLeads)',
       message1_from: 'Alexandre (LinkLeads)', message1_text: 'Olá Ana, tudo bem?', message2_from: 'Ana Silva', message2_text: 'Oi! Tenho interesse.',
       campaign: 'Prospecção Saneamento', linkleads_reply_label: 'interessado', linkleads_committee: 'ACME: Decisor econômico',
       linkleads_origem: 'linkleads', linkleads_papel: 'Decisor econômico', linkleads_papel_confirmado: 1, linkleads_empresa_alvo: 'ACME',
