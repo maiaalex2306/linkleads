@@ -72,7 +72,7 @@ async function launcherView(accounts) {
         state.newAccountOpen = true;
         renderAccounts();
         document.querySelector('.new-account input[name="label"]')?.focus();
-      } }, '+ Adicionar conta')),
+      } }, '+ Nova conta LinkedIn')),
     h('div', { class: 'workspace-metrics' },
       metricBox('Contas cadastradas', accounts.length),
       metricBox('Navegadores abertos', opened),
