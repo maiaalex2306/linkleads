@@ -44,6 +44,7 @@ import { writeFileSync } from 'node:fs';
 import { InstanceManager } from './instance-manager.js';
 import { Settings } from './settings.js';
 import { trace } from './trace.js';
+import { isSafeManualRetry, SAFE_RETRY_REASONS } from './retry-policy.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 trace.configure(join(app.getPath('userData'), 'traces'));
@@ -263,12 +264,17 @@ ipcMain.handle('accounts:remove', async (_e, id: string) => {
 
 ipcMain.handle('instance:start', (_e, id: string) => void instances.start(account(id)));
 ipcMain.handle('instance:stop', (_e, id: string) => instances.stop(id));
-/** Falhas que podem mudar numa nova tentativa (página não carregou, erro, sem efeito, bloqueio, sem post). */
-const RETRYABLE = ['NOT_FOUND', 'ERROR', 'NO_REAL_EFFECT', 'THROTTLED', 'NO_POST', 'LIMIT_REACHED'];
+/** Somente falhas que comprovadamente ocorreram antes de uma interação externa. */
+const RETRYABLE = SAFE_RETRY_REASONS;
 
 ipcMain.handle('campaigns:retryFailed', (_e, id: string, campaignId: string) => {
-  const crm = crms.get(account(id));
+  const a = account(id);
+  if (a.paused) throw new Error('A conta está pausada por segurança. Não é possível repetir falhas até revisar o motivo da pausa.');
+  const crm = crms.get(a);
+  const campaign = crm.listCampaigns(id).find((c) => c.id === campaignId);
+  if (!campaign) throw new Error('Campanha não encontrada para esta conta');
   const n = crm.retryFailed(campaignId, RETRYABLE);
+  trace.record('campaign', 'manual_retry_safe', { count: n }, { accountId: id, campaignId });
   return n;
 });
 
@@ -292,7 +298,7 @@ ipcMain.handle('instance:live', (_e, id: string) => {
     const failedRows = rows.filter((r) => r.status === 'failed');
     const reasons: Record<string, number> = {};
     for (const r of failedRows) reasons[r.reason ?? 'ERROR'] = (reasons[r.reason ?? 'ERROR'] ?? 0) + 1;
-    const retryable = failedRows.filter((r) => RETRYABLE.includes(r.reason ?? 'ERROR')).length;
+    const retryable = acc.paused ? 0 : failedRows.filter((r) => isSafeManualRetry(r.reason)).length;
     const approval = rows.filter((r) => r.reason === 'AWAITING_APPROVAL').length;
     const done = rows.filter((r) => r.status === 'successful').length;
     let explain: string;
