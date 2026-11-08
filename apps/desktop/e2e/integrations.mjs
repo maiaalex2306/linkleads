@@ -130,6 +130,7 @@ try {
   check(exp.rows === 2 && text.includes('ana.silva@aguasdovale.com.br') && text.includes('+5519988887777') && text.split('\r\n')[0].includes('nome;linkedin'), 'CSV exportado (separador ";") com e-mails e telefones', text.slice(0, 300));
 
   await ui.reload();
+  await ui.locator('.account-list .acc').first().click();
   await ui.getByRole('button', { name: 'Entregas' }).click();
   await ui.getByText('Enviar pendentes agora').waitFor();
   await ui.screenshot({ path: join(shots, 'fase4-entregas.png') });

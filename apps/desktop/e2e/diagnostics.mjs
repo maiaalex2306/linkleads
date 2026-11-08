@@ -100,6 +100,7 @@ try {
   check(actions() === before, 'abrir pelo link não dispara nenhuma ação');
 
   await ui.reload();
+  await ui.locator('.account-list .acc').first().click();
   await ui.locator('.account-list').getByText('Conta teste').click();
   await ui.locator('.schedule').waitFor();
   const banner = await ui.locator('.schedule').textContent();

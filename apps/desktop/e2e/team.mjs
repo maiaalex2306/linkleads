@@ -113,6 +113,7 @@ try {
   check(dash.inboundLeads.open === 0 && dash.devices[0].name === 'Notebook da Bia', 'servidor registra os leads como entregues', dash.inboundLeads);
 
   await ui.reload();
+  await ui.locator('.account-list .acc').first().click();
   await ui.getByRole('button', { name: 'Configurações', exact: true }).click();
   await ui.getByText('Equipe: BioSolvit').waitFor();
   await ui.getByText('Equipe: BioSolvit').scrollIntoViewIfNeeded();

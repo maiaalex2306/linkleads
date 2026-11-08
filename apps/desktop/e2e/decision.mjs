@@ -86,6 +86,7 @@ try {
   check(d.company.summary?.includes('Agendar reunião com o decisor'), 'resumo da conta gerado e salvo', d.company.summary);
 
   await ui.reload();
+  await ui.locator('.account-list .acc').first().click();
   await ui.getByRole('button', { name: 'Empresas' }).click();
   await ui.getByText('ACME Saneamento').click();
   await ui.getByText('Papéis críticos alcançados').waitFor();

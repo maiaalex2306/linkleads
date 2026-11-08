@@ -58,6 +58,7 @@ try {
   check(drafts.length === 1 && drafts[0].kind === 'invite_note', 'nota de convite da IA aguardando aprovação');
 
   await ui.reload();
+  await ui.locator('.account-list .acc').first().click();
   await ui.getByRole('button', { name: /Aprovações/ }).click();
   await ui.getByText('Aprovar e enviar').waitFor();
   await ui.screenshot({ path: join(shots, 'fase2-aprovacao-convite.png') });
@@ -95,6 +96,7 @@ try {
   check(stats.invites30d.sent === 1 && stats.invites30d.accepted === 1, 'estatística de convites: 1 enviado, 1 aceito');
 
   await ui.reload();
+  await ui.locator('.account-list .acc').first().click();
   await ui.getByRole('button', { name: /Inbox/ }).click();
   await ui.getByText('Marcar como tratado').waitFor();
   await ui.getByText('ver conversa').click();

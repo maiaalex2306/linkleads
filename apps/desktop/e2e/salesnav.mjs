@@ -42,6 +42,7 @@ try {
 
   // formulário: oferece usar as mensagens da planilha
   await ui.reload();
+  await ui.locator('.account-list .acc').first().click();
   await ui.locator('.account-list').getByText('Conta teste').click();
   await ui.getByRole('button', { name: 'Campanhas', exact: true }).click();
   await ui.getByRole('button', { name: 'Usar as mensagens da planilha' }).click();

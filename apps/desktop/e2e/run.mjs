@@ -85,6 +85,7 @@ try {
 
   const shots = process.env.SHOT_DIR ?? tmp;
   await ui.reload();
+  await ui.locator('.account-list .acc').first().click();
   await ui.getByRole('button', { name: /Aprovações/ }).click();
   await ui.getByText('Aprovar e publicar').waitFor();
   await ui.screenshot({ path: join(shots, 'aprovacoes.png') });
