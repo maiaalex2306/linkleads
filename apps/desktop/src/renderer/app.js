@@ -30,11 +30,17 @@ async function renderAccounts() {
         const f = new FormData(e.target);
         const label = String(f.get('label') || '').trim();
         if (!label) return toast('Digite um nome para a conta');
-        const a = await safe(() => api.createAccount({ label, tier: f.get('tier') }));
+        const linkedinEmail = String(f.get('linkedinEmail') || '').trim();
+        const linkedinPassword = String(f.get('linkedinPassword') || '');
+        if (linkedinEmail && !linkedinPassword) return toast('Digite a senha do LinkedIn (ou deixe o e-mail em branco para entrar manualmente)');
+        const a = await safe(() => api.createAccount({ label, tier: f.get('tier'), linkedinEmail, linkedinPassword }));
         if (a) { state.accountId = a.id; e.target.reset(); refresh(); }
       },
     },
       h('input', { name: 'label', placeholder: 'Nova conta (nome)', required: true, autocomplete: 'off' }),
+      h('input', { name: 'linkedinEmail', type: 'email', placeholder: 'E-mail do LinkedIn', autocomplete: 'off' }),
+      h('input', { name: 'linkedinPassword', type: 'password', placeholder: 'Senha do LinkedIn', autocomplete: 'new-password' }),
+      h('div', { class: 'muted', style: 'font-size:12px' }, 'A senha fica criptografada neste computador e serve só para entrar sozinho no LinkedIn.'),
       h('div', { class: 'row' },
         h('select', { name: 'tier' }, ...[['basic', 'Basic'], ['premium', 'Premium'], ['sales_navigator', 'Sales Navigator'], ['recruiter', 'Recruiter']].map(([v, l]) => h('option', { value: v }, l))),
         h('button', { class: 'primary' }, 'Adicionar')),
@@ -83,16 +89,20 @@ async function renderView() {
       a.running
         ? [
             h('button', { onclick: () => safe(() => api.saveCurrentProfile(a.id)).then((r) => r && toast(r.ok ? 'Perfil salvo no CRM' : r.message)) }, 'Salvar perfil aberto'),
-            h('button', { onclick: () => safe(() => api.runNow(a.id), 'Ciclo executado').then(renderView) }, 'Rodar agora'),
+            h('button', { onclick: () => runNowExplained(a) }, 'Rodar agora'),
             h('button', { onclick: () => safe(() => api.stopInstance(a.id)).then(refresh) }, 'Parar'),
           ]
         : h('button', { class: 'primary', onclick: () => safe(() => api.startInstance(a.id)).then(refresh) }, 'Iniciar (abre o navegador)'),
+      h('button', { onclick: () => { state.loginOpen = !state.loginOpen; renderView(); } }, a.hasLinkedinPassword ? 'Login do LinkedIn ✓' : 'Login do LinkedIn'),
       h('button', { onclick: () => { state.proxyOpen = !state.proxyOpen; renderView(); } }, a.proxy ? `Proxy: ${a.proxy.host}` : 'Proxy'),
       h('button', { onclick: () => safe(() => api.setPaused(a.id, !a.paused)).then(refresh) }, a.paused ? 'Retomar automação' : 'Pausar automação'),
       h('button', { onclick: () => window.confirm(`Remover a conta "${a.label}" e seus dados locais?`) && safe(() => api.removeAccount(a.id)).then(() => { state.accountId = null; refresh(); }) }, 'Remover'),
     ),
-    h('div', { class: 'muted' }, `${a.tier} · ${a.workingHours.start}–${a.workingHours.end} (${a.workingHours.timezone}) · ${a.proxy ? 'proxy ' + a.proxy.host : 'sem proxy'}`),
+    h('div', { class: 'muted' }, `${a.tier} · ${a.workingHours.start}–${a.workingHours.end} (${a.workingHours.timezone}) · ${a.proxy ? 'proxy ' + a.proxy.host : 'sem proxy'} · ${a.hasLinkedinPassword ? `entra sozinho como ${a.linkedinEmail}` : 'login manual na janela'}`),
     healthBar(stats),
+    scheduleBanner(a),
+    state.hoursOpen && hoursPanel(a, () => { state.hoursOpen = false; renderView(); }),
+    state.loginOpen && loginPanel(a, () => { state.loginOpen = false; renderView(); }),
     state.proxyOpen && proxyPanel(a, () => { state.proxyOpen = false; renderView(); }),
     h('div', { class: 'tabs' }, ...tabs.map(([k, l]) => h('button', { class: state.tab === k ? 'sel' : '', onclick: () => { state.tab = k; renderView(); } }, l))),
   );
@@ -108,12 +118,13 @@ async function collectionsView(a) {
         class: 'primary', onclick: async () => {
           const r = await safe(() => api.importCsv(a.id));
           if (!r) return;
-          toast(`${r.added} perfis importados` + (r.skipped.length ? `, ${r.skipped.length} ignorados` : '') + (r.customColumns.length ? `. Colunas extras viram variáveis: ${r.customColumns.join(', ')}` : ''), 8000);
+          state.importReport = { ...r, accountId: a.id };
           renderView();
         },
       }, 'Importar CSV'),
-      h('span', { class: 'muted' }, 'O CSV precisa de uma coluna com a URL do perfil (profileUrl, linkedin_url ou url).'),
+      h('span', { class: 'muted' }, 'Aceita qualquer planilha com links de perfil (linkedin.com/in/…), em qualquer coluna.'),
     ),
+    state.importReport && state.importReport.accountId === a.id && importReportCard(state.importReport, () => { state.importReport = null; renderView(); }),
   );
   if (!cols.length) out.append(h('p', { class: 'muted' }, 'Nenhuma coleção ainda.'));
   for (const c of cols) {

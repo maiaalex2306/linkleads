@@ -4,7 +4,20 @@ import { createServer } from 'node:http';
 const state = {
   liked: false, comments: [], connection: 'none', inviteNote: null, invites: 0, withdrawals: 0, messages: [], unread: false,
   anaHeadline: 'Diretora de Operações na Águas do Vale', companyVisits: 0,
+  // sessão do LinkedIn falso: loggedOut força a página de login; logins guarda as tentativas (e-mail, senha)
+  loggedOut: false, logins: [], loginEmail: 'ana@empresa.com.br', loginPassword: 'senha-certa',
 };
+
+const loginHtml = `<form class="login__form"><input id="username" name="session_key" autocomplete="username">
+  <input id="password" name="session_password" type="password"><div id="error-for-password"></div>
+  <button type="submit" class="btn__primary--large">Entrar</button></form>`;
+const loginScript = String.raw`
+document.querySelector('form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const r = await fetch('/api/login', { method: 'POST', body: JSON.stringify({ email: username.value, password: password.value }) });
+  if ((await r.text()) === 'ok') location.href = '/feed/';
+  else document.getElementById('error-for-password').textContent = 'Senha incorreta';
+});`;
 const COLLEAGUES = {
   'bruno-lima': { name: 'Bruno Lima', headline: 'Gerente de Compras e Suprimentos' },
   'carla-souza': { name: 'Carla Souza', headline: 'Engenheira de Perdas e Telemetria' },
@@ -129,11 +142,20 @@ export function startFakeSite(port = 0) {
         if (url === '/test/accept') state.connection = 'connected';
         if (url === '/test/reply') { state.messages.push({ from: 'them', body }); state.unread = true; }
         if (url === '/test/jobchange') state.anaHeadline = body;
+        if (url === '/api/login') {
+          const b = JSON.parse(body || '{}');
+          state.logins.push(b);
+          if (b.email === state.loginEmail && b.password === state.loginPassword) state.loggedOut = false;
+          return res.end(state.loggedOut ? 'denied' : 'ok');
+        }
+        if (url === '/test/logout') state.loggedOut = true;
         if (url === '/api/comment') state.comments.push(body.replace(/</g, '&lt;'));
         res.end('ok');
       });
       return;
     }
+    if (url === '/login' || url.startsWith('/login?')) return html(loginHtml, loginScript);
+    if (state.loggedOut && !url.startsWith('/api')) { res.writeHead(302, { location: '/login' }); return res.end(); }
     if (url.startsWith('/feed/update/')) return html(postHtml(true), commentScript);
     if (url === '/in/ana-silva/recent-activity/all/') return html(`<div class="spacer"></div>${postHtml(false)}<div class="spacer"></div>`, likeScript);
     if (url === '/in/ana-silva/') return html(profileHtml(), profileScript);

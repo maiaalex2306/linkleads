@@ -65,6 +65,11 @@ export const DEFAULT_SELECTORS = {
   contactInfoPhone: ['section.ci-phone li span.t-14', '.pv-contact-info__contact-type.ci-phone li span', 'a[href^="tel:"]'],
   // sinais de bloqueio / sessão
   checkpoint: ['form#captcha-challenge', '#challenge', 'iframe[src*="captcha"]'],
+  // página de login (entrada automática com o e-mail e a senha salvos na conta)
+  loginEmail: ['#username', 'input[name="session_key"]'],
+  loginPassword: ['#password', 'input[name="session_password"]'],
+  loginSubmit: ['form.login__form button[type="submit"]', 'button[data-litms-control-urn="login-submit"]', 'button[type="submit"]'],
+  loginError: ['#error-for-password', '#error-for-username', '.form__label--error', '.alert-content'],
   loggedOut: ['form.login__form', 'a[href*="/login"].nav__button-secondary', '.authwall-join-form'],
 } as const;
 

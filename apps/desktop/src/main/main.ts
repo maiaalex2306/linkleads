@@ -50,6 +50,21 @@ let launcher: BrowserWindow | undefined;
 const send = (channel: string, ...args: unknown[]) => launcher?.webContents.send(channel, ...args);
 
 const accounts = new AccountStore();
+
+/** Horário padrão: todos os dias, das 07:00 às 23:00 (definido pelo dono do produto). */
+const DEFAULT_HOURS = { days: [0, 1, 2, 3, 4, 5, 6], start: '07:00', end: '23:00' };
+
+/**
+ * Contas criadas com o padrão antigo (seg–sex, 09:00–18:00) passam para o padrão atual, uma vez.
+ * Conta em que alguém escolheu outro horário não é tocada.
+ */
+function migrateDefaultHours() {
+  for (const a of accounts.list()) {
+    const wh = a.workingHours;
+    const oldDefault = wh && wh.start === '09:00' && wh.end === '18:00' && wh.days.join() === '1,2,3,4,5';
+    if (oldDefault) accounts.save({ ...a, workingHours: { ...wh, ...DEFAULT_HOURS } });
+  }
+}
 const settings = new Settings();
 const crms = new CrmRegistry();
 const integrationSettings = new IntegrationSettings();
@@ -59,6 +74,7 @@ const hub = new IntegrationHub(
   (accountId, line) => send('log', { accountId, line, at: new Date().toISOString() }),
 );
 const instances = new InstanceManager(crms, settings, {
+  getLogin: (accountId) => accounts.getLogin(accountId),
   onLog: (accountId, line) => send('log', { accountId, line, at: new Date().toISOString() }),
   onAccountChanged: (account) => {
     accounts.save(account);
@@ -94,26 +110,52 @@ function createLauncher() {
 }
 
 // Contas e instâncias ---------------------------------------------------------
-ipcMain.handle('accounts:list', () => accounts.list().map((a) => ({ ...publicAccount(a), running: instances.isRunning(a.id) })));
+ipcMain.handle('accounts:list', () => accounts.list().map((a) => ({ ...publicAccount(a), ...accounts.loginInfo(a.id), running: instances.isRunning(a.id) })));
 
-ipcMain.handle('accounts:create', (_e, input: { label: string; tier: Account['tier'] }) => {
+/** Salva o login do LinkedIn (senha vazia mantém a salva; e-mail vazio apaga). */
+ipcMain.handle('accounts:setLogin', (_e, id: string, input: { email: string; password?: string }) => {
+  account(id);
+  const email = String(input?.email || '').trim();
+  if (email && !/^\S+@\S+\.\S+$/.test(email) && !/^\+?\d[\d\s()-]{7,}$/.test(email)) throw new Error('Informe o e-mail (ou telefone) usado para entrar no LinkedIn');
+  if (email && !input.password && !accounts.loginInfo(id).hasLinkedinPassword) throw new Error('Informe a senha do LinkedIn');
+  accounts.setLogin(id, email, input.password || undefined);
+  if (email) void instances.get(id)?.loginNow().catch(() => undefined);
+  return accounts.loginInfo(id);
+});
+
+ipcMain.handle('accounts:create', (_e, input: { label: string; tier: Account['tier']; linkedinEmail?: string; linkedinPassword?: string }) => {
   const a: Account = {
     id: randomUUID(),
     label: input.label,
     tier: input.tier,
     dailyLimits: { ...DEFAULT_DAILY_LIMITS },
-    workingHours: { timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, days: [1, 2, 3, 4, 5], start: '09:00', end: '18:00' },
+    workingHours: { timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, ...DEFAULT_HOURS },
     onboardedAt: new Date().toISOString(),
     paused: false,
   };
   accounts.save(a);
-  return a;
+  const email = String(input.linkedinEmail || '').trim();
+  if (email && input.linkedinPassword) accounts.setLogin(a.id, email, input.linkedinPassword);
+  return { ...a, ...accounts.loginInfo(a.id) };
 });
 
 /** Atualiza a conta. O proxy só muda por accounts:setProxy (a tela não recebe a senha). */
 ipcMain.handle('accounts:update', (_e, a: Account) => {
   const current = account(a.id);
+  if (a.workingHours) {
+    const wh = a.workingHours;
+    if (!/^\d{2}:\d{2}$/.test(wh.start) || !/^\d{2}:\d{2}$/.test(wh.end) || wh.start >= wh.end) throw new Error('Horário inválido: o início precisa ser antes do fim');
+    if (!wh.days.length) throw new Error('Escolha pelo menos um dia da semana');
+    try {
+      new Intl.DateTimeFormat('pt-BR', { timeZone: wh.timezone });
+    } catch {
+      throw new Error('Fuso horário inválido');
+    }
+  }
   accounts.save({ ...a, proxy: current.proxy });
+  // conta em execução: aplica na hora (sem reiniciar)
+  const inst = instances.get(a.id);
+  if (inst) Object.assign(inst.account, { label: a.label, workingHours: a.workingHours, dailyLimits: a.dailyLimits, tier: a.tier });
 });
 
 ipcMain.handle('accounts:setProxy', (_e, id: string, proxy: ProxyConfig | null) => {
@@ -144,7 +186,8 @@ ipcMain.handle('accounts:remove', async (_e, id: string) => {
 
 ipcMain.handle('instance:start', (_e, id: string) => void instances.start(account(id)));
 ipcMain.handle('instance:stop', (_e, id: string) => instances.stop(id));
-ipcMain.handle('instance:runNow', (_e, id: string) => instances.require(id).tickAll({ waitIfBusy: true }));
+ipcMain.handle('instance:runNow', (_e, id: string, opts?: { ignoreHours?: boolean }) =>
+  instances.require(id).tickAll({ waitIfBusy: true, ignoreHours: !!opts?.ignoreHours }));
 ipcMain.handle('instance:diagnose', (_e, id: string) => instances.require(id).diagnose());
 ipcMain.handle('instance:saveDiagnosis', async (_e, reports: unknown[]) => {
   const pick = process.env.LINKLEADS_TEST_EXPORT_PATH
@@ -173,10 +216,18 @@ ipcMain.handle('collections:importCsv', async (_e, id: string) => {
   const file = pick.filePaths[0];
   const crm = crms.get(account(id));
   const result = importPeopleFromCsv(readFileSync(file, 'utf8'));
-  const collectionId = randomUUID();
-  crm.createCollection(collectionId, basename(file).replace(/\.[^.]+$/, ''), 'csv');
+  // reimportar o mesmo arquivo completa a coleção existente (sem duplicar pessoas nem coleções)
+  const name = basename(file).replace(/\.[^.]+$/, '');
+  const existing = crm.listCollections().find((c) => c.name === name);
+  const collectionId = existing?.id ?? randomUUID();
+  if (!existing) crm.createCollection(collectionId, name, 'csv');
   const added = crm.addToCollection(collectionId, result.people);
-  return { collectionId, added, skipped: result.skipped, customColumns: result.customColumns };
+  const reasons: Record<string, number> = {};
+  for (const s of result.skipped) reasons[s.reason] = (reasons[s.reason] ?? 0) + 1;
+  return {
+    collectionId, name, reused: !!existing, rows: result.people.length + result.skipped.length,
+    valid: result.people.length, added, reasons, skipped: result.skipped.slice(0, 50), customColumns: result.customColumns,
+  };
 });
 
 // Campanhas ------------------------------------------------------------------
@@ -445,6 +496,7 @@ app.on('open-url', (event, url) => {
 ipcMain.handle('deeplink:last', () => lastDeepLink);
 
 app.whenReady().then(() => {
+  migrateDefaultHours();
   registerProtocol();
   // só nos testes e2e em Linux sem chaveiro (o switch password-store=basic já foi aplicado acima)
   if (process.env.LINKLEADS_TEST_BASE_URL && process.platform === 'linux') safeStorage.setUsePlainTextEncryption(true);

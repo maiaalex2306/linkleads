@@ -14,6 +14,16 @@ const tmp = mkdtempSync(join(tmpdir(), 'linkleads-diag-'));
 const reportPath = join(tmp, 'diag.json');
 const shots = process.env.SHOT_DIR ?? tmp;
 
+// contas salvas antes desta versão: uma no padrão antigo (seg–sex 09–18) e uma personalizada
+import { mkdirSync, writeFileSync } from 'node:fs';
+const userDataDir = join(tmp, '@linkleads', 'desktop');
+mkdirSync(userDataDir, { recursive: true });
+const wh = (days, start, end) => ({ timezone: 'America/Sao_Paulo', days, start, end });
+writeFileSync(join(userDataDir, 'accounts.json'), JSON.stringify([
+  { id: 'antiga', label: 'Conta antiga', tier: 'basic', dailyLimits: {}, paused: false, onboardedAt: '2026-01-01T00:00:00Z', workingHours: wh([1, 2, 3, 4, 5], '09:00', '18:00') },
+  { id: 'propria', label: 'Conta própria', tier: 'basic', dailyLimits: {}, paused: false, onboardedAt: '2026-01-01T00:00:00Z', workingHours: wh([1, 3, 5], '08:00', '12:00') },
+]));
+
 const site = await startFakeSite();
 const app = await electron.launch({
   executablePath: require(join(appDir, '../../node_modules/electron')),
@@ -26,7 +36,12 @@ try {
   const ui = await app.firstWindow();
   await ui.waitForLoadState('domcontentloaded');
   const call = (fn, ...args) => ui.evaluate(([fn, args]) => window.linkleads[fn](...args), [fn, args]);
+  const before0 = await call('listAccounts');
+  const byId = Object.fromEntries(before0.map((x) => [x.id, x.workingHours]));
+  check(byId.antiga.days.join() === '0,1,2,3,4,5,6' && byId.antiga.start === '07:00' && byId.antiga.end === '23:00', 'conta no padrão antigo migrada para todos os dias, 07:00–23:00', byId.antiga);
+  check(byId.propria.days.join() === '1,3,5' && byId.propria.start === '08:00', 'conta com horário personalizado não é alterada', byId.propria);
   const acc = await call('createAccount', { label: 'Conta teste', tier: 'basic' });
+  check(acc.workingHours.days.length === 7 && acc.workingHours.start === '07:00' && acc.workingHours.end === '23:00', 'conta nova nasce com todos os dias, 07:00–23:00', acc.workingHours);
   await call('startInstance', acc.id);
   // "o usuário navega" na janela da conta
   const go = (path) => app.evaluate(async ({ BrowserWindow }, url) => {
@@ -72,6 +87,16 @@ try {
   check(actions() === before, 'abrir pelo link não dispara nenhuma ação');
 
   await ui.reload();
+  await ui.locator('.account-list').getByText('Conta teste').click();
+  await ui.locator('.schedule').waitFor();
+  const banner = await ui.locator('.schedule').textContent();
+  check(/horário de trabalho/i.test(banner), 'aviso de horário aparece no topo da conta', banner);
+  await ui.getByRole('button', { name: 'Alterar horário' }).click();
+  await ui.getByText('Horário de trabalho desta conta').waitFor();
+  await ui.screenshot({ path: join(shots, 'horario.png') });
+  await ui.getByRole('button', { name: 'Salvar horário' }).click();
+  const hrs = (await call('listAccounts')).find((x) => x.id === acc.id).workingHours;
+  check(hrs.days.length === 7 && hrs.start === '07:00', 'editor de horário salva sem alterar o que não foi mudado', hrs);
   await ui.getByRole('button', { name: 'Diagnóstico' }).click();
   await ui.getByText('Validar o app na sua conta').waitFor();
   await ui.getByRole('button', { name: 'Diagnosticar página aberta' }).click();

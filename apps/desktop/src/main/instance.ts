@@ -71,7 +71,12 @@ const INBOX_SCAN_EVERY_MS = 30 * 60_000;
 export interface InstanceEvents {
   onLog(accountId: string, line: string): void;
   onAccountChanged(account: Account): void;
+  /** e-mail e senha do LinkedIn salvos na conta (só no processo principal) */
+  getLogin?(accountId: string): { email: string; password: string } | undefined;
 }
+
+const LOGIN_PAGE = /\/(login|uas\/login|checkpoint\/lg\/login|checkpoint\/rm\/sign-in-another-account|authwall)/;
+const MAX_LOGIN_ATTEMPTS_PER_HOUR = 3;
 
 /**
  * Uma instância = uma conta. Sessão própria (cookies, cache, storage),
@@ -89,6 +94,11 @@ export class AccountInstance {
   private currentTick?: Promise<TickReport[]>;
   private lastInboxScan = 0;
   private llmCache?: { key: string; llm: LlmClient };
+  private loginAttempts: number[] = [];
+  /** login recusado pelo LinkedIn: não tenta de novo com o mesmo e-mail/senha (evita travar a conta) */
+  private rejectedLogin?: string;
+  private rejectedNoticeAt = 0;
+  private loggingIn?: Promise<string>;
 
   constructor(
     readonly account: Account,
@@ -160,7 +170,116 @@ export class AccountInstance {
     // o proxy precisa estar ativo ANTES da primeira requisição, senão ela sai pelo IP da máquina
     const proxyReady = account.proxy ? this.session.setProxy({ proxyRules: proxyRules(account.proxy) }) : this.session.setProxy({ mode: 'direct' });
     void proxyReady.then(() => this.window.loadURL(START_PAGE));
+    // caiu na página de login (ao abrir ou no meio do dia): entra sozinho com o e-mail e a senha salvos
+    this.window.webContents.on('did-finish-load', () => {
+      if (LOGIN_PAGE.test(this.window.webContents.getURL())) void this.withBrowser(() => this.ensureLoggedIn()).catch(() => undefined);
+    });
   }
+
+  /**
+   * Faz o login no LinkedIn se a janela estiver na página de login.
+   * Digita como uma pessoa (eventos nativos), no máximo 3 tentativas por hora para não travar a conta.
+   * Verificação de segurança (código por e-mail/app, captcha) fica para a pessoa concluir na janela.
+   */
+  /** Tenta o login agora (ex.: logo depois de salvar e-mail e senha). */
+  loginNow(): Promise<string> {
+    // e-mail/senha novos: zera o histórico de tentativas
+    this.loginAttempts = [];
+    this.rejectedLogin = undefined;
+    return this.withBrowser(() => this.ensureLoggedIn());
+  }
+
+  ensureLoggedIn(): Promise<string> {
+    if (!this.loggingIn) this.loggingIn = this.doLogin().finally(() => (this.loggingIn = undefined));
+    return this.loggingIn;
+  }
+
+  private async doLogin(): Promise<string> {
+    const d = this.driver;
+    const wc = this.window.webContents;
+    const onLogin = async () => LOGIN_PAGE.test(wc.getURL()) || ((await d.exists('loginPassword')) && (await d.exists('loginEmail')));
+    if (!(await onLogin().catch(() => false))) return 'not_needed';
+    const creds = this.events.getLogin?.(this.account.id);
+    if (!creds) {
+      this.log('O LinkedIn pediu login. Entre na janela da conta ou salve o e-mail e a senha em "Login do LinkedIn" para entrar sozinho.');
+      return 'no_credentials';
+    }
+    const credKey = `${creds.email}\u0000${creds.password}`;
+    if (this.rejectedLogin === credKey) {
+      if (Date.now() - this.rejectedNoticeAt > 3_600_000) {
+        this.rejectedNoticeAt = Date.now();
+        this.log('O LinkedIn recusou este e-mail/senha. Corrija em "Login do LinkedIn" (o app não tenta de novo com a mesma senha).');
+      }
+      return 'rejected';
+    }
+    const hourAgo = Date.now() - 3_600_000;
+    this.loginAttempts = this.loginAttempts.filter((t) => t > hourAgo);
+    if (this.loginAttempts.length >= MAX_LOGIN_ATTEMPTS_PER_HOUR) {
+      this.log('Login automático suspenso por 1 hora (3 tentativas). Entre manualmente na janela da conta.');
+      return 'rate_limited';
+    }
+    this.loginAttempts.push(Date.now());
+    this.log('Entrando no LinkedIn com o login salvo…');
+    if (!(await d.exists('loginPassword'))) {
+      await wc.loadURL(`${BASE}/login`);
+      if (!(await d.waitFor('loginPassword', 15_000))) {
+        this.log('Não achei o formulário de login. Entre manualmente na janela da conta.');
+        return 'failed';
+      }
+    }
+    await d.input.think(600, 1500);
+    // o LinkedIn às vezes já traz o e-mail preenchido ("bem-vindo de volta")
+    if (await d.exists('loginEmail')) {
+      const current = await d.read((c: readonly string[]) => {
+        const el = c.map((s) => document.querySelector(s)).find(Boolean) as HTMLInputElement | undefined;
+        return el ? el.value : '';
+      }, d.sel.loginEmail);
+      if (current.trim().toLowerCase() !== creds.email.toLowerCase()) {
+        await d.read((c: readonly string[]) => {
+          const el = c.map((s) => document.querySelector(s)).find(Boolean) as HTMLInputElement | undefined;
+          if (el) el.value = '';
+        }, d.sel.loginEmail);
+        if (!(await d.click('loginEmail'))) return 'failed';
+        await d.input.type(creds.email);
+        await d.input.think(400, 1200);
+      }
+    }
+    await d.read((c: readonly string[]) => {
+      const el = c.map((s) => document.querySelector(s)).find(Boolean) as HTMLInputElement | undefined;
+      if (el) el.value = '';
+    }, d.sel.loginPassword);
+    if (!(await d.click('loginPassword'))) return 'failed';
+    await d.input.type(creds.password);
+    await d.input.think(500, 1400);
+    if (!(await d.click('loginSubmit'))) await d.press('Enter');
+
+    const left = await d.waitUntil(async () => !LOGIN_PAGE.test(wc.getURL()) && !wc.isLoading() && !(await onLogin().catch(() => true)), 25_000, 800);
+    const url = wc.getURL();
+    if (/\/checkpoint\/|\/challenge/.test(url) || (await d.exists('checkpoint').catch(() => false))) {
+      this.log('O LinkedIn pediu uma verificação de segurança (código por e-mail/SMS/app ou captcha). Conclua na janela da conta; a automação continua depois.');
+      return 'checkpoint';
+    }
+    if (!left) {
+      const err = await d.read((c: readonly string[]) => c.some((s) => (document.querySelector(s)?.textContent || '').trim()), d.sel.loginError).catch(() => false);
+      if (err) {
+        this.rejectedLogin = credKey;
+        this.rejectedNoticeAt = Date.now();
+      }
+      this.log(err ? 'O LinkedIn recusou o login: confira o e-mail e a senha em "Login do LinkedIn".' : 'O login não terminou. Confira a janela da conta.');
+      return 'failed';
+    }
+    this.loginAttempts = [];
+    this.log('Login no LinkedIn feito automaticamente.');
+    if (this.account.paused && this.pausedForSession) {
+      this.pausedForSession = false;
+      this.account.paused = false;
+      this.events.onAccountChanged(this.account);
+      this.log('Automação retomada: a pausa foi por sessão encerrada.');
+    }
+    return 'ok';
+  }
+
+  private pausedForSession = false;
 
   /** Cliente de IA do provedor escolhido (Anthropic ou OpenAI); null sem chave. */
   private llm(): LlmClient | null {
@@ -218,7 +337,7 @@ export class AccountInstance {
   }
 
   /** Roda um ciclo: inbox → freio → campanhas ativas. */
-  async tickAll(opts: { forceInbox?: boolean; waitIfBusy?: boolean } = {}): Promise<TickReport[]> {
+  async tickAll(opts: { forceInbox?: boolean; waitIfBusy?: boolean; ignoreHours?: boolean } = {}): Promise<TickReport[]> {
     // "Rodar agora" durante um ciclo automático: espera terminar e roda em seguida
     while (this.currentTick) {
       if (!opts.waitIfBusy) return [];
@@ -232,10 +351,16 @@ export class AccountInstance {
     }
   }
 
-  private async runTick(opts: { forceInbox?: boolean }): Promise<TickReport[]> {
+  private async runTick(opts: { forceInbox?: boolean; ignoreHours?: boolean }): Promise<TickReport[]> {
     {
+      // sessão caiu? entra de novo com o login salvo antes de qualquer ação
+      const login = await this.withBrowser(() => this.ensureLoggedIn()).catch(() => 'not_needed');
       if (this.account.paused) {
         this.log('Conta pausada: nada a fazer.');
+        return [];
+      }
+      if (login !== 'not_needed' && login !== 'ok') {
+        this.log('Sem sessão no LinkedIn: o ciclo fica para depois do login.');
         return [];
       }
       await this.checkInbox(opts.forceInbox);
@@ -247,13 +372,26 @@ export class AccountInstance {
       }
 
       const reports: TickReport[] = [];
-      for (const c of this.crm.listCampaigns(this.account.id).filter((x) => x.active)) {
+      const active = this.crm.listCampaigns(this.account.id).filter((x) => x.active);
+      if (!active.length) this.log('Nenhuma campanha ativa: nada a executar. Ative uma campanha em Campanhas.');
+      if (opts.ignoreHours) this.log('Rodando uma vez FORA do horário de trabalho, a pedido (limites diários continuam valendo).');
+      for (const c of active) {
         // tetos da equipe (se houver) valem por cima dos limites locais
-        const effective = withTeamCaps(this.account, this.settings.teamCaps());
+        let effective = withTeamCaps(this.account, this.settings.teamCaps());
+        if (opts.ignoreHours)
+          effective = { ...effective, workingHours: { ...effective.workingHours, days: [0, 1, 2, 3, 4, 5, 6], start: '00:00', end: '23:59' } };
         const r = await this.runner.tick(this.campaignWithAboutMe(c), effective);
         if (effective !== this.account && effective.paused) this.account.paused = true;
         reports.push(r);
-        if (r.skipped) this.log(`${c.name}: pulada (${r.skipped})`);
+        if (r.skipped) {
+          const why = {
+            outside_hours: `fora do horário de trabalho (${this.account.workingHours.start}–${this.account.workingHours.end}, dias ${this.account.workingHours.days.map((d) => ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'][d]).join('/')})`,
+            paused: 'conta pausada',
+            inactive: 'campanha pausada',
+          }[r.skipped];
+          this.log(`${c.name}: não rodou — ${why}`);
+        } else if (!r.processed)
+          this.log(`${c.name}: nada a fazer agora (fila vazia, aguardando o prazo de alguma etapa, limite diário atingido ou tipo de ação desligado)`);
         else if (r.processed)
           this.log(
             `${c.name}: ${r.processed} processadas, ${r.successful} ok, ${r.awaitingApproval} aguardando aprovação, ` +
@@ -262,6 +400,11 @@ export class AccountInstance {
           );
         if (this.account.paused) {
           this.pause('a plataforma sinalizou limite, verificação de segurança ou sessão encerrada.');
+          if (LOGIN_PAGE.test(this.window.webContents.getURL())) {
+            // foi só a sessão que caiu: o login automático retoma a automação
+            this.pausedForSession = true;
+            await this.withBrowser(() => this.ensureLoggedIn()).catch(() => undefined);
+          }
           break;
         }
       }

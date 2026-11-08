@@ -32,7 +32,7 @@ describe('CSV', () => {
     const r = importPeopleFromCsv(csv);
     expect(r.people).toHaveLength(1);
     expect(r.people[0]).toMatchObject({ firstName: 'Maria', lastName: 'Silva', company: 'ACME', custom: { Segmento: 'Saneamento' } });
-    expect(r.skipped.map((s) => s.reason)).toEqual(['Duplicado', 'URL de perfil ausente ou inválida']);
+    expect(r.skipped.map((s) => s.reason)).toEqual(['Duplicado', 'Sem URL de perfil']);
   });
 
   it('exige coluna de URL', () => {
@@ -74,4 +74,28 @@ describe('idade relativa', () => {
     ['5h', 0], ['30 min', 0], ['2d', 2], ['3 sem', 21], ['1w', 7], ['1 mês', 30], ['2mo', 60], ['1 a', 365], ['1yr', 365], ['agora', 0],
   ])('%s → %d', (label, days) => expect(parseRelativeAgeDays(label)).toBe(days));
   it('desconhecido', () => expect(parseRelativeAgeDays('ontem?')).toBeUndefined());
+});
+
+describe('CSV robusto (planilhas reais)', () => {
+  it('acha o link /in/ em qualquer coluna e explica cada descarte', () => {
+    const csv = [
+      'Nome;Empresa atual;Mensagem 1;Link Sales Nav;Observação',
+      'Ana;ACME;"Oi Ana,\nvi seu post";https://www.linkedin.com/sales/lead/ACwAAA;perfil: https://www.linkedin.com/in/ana-silva/',
+      'Bia;Beta;"Olá";https://www.linkedin.com/sales/lead/ACwBBB;sem link público',
+      'Caio;Gama;"Oi";;https://www.linkedin.com/company/gama/',
+      'Duda;Delta;"Oi";;nada',
+    ].join('\n');
+    const r = importPeopleFromCsv(csv);
+    expect(r.people.map((p) => [p.publicId, p.firstName, p.company])).toEqual([['ana-silva', 'Ana', 'ACME']]);
+    expect(r.skipped.map((s) => s.reason)).toEqual([
+      'Só tem URL do Sales Navigator (precisa da URL pública linkedin.com/in/…)',
+      'URL de página de empresa, não de perfil',
+      'Sem URL de perfil',
+    ]);
+  });
+
+  it('com duas colunas de URL, usa a que for de perfil', () => {
+    const r = importPeopleFromCsv('url,profileUrl\nhttps://www.linkedin.com/company/x/,https://www.linkedin.com/in/bruno/');
+    expect(r.people[0]?.publicId).toBe('bruno');
+  });
 });

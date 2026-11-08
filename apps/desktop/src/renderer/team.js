@@ -35,6 +35,23 @@ async function teamCard() {
   );
 }
 
+/** Login do LinkedIn da conta: e-mail e senha para entrar sozinho ao abrir o navegador. */
+function loginPanel(a, onClose) {
+  const email = h('input', { type: 'email', value: a.linkedinEmail || '', placeholder: 'e-mail do LinkedIn', style: 'width:260px', autocomplete: 'off' });
+  const pass = h('input', { type: 'password', placeholder: a.hasLinkedinPassword ? '•••••• (senha salva)' : 'senha do LinkedIn', style: 'width:220px', autocomplete: 'new-password' });
+  return h('div', { class: 'card stack' },
+    h('div', { class: 'row' }, h('strong', { style: 'flex:1' }, 'Login do LinkedIn'), h('button', { class: 'link', onclick: onClose }, 'fechar')),
+    h('div', { class: 'muted' }, 'Ao abrir o navegador (ou se a sessão cair), o app entra sozinho no LinkedIn com este e-mail e senha, digitando como uma pessoa. A senha fica criptografada no cofre do sistema e nunca sai deste computador. Se o LinkedIn pedir um código de verificação, conclua na janela da conta.'),
+    h('div', { class: 'row' }, email, pass),
+    h('div', { class: 'row' },
+      h('button', { class: 'primary', onclick: async () => {
+        const r = await safe(() => api.setLogin(a.id, { email: email.value, password: pass.value || undefined }));
+        if (r) { toast(a.running ? 'Login salvo. Se a janela estiver na página de login, o app entra agora.' : 'Login salvo. Clique em "Iniciar" para abrir o LinkedIn já logado.', 6000); onClose(); }
+      } }, 'Salvar'),
+      a.hasLinkedinPassword && h('button', { onclick: () => window.confirm('Apagar o e-mail e a senha salvos desta conta?') && safe(() => api.setLogin(a.id, { email: '' }), 'Login apagado').then(onClose) }, 'Apagar login')),
+  );
+}
+
 /** Painel de proxy da conta (abre sob o cabeçalho). */
 function proxyPanel(a, onClose) {
   const p = a.proxy || {};

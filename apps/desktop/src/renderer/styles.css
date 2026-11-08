@@ -100,3 +100,6 @@ input[type=radio], input[type=checkbox] { accent-color:var(--brand); }
 .ai.summary { white-space:pre-wrap; font-size:13px; }
 .tabs { flex-wrap:wrap; }
 .cov.critical { border-width:2px; }
+.schedule { display:flex; gap:10px; align-items:center; margin-top:10px; padding:8px 12px; border-radius:10px; font-size:13px; border:1px solid var(--line); }
+.schedule.ok { border-color:var(--ok); color:var(--ok); }
+.schedule.warn { border-color:var(--warn); background:var(--accent-soft); color:var(--soft-ink); }
