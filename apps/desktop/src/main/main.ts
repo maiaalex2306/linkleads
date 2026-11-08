@@ -27,6 +27,7 @@ import { CrmRegistry } from './crm-registry.js';
 import { accountStats } from './stats.js';
 import { TeamSync } from './team-sync.js';
 import { setupUpdater } from './updater.js';
+import { attachContextMenu } from './context-menu.js';
 import { IntegrationHub } from './integration-hub.js';
 import { IntegrationSettings } from './integration-settings.js';
 import { toCsv } from '@linkleads/integrations';
@@ -87,6 +88,7 @@ function createLauncher() {
     title: 'LinkLeads',
     webPreferences: { preload: join(here, '../preload/preload.cjs'), contextIsolation: true, sandbox: true },
   });
+  attachContextMenu(launcher.webContents);
   void launcher.loadFile(join(here, '../renderer/index.html'));
 }
 

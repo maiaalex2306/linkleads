@@ -31,6 +31,7 @@ import { PageDriver } from './linkedin/page-driver.js';
 import { diagnosePage, type DiagnosisReport } from './linkedin/diagnostics.js';
 import { loadSelectors } from './linkedin/selectors.js';
 import { now } from './clock.js';
+import { attachContextMenu } from './context-menu.js';
 import { proxyRules } from './proxy-check.js';
 import { withTeamCaps } from './stats.js';
 import type { Settings } from './settings.js';
@@ -111,6 +112,7 @@ export class AccountInstance {
       }
     });
 
+    attachContextMenu(this.window.webContents);
     this.driver = new PageDriver(this.window.webContents, loadSelectors());
     this.deps = {
       driver: this.driver,

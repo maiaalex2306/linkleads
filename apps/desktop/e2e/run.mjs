@@ -34,6 +34,27 @@ try {
   const typed = await ui.getByPlaceholder('Nova conta (nome)').inputValue();
   if (typed !== 'Conta teste') fail(`campo "Nova conta" perdeu o texto durante a digitação → ${JSON.stringify(typed)}`);
   else console.log('ok - campo "Nova conta" mantém o texto durante o redesenho');
+  // botão direito: o menu abre com as opções de edição e "Colar" cola de verdade
+  await app.evaluate(({ Menu, clipboard, BrowserWindow }) => {
+    clipboard.writeText(' (colado)');
+    const orig = Menu.buildFromTemplate.bind(Menu);
+    Menu.buildFromTemplate = (tpl) => {
+      globalThis.__lastMenu = tpl.map((i) => i.label ?? i.type);
+      const m = orig(tpl);
+      m.popup = () => {
+        const paste = tpl.find((i) => i.role === 'paste');
+        if (paste) (BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0])?.webContents.paste();
+      };
+      return m;
+    };
+  });
+  await ui.getByPlaceholder('Nova conta (nome)').click({ button: 'right' });
+  await new Promise((r) => setTimeout(r, 500));
+  const menu = await app.evaluate(() => globalThis.__lastMenu);
+  const pasted = await ui.getByPlaceholder('Nova conta (nome)').inputValue();
+  if (!menu?.includes('Copiar') || !menu.includes('Colar') || pasted !== 'Conta teste (colado)') fail(`menu do botão direito → ${JSON.stringify({ menu, pasted })}`);
+  else console.log('ok - botão direito abre o menu (Recortar/Copiar/Colar…) e colar funciona');
+  await ui.getByPlaceholder('Nova conta (nome)').fill('Conta teste');
   await ui.getByRole('button', { name: 'Adicionar' }).click();
   await ui.locator('.account-list').getByText('Conta teste').waitFor();
   const acc = (await call('listAccounts')).find((x) => x.label === 'Conta teste');
