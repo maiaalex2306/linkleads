@@ -15,7 +15,8 @@ linkleads/
 ├─ packages/db       # SQLite local por conta (CRM: pessoas, coleções, campanhas, posts, rascunhos)
 ├─ packages/ai       # IA (Anthropic Claude ou OpenAI): interpreta posts e escreve comentários
 ├─ packages/integrations # webhook, HubSpot, Pipedrive, Apollo e CSV
-├─ apps/desktop      # Electron: Launcher + uma instância isolada por conta
+├─ apps/desktop      # Electron: Launcher + uma instância isolada por conta (instaladores via electron-builder)
+├─ apps/server       # servidor opcional da equipe: painel do gestor, política, seletores remotos, webhook de entrada
 │  └─ e2e/           # teste ponta a ponta contra um site falso local
 └─ docs/             # arquitetura, roadmap, riscos
 ```
@@ -88,6 +89,15 @@ npm run ai:demo -- "Concluímos a telemetria de 120 km de rede e reduzimos as pe
    "Informações de contato" e, se a Apollo estiver configurada, enriquece quem ficou sem e-mail.
 3. **Exportar CSV** em coleções, campanhas e empresas.
 4. Aba **Entregas**: o que foi enviado, o que está na fila e o que falhou, com "tentar de novo".
+
+## Como usar (Fase 5: escala)
+
+1. **Proxy por conta**: botão **Proxy** no topo da conta. **Testar** mostra o IP de saída e compara com o IP sem proxy.
+   A senha fica criptografada, e o proxy é aplicado antes da primeira página abrir.
+2. **Equipe** (opcional): suba o servidor (`docs/EQUIPE.md`) e conecte cada computador em **Configurações → Equipe**
+   com um código de pareamento. O gestor acompanha tudo no painel web, define política e tetos, publica seletores
+   e distribui leads que chegam pelo webhook de entrada.
+3. **Instaladores e atualização automática**: `docs/DISTRIBUICAO.md` (Windows, macOS e Linux, assinatura e GitHub Actions).
 
 > ⚠️ Os seletores do LinkedIn (`apps/desktop/src/main/linkedin/selectors.ts`) ainda não foram validados numa conta real.
 > Valide primeiro com uma conta própria, com volume baixo. Para ajustar sem gerar nova versão, use `<userData>/selectors.json`.

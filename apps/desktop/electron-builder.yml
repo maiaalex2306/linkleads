@@ -1,0 +1,47 @@
+# Instaladores do LinkLeads. Assinatura e notarização vêm de variáveis de ambiente (nunca do repositório):
+#   macOS:   CSC_LINK (certificado .p12 "Developer ID Application", base64 ou caminho), CSC_KEY_PASSWORD,
+#            APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID (notarização)
+#   Windows: WIN_CSC_LINK + WIN_CSC_KEY_PASSWORD (certificado de assinatura de código)
+#            ou Azure Trusted Signing (veja docs/DISTRIBUICAO.md)
+#   Atualizações: LINKLEADS_UPDATE_URL = pasta pública onde os instaladores e latest*.yml são publicados
+appId: br.com.linkleads.app
+electronVersion: 37.10.3
+productName: LinkLeads
+copyright: Copyright © 2026 LinkLeads
+directories:
+  app: app-dist
+  output: release
+  buildResources: build
+files:
+  - "**/*"
+  - "!**/*.map"
+asar: true
+electronLanguages: [pt-BR, en-US]
+mac:
+  category: public.app-category.business
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+    - target: zip
+      arch: [arm64, x64]
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  notarize: true
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  artifactName: LinkLeads-Setup-${version}.${ext}
+linux:
+  target: [AppImage]
+  category: Office
+  artifactName: LinkLeads-${version}-${arch}.${ext}
+publish:
+  - provider: generic
+    url: ${env.LINKLEADS_UPDATE_URL}

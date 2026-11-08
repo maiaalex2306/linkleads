@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - name: Navegador do Playwright (painel do gestor no e2e)
+        run: npx playwright install --with-deps chromium
+      - name: Testes ponta a ponta (app Electron real contra site falso)
+        run: |
+          for t in run sequence decision integrations team; do
+            xvfb-run -a node apps/desktop/e2e/$t.mjs
+          done
+      - name: Mesmo e2e contra o pacote (app-dist)
+        run: |
+          npm run bundle -w @linkleads/desktop
+          LINKLEADS_E2E_APP=$PWD/apps/desktop/app-dist xvfb-run -a node apps/desktop/e2e/run.mjs

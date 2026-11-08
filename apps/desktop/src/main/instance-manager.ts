@@ -46,6 +46,10 @@ export class InstanceManager {
     this.instances.delete(accountId);
   }
 
+  all(): AccountInstance[] {
+    return [...this.instances.values()];
+  }
+
   async stopAll(): Promise<void> {
     await Promise.all([...this.instances.keys()].map((id) => this.stop(id)));
   }

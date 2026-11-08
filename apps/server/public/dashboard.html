@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="theme-color" content="#4A1078" />
+<title>LinkLeads · Painel da equipe</title>
+<style>
+  :root { --brand:#6816A8; --brand-dark:#4A1078; --brand-soft:#F3ECFA; --accent:#FF682C; --accent-ink:#2E1508; --bg:#F8F6FA; --card:#fff; --line:#E6DFEA; --fg:#241C29; --muted:#665A6B; --ok:#14713F; --warn:#8A6206; --bad:#A8221F; }
+  @media (prefers-color-scheme: dark) { :root { --brand:#C9A0F0; --brand-dark:#E0C6FA; --brand-soft:#2A1B3D; --accent:#FF7A3D; --bg:#14101A; --card:#1D1725; --line:#332B3D; --fg:#EFE9F3; --muted:#A99DB0; --ok:#4FBF87; --warn:#D6A83C; --bad:#EE7A75; } }
+  * { box-sizing:border-box; } body { margin:0; font:14px/1.5 system-ui, sans-serif; background:var(--bg); color:var(--fg); }
+  header { background:#4A1078; color:#fff; padding:12px 20px; display:flex; gap:12px; align-items:center; position:relative; }
+  header::after { content:''; position:absolute; left:0; right:0; bottom:0; height:3px; background:linear-gradient(110deg,#4A1078 0%,#6816A8 30%,#A72A7E 62%,#FF682C 100%); }
+  header b span { color:#FF682C; } main { padding:20px; max-width:1100px; margin:0 auto; display:grid; gap:14px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px 16px; }
+  h2 { margin:0 0 10px; font-size:16px; color:var(--brand-dark); } table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); } th { color:var(--muted); font-weight:500; }
+  input, button { font:inherit; padding:7px 10px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--fg); }
+  button.primary { background:var(--accent); color:var(--accent-ink); border-color:var(--accent); font-weight:600; cursor:pointer; }
+  .muted { color:var(--muted); font-size:12px; } .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .kpis { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:10px; }
+  .kpi { border:1px solid var(--line); border-radius:10px; padding:8px 10px; } .kpi strong { font-size:20px; display:block; }
+  .stale { color:var(--warn); } .bad { color:var(--bad); }
+  @media (max-width:640px) { main { padding:12px 16px; } table { font-size:12px; } }
+</style>
+</head>
+<body>
+<header><b>Link<span>Leads</span></b><span>Painel da equipe</span></header>
+<main id="app">
+  <div class="card" id="login">
+    <h2>Entrar</h2>
+    <p class="muted">Use o token de administrador do workspace. Ele fica só nesta aba.</p>
+    <form class="row" id="f"><input id="t" type="password" placeholder="llm_…" style="flex:1;min-width:240px" required /><button class="primary">Entrar</button></form>
+    <p class="muted bad" id="err"></p>
+  </div>
+</main>
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+let token = sessionStorage.getItem('ll_admin') || '';
+async function api(path, opts = {}) {
+  const r = await fetch(path, { ...opts, headers: { authorization: 'Bearer ' + token, 'content-type': 'application/json' } });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || r.status);
+  return j;
+}
+function ago(iso) {
+  if (!iso) return '—';
+  const m = Math.round((Date.now() - new Date(iso)) / 60000);
+  return m < 60 ? `há ${m} min` : m < 1440 ? `há ${Math.round(m / 60)} h` : `há ${Math.round(m / 1440)} d`;
+}
+async function render() {
+  const d = await api('/api/dashboard');
+  const tot = (k) => d.accounts.reduce((s, a) => s + ((a.today && a.today[k] && a.today[k].used) || 0), 0);
+  const replies = d.accounts.reduce((s, a) => s + (a.unhandledReplies || 0), 0);
+  $('#app').innerHTML = `
+  <div class="card"><h2>${esc(d.workspace.name)}</h2>
+    <div class="kpis">
+      <div class="kpi"><span class="muted">Contas ativas</span><strong>${d.accounts.length}</strong></div>
+      <div class="kpi"><span class="muted">Convites hoje</span><strong>${tot('invites')}</strong></div>
+      <div class="kpi"><span class="muted">Mensagens hoje</span><strong>${tot('messages')}</strong></div>
+      <div class="kpi"><span class="muted">Respostas a tratar</span><strong>${replies}</strong></div>
+      <div class="kpi"><span class="muted">Leads de entrada na fila</span><strong>${d.inboundLeads.open}</strong></div>
+    </div></div>
+  <div class="card"><h2>Contas LinkedIn</h2><table><tr><th>Vendedor</th><th>Conta</th><th>Convites hoje</th><th>Mensagens hoje</th><th>Aceite</th><th>Respostas a tratar</th><th>Situação</th><th>Atualizado</th></tr>
+    ${d.accounts.map((a) => `<tr><td>${esc(a.member)}</td><td>${esc(a.label)}</td>
+      <td>${a.today?.invites?.used ?? 0}/${a.today?.invites?.limit ?? '—'}</td><td>${a.today?.messages?.used ?? 0}/${a.today?.messages?.limit ?? '—'}</td>
+      <td>${a.acceptance?.matured ? Math.round((100 * a.acceptance.accepted) / a.acceptance.matured) + '%' : '—'}</td><td>${a.unhandledReplies ?? 0}</td>
+      <td class="${a.paused ? 'bad' : ''}">${a.paused ? 'pausada' : a.running ? 'em execução' : 'parada'}</td>
+      <td class="${Date.now() - new Date(a.updatedAt) > 3600e3 ? 'stale' : ''}">${ago(a.updatedAt)}</td></tr>`).join('') || '<tr><td colspan="8" class="muted">Nenhum computador sincronizou ainda.</td></tr>'}
+  </table></div>
+  <div class="card"><h2>Computadores</h2><table><tr><th>Vendedor</th><th>Computador</th><th>Versão</th><th>Última sincronização</th><th></th></tr>
+    ${d.devices.map((x) => `<tr><td>${esc(x.member)}</td><td>${esc(x.name)}</td><td>${esc(x.appVersion || '—')}</td><td>${x.revoked ? '<span class="bad">revogado</span>' : ago(x.lastSyncAt)}</td>
+      <td>${x.revoked ? '' : `<button data-revoke="${esc(x.id)}">Revogar</button>`}</td></tr>`).join('')}
+  </table></div>
+  <div class="card"><h2>Política da equipe</h2>
+    <p class="muted">Vale para todos os computadores na próxima sincronização. Tipos desligados: ${esc((d.policy.disabledActions || []).join(', ') || 'nenhum')}.
+    Sincronização: ${d.policy.syncLevel === 'full' ? 'métricas + respostas e sinais' : 'só métricas'}. Seletores remotos: ${esc(d.selectorsVersion || 'nenhum')}.</p>
+  </div>`;
+  document.querySelectorAll('[data-revoke]').forEach((b) => b.addEventListener('click', async () => {
+    if (!confirm('Revogar este computador? Ele para de sincronizar e de receber leads.')) return;
+    await api('/api/devices/revoke', { method: 'POST', body: JSON.stringify({ deviceId: b.dataset.revoke }) });
+    render();
+  }));
+}
+$('#f')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  token = $('#t').value.trim();
+  try { await render(); sessionStorage.setItem('ll_admin', token); } catch (err) { $('#err').textContent = 'Não foi possível entrar: ' + err.message; }
+});
+if (token) render().catch(() => sessionStorage.removeItem('ll_admin'));
+setInterval(() => token && $('#login') === null && render().catch(() => {}), 60000);
+</script>
+</body>
+</html>

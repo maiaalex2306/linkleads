@@ -1,5 +1,5 @@
-import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { SCHEMA_SQL } from './schema.js';
 import type { DatabaseSync as DatabaseSyncT } from 'node:sqlite';
 import type {
   BuyingRole,
@@ -112,7 +112,7 @@ export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.version;
 const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite');
 type DatabaseSync = DatabaseSyncT;
 
-const SCHEMA_SQL = readFileSync(new URL('./schema.sql', import.meta.url), 'utf8');
+
 
 /** Abre (e migra) o banco local de uma conta. */
 export function openAccountDb(path: string): DatabaseSync {

@@ -9,17 +9,20 @@
     "apps/*"
   ],
   "scripts": {
-    "build": "npm run build -w @linkleads/core -w @linkleads/db -w @linkleads/ai -w @linkleads/integrations -w @linkleads/desktop",
-    "test": "npm test -w @linkleads/core -w @linkleads/db -w @linkleads/ai -w @linkleads/integrations",
+    "build": "npm run build -w @linkleads/core -w @linkleads/db -w @linkleads/ai -w @linkleads/integrations -w @linkleads/server -w @linkleads/desktop",
+    "test": "npm test -w @linkleads/core -w @linkleads/db -w @linkleads/ai -w @linkleads/integrations -w @linkleads/server",
     "typecheck": "tsc -b packages/core packages/db packages/ai packages/integrations && npm run typecheck -w @linkleads/desktop",
     "dev": "npm run dev -w @linkleads/desktop",
-    "e2e": "npm run build && for t in run sequence decision integrations; do xvfb-run -a node apps/desktop/e2e/$t.mjs || exit 1; done",
-    "ai:demo": "node packages/ai/demo.mjs"
+    "e2e": "npm run build && for t in run sequence decision integrations team; do xvfb-run -a node apps/desktop/e2e/$t.mjs || exit 1; done",
+    "ai:demo": "node packages/ai/demo.mjs",
+    "dist": "npm run build && npm run dist -w @linkleads/desktop",
+    "server": "npm run build -w @linkleads/server && node apps/server/dist/cli.js serve"
   },
   "devDependencies": {
+    "@types/node": "^22.10.0",
+    "playwright": "^1.63.0",
     "typescript": "^5.6.3",
-    "vitest": "^2.1.8",
-    "@types/node": "^22.10.0"
+    "vitest": "^2.1.8"
   },
   "engines": {
     "node": ">=22"

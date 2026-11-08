@@ -8,3 +8,5 @@ release/
 *.db-shm
 .env
 .DS_Store
+app-dist/
+release/

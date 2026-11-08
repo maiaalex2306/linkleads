@@ -1,5 +1,5 @@
 import { BrowserWindow, session, type Session } from 'electron';
-import type { Account, Campaign, ExecutionResult, ProxyConfig, TickReport } from '@linkleads/core';
+import type { Account, Campaign, ExecutionResult, TickReport } from '@linkleads/core';
 import { CampaignRunner, ExecutorRegistry, resolveApproval, shouldAutoBrake } from '@linkleads/core';
 import { LlmPostInterpreter, createLlm, type LlmClient } from '@linkleads/ai';
 import type { CommentDraft, IntegrationCrm } from '@linkleads/db';
@@ -30,6 +30,8 @@ import { accountSummary, classifyCommittee, icpFilter, mapCompany, monitorSignal
 import { PageDriver } from './linkedin/page-driver.js';
 import { loadSelectors } from './linkedin/selectors.js';
 import { now } from './clock.js';
+import { proxyRules } from './proxy-check.js';
+import { withTeamCaps } from './stats.js';
 import type { Settings } from './settings.js';
 
 /** IA falsa e determinística — somente nos testes e2e (LINKLEADS_TEST_AI_STUB). */
@@ -63,9 +65,6 @@ const stubLlm: LlmClient = {
 const START_PAGE = `${BASE}/feed/`;
 const INBOX_SCAN_EVERY_MS = 30 * 60_000;
 
-function proxyRules(p: ProxyConfig): string {
-  return `${p.protocol}://${p.host}:${p.port}`;
-}
 
 export interface InstanceEvents {
   onLog(accountId: string, line: string): void;
@@ -97,7 +96,6 @@ export class AccountInstance {
     private integrations?: { hub: IntegrationHub; settings: IntegrationSettings },
   ) {
     this.session = session.fromPartition(`persist:linkleads-${account.id}`);
-    if (account.proxy) void this.session.setProxy({ proxyRules: proxyRules(account.proxy) });
 
     this.window = new BrowserWindow({
       width: 1280,
@@ -156,7 +154,9 @@ export class AccountInstance {
       isKilled: (type) => this.settings.disabledActions().includes(type),
     });
 
-    void this.window.loadURL(START_PAGE);
+    // o proxy precisa estar ativo ANTES da primeira requisição, senão ela sai pelo IP da máquina
+    const proxyReady = account.proxy ? this.session.setProxy({ proxyRules: proxyRules(account.proxy) }) : this.session.setProxy({ mode: 'direct' });
+    void proxyReady.then(() => this.window.loadURL(START_PAGE));
   }
 
   /** Cliente de IA do provedor escolhido (Anthropic ou OpenAI); null sem chave. */
@@ -245,7 +245,10 @@ export class AccountInstance {
 
       const reports: TickReport[] = [];
       for (const c of this.crm.listCampaigns(this.account.id).filter((x) => x.active)) {
-        const r = await this.runner.tick(this.campaignWithAboutMe(c), this.account);
+        // tetos da equipe (se houver) valem por cima dos limites locais
+        const effective = withTeamCaps(this.account, this.settings.teamCaps());
+        const r = await this.runner.tick(this.campaignWithAboutMe(c), effective);
+        if (effective !== this.account && effective.paused) this.account.paused = true;
         reports.push(r);
         if (r.skipped) this.log(`${c.name}: pulada (${r.skipped})`);
         else if (r.processed)
@@ -300,6 +303,11 @@ export class AccountInstance {
     const r = await accountSummary(this.deps, companyId);
     this.log(`Resumo da conta gerado (${this.crm.getCompany(companyId)?.name ?? companyId})`);
     return r;
+  }
+
+  /** Recarrega o mapa de seletores (ex.: a equipe publicou uma versão nova). */
+  reloadSelectors(): void {
+    this.driver.sel = loadSelectors();
   }
 
   saveCurrentProfile(): Promise<ExecutionResult> {

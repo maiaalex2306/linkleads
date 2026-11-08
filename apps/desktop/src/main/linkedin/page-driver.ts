@@ -27,7 +27,7 @@ export class PageDriver {
 
   constructor(
     readonly wc: WebContents,
-    readonly sel: SelectorMap,
+    public sel: SelectorMap,
   ) {
     this.input = new HumanInput(wc);
   }

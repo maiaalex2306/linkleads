@@ -1,0 +1,14 @@
+{
+  "name": "@linkleads/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/server.js",
+  "bin": { "linkleads-server": "dist/cli.js" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/cli.js serve",
+    "test": "vitest run"
+  },
+  "engines": { "node": ">=22.13" }
+}

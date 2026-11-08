@@ -1,4 +1,5 @@
--- LinkLeads — banco local por conta (um arquivo linkleads.db por partição de conta)
+/** Schema base (versão 1). Mudanças novas vão em MIGRATIONS (index.ts). */
+export const SCHEMA_SQL = `-- LinkLeads — banco local por conta (um arquivo linkleads.db por partição de conta)
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
 
@@ -167,3 +168,4 @@ CREATE TABLE IF NOT EXISTS comment_drafts (
   decided_at TEXT,
   UNIQUE (action_id, person_id)
 );
+`;

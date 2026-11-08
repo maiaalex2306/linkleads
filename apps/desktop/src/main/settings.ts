@@ -39,6 +39,7 @@ export interface PublicSettings {
   hasAiKey: boolean;
   aboutMe: string;
   disabledActions: string[];
+  teamDisabledActions: string[];
   decision: { offer: string; icp: string; icpThreshold: number; signalTopics: string[] };
 }
 
@@ -118,7 +119,26 @@ export class Settings {
     });
   }
 
+  /** Política da equipe (servidor) — preenchida pela sincronização. */
+  private teamDisabled: () => string[] = () => [];
+  setTeamPolicyProvider(fn: () => string[]): void {
+    this.teamDisabled = fn;
+  }
+
+  private teamCapsFn: () => Partial<Record<'invites' | 'messages' | 'profile_visits' | 'engagement', number>> | undefined = () => undefined;
+  setTeamCapsProvider(fn: () => Partial<Record<'invites' | 'messages' | 'profile_visits' | 'engagement', number>> | undefined): void {
+    this.teamCapsFn = fn;
+  }
+  teamCaps() {
+    return this.teamCapsFn();
+  }
+
+  /** Efetivo: desligados localmente + desligados pelo gestor da equipe. */
   disabledActions(): string[] {
+    return [...new Set([...(this.read().disabledActions ?? []), ...this.teamDisabled()])];
+  }
+
+  localDisabledActions(): string[] {
     return this.read().disabledActions ?? [];
   }
 
@@ -153,6 +173,7 @@ export class Settings {
       hasAiKey: providers[aiProvider].keySource !== 'none',
       aboutMe: this.aboutMe(),
       disabledActions: s.disabledActions ?? [],
+      teamDisabledActions: this.teamDisabled(),
       decision: this.decision(),
     };
   }

@@ -87,14 +87,18 @@ export type LabelKey = keyof typeof DEFAULT_LABELS;
 export type SelectorKey = Exclude<keyof typeof DEFAULT_SELECTORS, 'version'>;
 export type SelectorMap = Record<SelectorKey, readonly string[]> & { version: string; labels: Record<LabelKey, string> };
 
+/** Mapa efetivo: padrão do app < seletores remotos da equipe < selectors.json local (ajuste manual vence). */
 export function loadSelectors(): SelectorMap {
-  const file = join(app.getPath('userData'), 'selectors.json');
-  const base = { ...DEFAULT_SELECTORS, labels: { ...DEFAULT_LABELS } } as unknown as SelectorMap;
-  if (!existsSync(file)) return base;
-  try {
-    const override = JSON.parse(readFileSync(file, 'utf8')) as Partial<SelectorMap>;
-    return { ...base, ...override, labels: { ...base.labels, ...override.labels } };
-  } catch {
-    return base;
+  let map = { ...DEFAULT_SELECTORS, labels: { ...DEFAULT_LABELS } } as unknown as SelectorMap;
+  for (const name of ['selectors.remote.json', 'selectors.json']) {
+    const file = join(app.getPath('userData'), name);
+    if (!existsSync(file)) continue;
+    try {
+      const override = JSON.parse(readFileSync(file, 'utf8')) as Partial<SelectorMap>;
+      map = { ...map, ...override, labels: { ...map.labels, ...override.labels } };
+    } catch {
+      /* arquivo inválido: ignora */
+    }
   }
+  return map;
 }

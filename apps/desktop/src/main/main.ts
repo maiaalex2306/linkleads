@@ -5,7 +5,6 @@ import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   DEFAULT_DAILY_LIMITS,
-  effectiveDailyLimit,
   engagementCampaign,
   importPeopleFromCsv,
   outreachSequence,
@@ -15,15 +14,19 @@ import {
   BUYING_ROLES,
   type BuyingRole,
   type Account,
-  type BudgetKey,
+  type ProxyConfig,
   type Campaign,
   type OutreachSequenceOptions,
 } from '@linkleads/core';
 import type { AiProvider } from '@linkleads/ai';
 import type { CommentDraft } from '@linkleads/db';
-import { AccountStore } from './account-store.js';
+import { AccountStore, publicAccount } from './account-store.js';
+import { checkProxy, validateProxy } from './proxy-check.js';
 import { advanceClock } from './clock.js';
 import { CrmRegistry } from './crm-registry.js';
+import { accountStats } from './stats.js';
+import { TeamSync } from './team-sync.js';
+import { setupUpdater } from './updater.js';
 import { IntegrationHub } from './integration-hub.js';
 import { IntegrationSettings } from './integration-settings.js';
 import { toCsv } from '@linkleads/integrations';
@@ -61,6 +64,16 @@ const instances = new InstanceManager(crms, settings, {
   },
 }, { hub, settings: integrationSettings });
 
+const team = new TeamSync({
+  accounts: () => accounts.list().map((a) => ({ account: instances.get(a.id)?.account ?? a, crm: crms.get(a), running: instances.isRunning(a.id) })),
+  log: (line) => {
+    for (const a of accounts.list()) send('log', { accountId: a.id, line, at: new Date().toISOString() });
+  },
+  onSelectorsUpdated: () => instances.all().forEach((i) => i.reloadSelectors()),
+});
+settings.setTeamPolicyProvider(() => team.policy().disabledActions ?? []);
+settings.setTeamCapsProvider(() => team.policy().dailyCaps);
+
 function account(id: string): Account {
   const a = accounts.get(id);
   if (!a) throw new Error('Conta não encontrada');
@@ -78,7 +91,7 @@ function createLauncher() {
 }
 
 // Contas e instâncias ---------------------------------------------------------
-ipcMain.handle('accounts:list', () => accounts.list().map((a) => ({ ...a, running: instances.isRunning(a.id) })));
+ipcMain.handle('accounts:list', () => accounts.list().map((a) => ({ ...publicAccount(a), running: instances.isRunning(a.id) })));
 
 ipcMain.handle('accounts:create', (_e, input: { label: string; tier: Account['tier'] }) => {
   const a: Account = {
@@ -94,7 +107,25 @@ ipcMain.handle('accounts:create', (_e, input: { label: string; tier: Account['ti
   return a;
 });
 
-ipcMain.handle('accounts:update', (_e, a: Account) => accounts.save(a));
+/** Atualiza a conta. O proxy só muda por accounts:setProxy (a tela não recebe a senha). */
+ipcMain.handle('accounts:update', (_e, a: Account) => {
+  const current = account(a.id);
+  accounts.save({ ...a, proxy: current.proxy });
+});
+
+ipcMain.handle('accounts:setProxy', (_e, id: string, proxy: ProxyConfig | null) => {
+  const a = account(id);
+  if (proxy) validateProxy(proxy);
+  accounts.save({ ...a, proxy: proxy ?? undefined });
+  return instances.isRunning(id) ? 'reinicie a conta para usar o novo proxy' : 'ok';
+});
+
+ipcMain.handle('accounts:checkProxy', (_e, id: string, proxy?: ProxyConfig) => {
+  const a = account(id);
+  const p = proxy ? { ...proxy, password: proxy.password || a.proxy?.password } : a.proxy;
+  if (!p) throw new Error('Informe um proxy');
+  return checkProxy(p);
+});
 ipcMain.handle('accounts:setPaused', (_e, id: string, paused: boolean) => {
   const a = account(id);
   a.paused = paused;
@@ -277,6 +308,16 @@ ipcMain.handle('campaigns:createMonitor', (_e, id: string, input: { name: string
 ipcMain.handle('signals:list', (_e, id: string, onlyUnseen?: boolean) => crms.get(account(id)).listSignals({ onlyUnseen: !!onlyUnseen }));
 ipcMain.handle('signals:markSeen', (_e, id: string, signalId: number) => crms.get(account(id)).markSignalSeen(signalId));
 
+// Equipe ------------------------------------------------------------------------
+ipcMain.handle('team:status', () => team.status());
+ipcMain.handle('team:pair', (_e, serverUrl: string, code: string, deviceName?: string) => team.pair(serverUrl, code, deviceName || undefined));
+ipcMain.handle('team:disconnect', () => team.disconnect());
+ipcMain.handle('team:sync', async () => {
+  await team.sync();
+  return team.status();
+});
+ipcMain.handle('team:setLeadsAccount', (_e, accountId: string) => team.setLeadsAccount(accountId));
+
 // Integrações e dados ----------------------------------------------------------
 ipcMain.handle('integrations:get', () => integrationSettings.public());
 ipcMain.handle('integrations:update', (_e, patch: Parameters<IntegrationSettings['update']>[0]) => integrationSettings.update(patch));
@@ -324,19 +365,7 @@ ipcMain.handle('export:csv', async (_e, id: string, scope: { collectionId?: stri
 // Saúde da conta -------------------------------------------------------------
 ipcMain.handle('accounts:stats', (_e, id: string) => {
   const a = account(id);
-  const crm = crms.get(a);
-  const now = new Date();
-  const usage = crm.getUsage(a.id, now);
-  const keys: BudgetKey[] = ['invites', 'messages', 'profile_visits', 'engagement'];
-  return {
-    invites30d: crm.inviteStats(30, now),
-    acceptance: crm.inviteAcceptance(14, 60, now),
-    invitesLast7Days: usage.invitesLast7Days,
-    today: Object.fromEntries(keys.map((k) => [k, { used: usage.today[k] ?? 0, limit: effectiveDailyLimit(a, k, now) }])),
-    pendingApprovals: crm.listDrafts('pending').length,
-    unhandledReplies: crm.inbox(true).length,
-    unseenSignals: crm.listSignals({ onlyUnseen: true }).length,
-  };
+  return accountStats(a, crms.get(a));
 });
 
 // Inbox ------------------------------------------------------------------------
@@ -374,6 +403,8 @@ app.whenReady().then(() => {
   if (process.env.LINKLEADS_TEST_BASE_URL && process.platform === 'linux') safeStorage.setUsePlainTextEncryption(true);
   createLauncher();
   hub.start();
+  team.start();
+  setupUpdater((st) => send('update', st));
 });
 app.on('window-all-closed', async () => {
   await instances.stopAll();

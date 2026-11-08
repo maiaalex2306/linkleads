@@ -45,6 +45,7 @@ async function settingsView() {
     );
   });
   const disabled = new Set(s.disabledActions);
+  const teamOff = new Set(s.teamDisabledActions || []);
   const dec = s.decision;
   const offer = h('textarea', { value: dec.offer, placeholder: 'Ex.: telemetria e gestão de perdas de água para companhias de saneamento' });
   const icp = h('textarea', { value: dec.icp, placeholder: 'Ex.: diretores e gerentes de operações, engenharia e perdas em companhias de saneamento e indústrias com alto consumo de água, no Brasil.' });
@@ -75,9 +76,10 @@ async function settingsView() {
       h('div', { class: 'muted' }, 'Desligue um tipo de ação em todas as contas e campanhas de uma vez (ex.: se notar restrições da plataforma). As pessoas continuam na fila.'),
       ...ACTION_SWITCHES.map(([type, label]) =>
         h('label', { class: 'row', style: 'display:flex' },
-          h('input', { type: 'checkbox', checked: !disabled.has(type), onchange: (e) => safe(() => api.setActionEnabled(type, e.target.checked), e.target.checked ? `${label}: ligado` : `${label}: desligado`) }),
-          label)),
+          h('input', { type: 'checkbox', checked: !disabled.has(type) && !teamOff.has(type), disabled: teamOff.has(type), onchange: (e) => safe(() => api.setActionEnabled(type, e.target.checked), e.target.checked ? `${label}: ligado` : `${label}: desligado`) }),
+          label, teamOff.has(type) && h('span', { class: 'muted' }, ' (desligado pelo gestor da equipe)'))),
     ),
+    await teamCard(),
     ...(await integrationsCards()),
     h('button', { class: 'link', onclick: () => { state.tab = 'collections'; renderView(); } }, '← Voltar'),
   );

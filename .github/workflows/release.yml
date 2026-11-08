@@ -1,0 +1,77 @@
+name: Release
+
+# Gera os instaladores quando uma tag de versão é publicada (ex.: v0.5.0).
+# Segredos necessários (Settings → Secrets and variables → Actions):
+#   LINKLEADS_UPDATE_URL           pasta pública das atualizações (ex.: https://downloads.suaempresa.com.br/linkleads)
+#   MAC_CSC_LINK, MAC_CSC_KEY_PASSWORD           certificado "Developer ID Application" (.p12 em base64)
+#   APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID   notarização da Apple
+#   WIN_CSC_LINK, WIN_CSC_KEY_PASSWORD           certificado de assinatura de código do Windows
+# Sem os certificados, os instaladores saem sem assinatura (o Windows e o macOS vão alertar o usuário).
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - name: Versão do app = versão da tag
+        shell: bash
+        run: npm version --no-git-tag-version --allow-same-version -w @linkleads/desktop "${GITHUB_REF_NAME#v}"
+      - name: Instaladores
+        working-directory: apps/desktop
+        shell: bash
+        env:
+          LINKLEADS_UPDATE_URL: ${{ secrets.LINKLEADS_UPDATE_URL }}
+          CSC_LINK: ${{ matrix.os == 'macos-latest' && secrets.MAC_CSC_LINK || '' }}
+          CSC_KEY_PASSWORD: ${{ matrix.os == 'macos-latest' && secrets.MAC_CSC_KEY_PASSWORD || '' }}
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ secrets.MAC_CSC_LINK != '' }}
+        run: |
+          npm run bundle
+          if [ -z "$APPLE_ID" ]; then export SKIP_NOTARIZE=1; fi
+          npx electron-builder --publish never $( [ -n "$SKIP_NOTARIZE" ] && echo "-c.mac.notarize=false" )
+      - uses: actions/upload-artifact@v4
+        with:
+          name: instaladores-${{ matrix.os }}
+          path: |
+            apps/desktop/release/*.exe
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.zip
+            apps/desktop/release/*.AppImage
+            apps/desktop/release/*.blockmap
+            apps/desktop/release/latest*.yml
+          if-no-files-found: ignore
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Release no GitHub (os arquivos também devem ir para LINKLEADS_UPDATE_URL)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "LinkLeads $GITHUB_REF_NAME" --generate-notes

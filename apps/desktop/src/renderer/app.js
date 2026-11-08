@@ -78,11 +78,13 @@ async function renderView() {
             h('button', { onclick: () => safe(() => api.stopInstance(a.id)).then(refresh) }, 'Parar'),
           ]
         : h('button', { class: 'primary', onclick: () => safe(() => api.startInstance(a.id)).then(refresh) }, 'Iniciar (abre o navegador)'),
+      h('button', { onclick: () => { state.proxyOpen = !state.proxyOpen; renderView(); } }, a.proxy ? `Proxy: ${a.proxy.host}` : 'Proxy'),
       h('button', { onclick: () => safe(() => api.setPaused(a.id, !a.paused)).then(refresh) }, a.paused ? 'Retomar automação' : 'Pausar automação'),
       h('button', { onclick: () => window.confirm(`Remover a conta "${a.label}" e seus dados locais?`) && safe(() => api.removeAccount(a.id)).then(() => { state.accountId = null; refresh(); }) }, 'Remover'),
     ),
     h('div', { class: 'muted' }, `${a.tier} · ${a.workingHours.start}–${a.workingHours.end} (${a.workingHours.timezone}) · ${a.proxy ? 'proxy ' + a.proxy.host : 'sem proxy'}`),
     healthBar(stats),
+    state.proxyOpen && proxyPanel(a, () => { state.proxyOpen = false; renderView(); }),
     h('div', { class: 'tabs' }, ...tabs.map(([k, l]) => h('button', { class: state.tab === k ? 'sel' : '', onclick: () => { state.tab = k; renderView(); } }, l))),
   );
   const body = await ({ collections: collectionsView, campaigns: campaignsView, approvals: approvalsView, inbox: inboxView, companies: companiesView, signals: signalsView, deliveries: deliveriesView, activity: activityView }[state.tab] || collectionsView)(a);
@@ -153,6 +155,16 @@ api.onLog((entry) => {
   if (state.tab === 'activity' && entry.accountId === state.accountId) renderView();
 });
 api.onAccountsChanged(refresh);
+
+// atualização automática: aviso discreto no topo quando a nova versão já foi baixada
+function renderUpdate(st) {
+  const nav = document.getElementById('topnav');
+  nav.querySelector('.update')?.remove();
+  if (st && st.state === 'ready')
+    nav.prepend(h('button', { class: 'primary update', onclick: () => api.installUpdate() }, `Reiniciar e atualizar para ${st.version}`));
+}
+api.onUpdate(renderUpdate);
+api.updateStatus().then(renderUpdate).catch(() => {});
 topNav();
 refresh();
 setInterval(renderAccounts, 10000);

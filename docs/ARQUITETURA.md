@@ -158,3 +158,21 @@ Executores / inbox ──emit(evento, pessoa)──► IntegrationHub ──► 
 - `crm_links` guarda o id de cada pessoa em cada CRM, para atualizar em vez de duplicar.
 - Migração 5: colunas de destino, evento, status e erro no `outbox`; `crm_links`; `people.enriched_at`.
 - Detalhes de uso: `docs/INTEGRACOES.md`.
+
+## Escala (Fase 5)
+
+```
+Computador do vendedor (LinkLeads)                      Servidor da equipe (apps/server, opcional)
+ ├─ contas, sessão do LinkedIn, execução  ── nunca saem
+ ├─ TeamSync a cada 5 min ── POST /api/sync ──────────► snapshots de métricas (e respostas/sinais se "full")
+ │                         ◄── política, seletores, leads (com confirmação no envio seguinte)
+ └─ proxy por conta (sessão Electron), aplicado antes da 1ª página          ▲
+                                                Sistemas externos ── POST /api/inbound/<workspace> (X-LinkLeads-Key)
+                                                Gestor ── painel / (token admin) · PUT /api/policy · PUT /api/selectors
+```
+
+- **Tokens**: membros (`llm_…`), dispositivos (`lld_…`) e chave de entrada (`llin_…`). O banco guarda só o SHA-256.
+  O token do dispositivo fica no cofre do sistema.
+- **Política**: o kill switch efetivo é a união do local com o da equipe; o teto diário efetivo é o menor dos dois.
+- **Empacotamento**: `scripts/bundle.mjs` (esbuild) gera `app-dist/`, autocontido; `electron-builder.yml` gera os
+  instaladores, e `electron-updater` busca as atualizações na `LINKLEADS_UPDATE_URL`.

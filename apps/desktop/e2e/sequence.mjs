@@ -18,7 +18,7 @@ writeFileSync(csv, 'profileUrl,company\nhttps://www.linkedin.com/in/ana-silva/,Ã
 const site = await startFakeSite();
 const app = await electron.launch({
   executablePath: require(join(appDir, '../../node_modules/electron')),
-  args: [appDir],
+  args: [process.env.LINKLEADS_E2E_APP ?? appDir], // LINKLEADS_E2E_APP=apps/desktop/app-dist testa o pacote
   env: { ...process.env, XDG_CONFIG_HOME: tmp, LINKLEADS_TEST_BASE_URL: site.url, LINKLEADS_TEST_AI_STUB: '1' },
 });
 const fail = (msg) => { console.error('FALHOU:', msg); process.exitCode = 1; };
