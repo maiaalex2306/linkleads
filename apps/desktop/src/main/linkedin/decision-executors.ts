@@ -3,7 +3,7 @@ import { matchTopics } from '@linkleads/core';
 import { proposeBuyingRole, scoreIcp, summarizeAccount, type AccountSummary } from '@linkleads/ai';
 import { now } from '../clock.js';
 import { extractJobCards, extractPeopleCards, extractPosts } from './dom-scripts.js';
-import { BASE, gotoProfile, guard, noUrlSlot, profileSlug, type ExecutorDeps } from './executors.js';
+import { BASE, gotoProfile, guard, openFailed, profileSlug, type ExecutorDeps } from './executors.js';
 import type { SelectorMap } from './selectors.js';
 import { visitAndExtract } from './executors.js';
 
@@ -160,7 +160,7 @@ export function monitorSignals(d: ExecutorDeps): ActionExecutor {
           guard(async () => {
             const p = d.crm.getPerson(ctx.person.id) ?? ctx.person;
             const open = await gotoProfile(d, p, 'recent-activity/all/');
-            if (open !== 'ok') return noUrlSlot(open.retryAt);
+            if (open !== 'ok') return openFailed(open);
             await d.driver.waitUntil(async () => (await d.driver.exists('postItem')) || (await d.driver.exists('emptyActivity')), 15_000);
             const posts = await d.driver.read(extractPosts, sel(d.driver.sel), 8);
             for (const post of posts) {

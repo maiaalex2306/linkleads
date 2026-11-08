@@ -16,11 +16,19 @@ export function spin(text: string, rng: Rng = defaultRng): string {
   return out;
 }
 
-/** Variáveis: {{firstName}}, {{company}}, {{custom.cargoAlvo | "fallback"}} */
+/** Variáveis: {{firstName}}, {{company}}, {{custom.cargoAlvo | "fallback"}}, {{custom.MSG-CONEXÃO}} (qualquer nome de coluna) */
 export function fillVariables(text: string, person: Person): string {
-  return text.replace(/\{\{\s*([\w.]+)\s*(?:\|\s*"([^"]*)")?\s*\}\}/g, (_, path: string, fallback?: string) => {
-    const [head, sub] = path.split('.');
-    const raw = sub && head === 'custom' ? person.custom?.[sub] : (person as unknown as Record<string, unknown>)[head!];
+  const key = (k: string) => k.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  return text.replace(/\{\{\s*(custom\.[^}|]+?|[\w.]+)\s*(?:\|\s*"([^"]*)")?\s*\}\}/g, (_, path: string, fallback?: string) => {
+    const dot = path.indexOf('.');
+    const head = dot < 0 ? path : path.slice(0, dot);
+    const sub = dot < 0 ? '' : path.slice(dot + 1).trim();
+    let raw: unknown;
+    if (sub && head === 'custom') {
+      const c = person.custom ?? {};
+      // nome exato da coluna; senão, sem acento/maiúsculas/símbolos (MSG-CONEXAO acha MSG-CONEXÃO)
+      raw = c[sub] ?? Object.entries(c).find(([k]) => key(k) === key(sub))?.[1];
+    } else raw = (person as unknown as Record<string, unknown>)[head];
     const value = typeof raw === 'string' || typeof raw === 'number' ? String(raw).trim() : '';
     return value || fallback || '';
   });

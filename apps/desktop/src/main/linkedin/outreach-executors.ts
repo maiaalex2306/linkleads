@@ -49,7 +49,10 @@ export interface ProfileState {
 
 async function openProfile(d: ExecutorDeps, p: Person): Promise<ProfileState | 'not_found'> {
   const open = await gotoProfile(d, p);
-  if (open !== 'ok') throw new NoUrlSlot(open.retryAt);
+  if (open !== 'ok') {
+    if ('notFound' in open) return 'not_found';
+    throw new NoUrlSlot(open.retryAt);
+  }
   return (await awaitProfile(d)) === 'ok' ? profileState(d) : 'not_found';
 }
 

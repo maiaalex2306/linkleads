@@ -36,6 +36,14 @@ function textSourceEditor(src, { kind, allowNoNote } = {}) {
   sync();
   return {
     el: h('div', { class: 'stack' }, h('div', { class: 'row' }, mode), aiRow, template, h('div', { class: 'row' }, tplHint, counter)),
+    set: (src2) => {
+      mode.value = src2.sendWithoutNote ? 'none' : src2.ai ? 'ai' : 'template';
+      template.value = src2.template || '';
+      goal.value = src2.goal || '';
+      if (src2.approval) approval.value = src2.approval;
+      sync();
+      updateCounter();
+    },
     read: () => ({
       ai: mode.value === 'ai',
       sendWithoutNote: mode.value === 'none' || undefined,
@@ -115,6 +123,31 @@ function sequenceForm(a, cols, settings, integ) {
   };
   engage.addEventListener('change', syncNums);
 
+  // planilha com mensagens prontas (MSG-CONEXÃO, MSG-01…MSG-05): oferece usar direto
+  const sheetBox = h('div');
+  const normKey = (k) => k.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const checkSheet = async () => {
+    sheetBox.replaceChildren();
+    if (!collection.value) return;
+    const colsList = await api.collectionColumns(a.id, collection.value).catch(() => []);
+    const find = (want) => colsList.find((k) => normKey(k) === normKey(want));
+    const inviteCol = find('MSG-CONEXÃO') || find('MSG-CONEXAO') || find('cs_invite');
+    const msgCols = [1, 2, 3, 4, 5].map((i) => find(`MSG-0${i}`)).filter(Boolean);
+    if (!inviteCol && !msgCols.length) return;
+    sheetBox.replaceChildren(h('div', { class: 'card stack', style: 'border-color:var(--ok)' },
+      h('strong', {}, 'Esta coleção tem mensagens prontas da planilha'),
+      h('div', { class: 'muted' }, `Colunas: ${[inviteCol, ...msgCols].filter(Boolean).join(', ')}. Cada pessoa recebe o texto da sua própria linha.`),
+      h('div', {}, h('button', { type: 'button', class: 'primary', onclick: () => {
+        if (inviteCol) invite.set({ ai: false, template: `{{custom.${inviteCol}}}` });
+        steps.length = 0;
+        msgCols.forEach((c, i) => addStep({ ai: false, template: `{{custom.${c}}}`, waitDays: i === 0 ? 0 : 1 }));
+        if (!msgCols.length) DEFAULT_MESSAGES.forEach((m) => addStep({ ai: true, approval: 'manual', ...m }));
+        toast('Convite e mensagens preenchidos com as colunas da planilha');
+      } }, 'Usar as mensagens da planilha'))));
+  };
+  collection.addEventListener('change', checkSheet);
+  setTimeout(checkSheet);
+
   return h('form', {
     class: 'stack', onsubmit: async (e) => {
       e.preventDefault();
@@ -129,6 +162,7 @@ function sequenceForm(a, cols, settings, integ) {
   },
     !settings.hasAiKey && h('div', { class: 'muted', style: 'color:var(--warn)' }, 'A IA escolhida ainda não tem chave (Configurações da IA). Etapas "personalizadas pela IA" vão falhar até lá.'),
     h('div', { class: 'row' }, h('label', {}, 'Nome', name), h('label', {}, 'Coleção', collection), h('label', {}, 'Tom', tone)),
+    sheetBox,
     engageBox,
     h('div', { class: 'step' },
       h('div', { class: 'head' }, h('span', { class: 'num', 'data-n': 'invite' }, '2'), h('strong', { style: 'flex:1' }, 'Convite de conexão'), h('span', { class: 'muted' }, 'logo depois do comentário · nota de até 300 caracteres')),

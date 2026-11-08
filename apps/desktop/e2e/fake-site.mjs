@@ -22,20 +22,25 @@ const COLLEAGUES = {
   'bruno-lima': { name: 'Bruno Lima', headline: 'Gerente de Compras e Suprimentos' },
   'carla-souza': { name: 'Carla Souza', headline: 'Engenheira de Perdas e Telemetria' },
   'diego-alves': { name: 'Diego Alves', headline: 'Estagiário de Engenharia' },
+  // homônimos: só a empresa/cargo desempata
+  'carlos-pereira-tyt': { name: 'Carlos Pereira', headline: 'Gerente de Utilidades na Toyota do Brasil' },
+  'carlos-pereira-fia': { name: 'Carlos Pereira', headline: 'Analista Financeiro na Fiat' },
 };
 const URN = 'urn:li:activity:7001';
 // busca global: sugestões enquanto digita e página de resultados com Enter
-const PEOPLE = [['ana-silva', 'Ana Silva'], ['bruno-lima', 'Bruno Lima'], ['carla-souza', 'Carla Souza'], ['diego-alves', 'Diego Alves']];
+const PEOPLE = [['ana-silva', 'Ana Silva', 'Diretora de Operações na Águas do Vale'], ['bruno-lima', 'Bruno Lima', 'Compras'], ['carla-souza', 'Carla Souza', 'Engenheira'], ['diego-alves', 'Diego Alves', 'Estagiário'],
+  ['carlos-pereira-tyt', 'Carlos Pereira', 'Gerente de Utilidades na Toyota do Brasil'], ['carlos-pereira-fia', 'Carlos Pereira', 'Analista Financeiro na Fiat']];
 const searchScript = String.raw`
 (() => {
-  const people = ${JSON.stringify([['ana-silva', 'Ana Silva'], ['bruno-lima', 'Bruno Lima'], ['carla-souza', 'Carla Souza'], ['diego-alves', 'Diego Alves']])};
+  const people = ${JSON.stringify([['ana-silva', 'Ana Silva', 'Diretora de Operações na Águas do Vale'], ['bruno-lima', 'Bruno Lima', 'Compras'], ['carla-souza', 'Carla Souza', 'Engenheira'], ['diego-alves', 'Diego Alves', 'Estagiário'],
+    ['carlos-pereira-tyt', 'Carlos Pereira', 'Gerente de Utilidades na Toyota do Brasil'], ['carlos-pereira-fia', 'Carlos Pereira', 'Analista Financeiro na Fiat']])};
   const input = document.querySelector('.search-global-typeahead__input');
   const box = document.querySelector('.typeahead');
   input.addEventListener('input', () => {
     const q = input.value.trim().toLowerCase();
     clearTimeout(window.__ta);
     window.__ta = setTimeout(() => {
-      box.innerHTML = q.length < 3 || window.__noTypeahead ? '' : people.filter(([, n]) => n.toLowerCase().includes(q)).map(([s, n]) => '<a href="/in/' + s + '/">' + n + '</a>').join('');
+      box.innerHTML = q.length < 3 || window.__noTypeahead ? '' : people.filter(([, n]) => n.toLowerCase().includes(q)).map(([s, n, hl]) => '<div role="option"><a href="/in/' + s + '/">' + n + '</a> <small>' + hl + '</small></div>').join('');
     }, 250);
   });
   input.addEventListener('keydown', (e) => { if (e.key === 'Enter') location.href = '/search/results/people/?keywords=' + encodeURIComponent(input.value); });
@@ -149,7 +154,7 @@ export function startFakeSite(port = 0) {
     const url = decodeURIComponent(req.url ?? '/');
     const html = (b, s) => { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); res.end(page(b, (state.noTypeahead ? 'window.__noTypeahead = true;' : '') + (s || ''))); };
     // como cada perfil foi aberto: com Referer = clicando dentro do site; sem = colando o link
-    const prof = url.match(/^\/in\/([a-z-]+)\/$/);
+    const prof = url.match(/^\/in\/([A-Za-z0-9_-]+)\/$/);
     if (prof && req.method === 'GET') (state.profileLoads ||= []).push({ slug: prof[1], clicked: !!req.headers.referer });
     if (req.method === 'POST') {
       let body = '';
@@ -180,7 +185,7 @@ export function startFakeSite(port = 0) {
     if (url.startsWith('/search/results/people/')) {
       state.searches = (state.searches || 0) + 1;
       const q = new URL(url, 'http://x').searchParams.get('keywords')?.toLowerCase() ?? '';
-      return html(`<ul class="search-results-container">${PEOPLE.filter(([, n]) => n.toLowerCase().includes(q)).map(([s, n]) => `<li class="entity-result"><a href="/in/${s}/">${n}</a></li>`).join('')}</ul>`);
+      return html(`<ul class="search-results-container">${PEOPLE.filter(([, n]) => n.toLowerCase().includes(q)).map(([s, n, hl]) => `<li class="entity-result"><a href="/in/${s}/">${n}</a><div>${hl}</div></li>`).join('')}</ul>`);
     }
     if (url.startsWith('/feed/update/')) return html(postHtml(true), commentScript);
     if (url === '/in/ana-silva/recent-activity/all/') return html(`<div class="spacer"></div>${postHtml(false)}<div class="spacer"></div>`, likeScript);

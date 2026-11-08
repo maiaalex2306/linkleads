@@ -43,13 +43,15 @@ export function publicIdFromUrl(url: string): string | undefined {
 const norm = (h: string) => h.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
 /** Sinônimos de cabeçalho aceitos (pt/en, exportações comuns). */
-const HEADER_MAP: Record<string, keyof Person | 'profileUrl' | 'fullName'> = {
+const HEADER_MAP: Record<string, keyof Person | 'profileUrl' | 'fullName' | 'snId'> = {
+  // exportação do Linked Helper
+  memberid: 'memberId', publicid: 'publicId', snmemberid: 'snId', locationname: 'location', currentcompanyposition: 'position',
   profileurl: 'profileUrl', linkedinurl: 'profileUrl', linkedin: 'profileUrl', url: 'profileUrl',
   perfil: 'profileUrl', urldoperfil: 'profileUrl', linkedinprofile: 'profileUrl', publicprofileurl: 'profileUrl',
   profilelink: 'profileUrl', linkedinprofileurl: 'profileUrl', perfillinkedin: 'profileUrl', linkdoperfil: 'profileUrl',
   companyname1: 'company', organization1: 'company', currentcompany: 'company', empresaatual: 'company', organizacao: 'company',
   organizationtitle1: 'position', cargoatual: 'position', title1: 'position',
-  firstname: 'firstName', nome: 'firstName', primeironome: 'firstName',
+  firstname: 'firstName', primeironome: 'firstName', nome: 'fullName',
   lastname: 'lastName', sobrenome: 'lastName',
   fullname: 'fullName', name: 'fullName', nomecompleto: 'fullName',
   headline: 'headline', titulo: 'headline',
@@ -92,21 +94,28 @@ export function importPeopleFromCsv(text: string, makeId: (publicId: string) => 
       const value = v.trim();
       if (!value) return;
       if (key === 'profileUrl') urlCandidates.push(value); // pode haver mais de uma coluna de URL
-      else if (key) rec[key] = value;
+      else if (key && !rec[key]) rec[key] = value; // a primeira coluna reconhecida vence (planilhas com colunas repetidas)
       else if (header[i]?.trim()) custom[header[i]!.trim()] = value;
     });
-    // 1º: colunas de URL reconhecidas; 2º: qualquer link /in/ em qualquer célula (como o IAD CRM faz)
-    let publicId = urlCandidates.map(publicIdFromUrl).find(Boolean);
+    // 1º: public_id (exportação do Linked Helper); 2º: colunas de URL; 3º: qualquer link /in/ em qualquer célula
+    let publicId = rec.publicId && /^[^\s/]+$/.test(rec.publicId) ? rec.publicId.toLowerCase() : undefined;
+    if (!publicId) publicId = urlCandidates.map(publicIdFromUrl).find(Boolean);
     if (!publicId) {
       for (const v of cols) {
         const m = v.match(/(?:https?:\/\/)?(?:[a-z]{2,3}\.)?linkedin\.com\/(?:in|pub)\/[^\s"',;)]+/i);
         if (m) { publicId = publicIdFromUrl(m[0]); if (publicId) break; }
       }
     }
-    if (!publicId) {
-      const any = [...urlCandidates, ...cols].join(' ');
-      const reason = /linkedin\.com\/sales\//i.test(any)
-        ? 'Só tem URL do Sales Navigator (precisa da URL pública linkedin.com/in/…)'
+    // sem /in/: Sales Navigator ou número do membro + nome → o app acha o perfil pela busca (como o Linked Helper)
+    const any = [...urlCandidates, ...cols].join(' ');
+    const snId = (rec.snId?.split(',')[0] || any.match(/linkedin\.com\/sales\/(?:people|lead)\/([A-Za-z0-9_-]+)/i)?.[1]) || undefined;
+    const memberId = rec.memberId && /^\d+$/.test(rec.memberId) ? rec.memberId : undefined;
+    const hasName = !!((rec.firstName && rec.lastName) || (rec.fullName && rec.fullName.trim().split(/\s+/).length >= 2));
+    let key = publicId;
+    if (!key && (snId || memberId) && hasName) key = memberId ? `m:${memberId}` : `sn:${snId}`;
+    if (!key) {
+      const reason = /linkedin\.com\/sales\//i.test(any) || snId
+        ? 'Só tem o link do Sales Navigator e nenhum nome para procurar o perfil'
         : /linkedin\.com\/company\//i.test(any)
           ? 'URL de página de empresa, não de perfil'
           : /linkedin\.com\/(?:posts|feed)\//i.test(any)
@@ -114,8 +123,9 @@ export function importPeopleFromCsv(text: string, makeId: (publicId: string) => 
             : urlCandidates.length ? 'URL de perfil inválida' : 'Sem URL de perfil';
       return result.skipped.push({ line, reason });
     }
-    if (seen.has(publicId)) return result.skipped.push({ line, reason: 'Duplicado' });
-    seen.add(publicId);
+    if (seen.has(key)) return result.skipped.push({ line, reason: 'Duplicado' });
+    seen.add(key);
+    if (snId) custom.sn_id = snId;
     let { firstName, lastName } = rec;
     if (!firstName && rec.fullName) {
       const [f, ...rest] = rec.fullName.split(/\s+/);
@@ -123,8 +133,9 @@ export function importPeopleFromCsv(text: string, makeId: (publicId: string) => 
       lastName = lastName ?? (rest.join(' ') || undefined);
     }
     result.people.push({
-      id: makeId(publicId),
+      id: publicId ? makeId(publicId) : key,
       publicId,
+      memberId,
       firstName,
       lastName,
       headline: rec.headline,

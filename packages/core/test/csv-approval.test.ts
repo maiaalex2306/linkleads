@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  renderMessage,
   CampaignRunner,
   ExecutorRegistry,
   InMemoryCampaignStore,
@@ -88,10 +89,33 @@ describe('CSV robusto (planilhas reais)', () => {
     const r = importPeopleFromCsv(csv);
     expect(r.people.map((p) => [p.publicId, p.firstName, p.company])).toEqual([['ana-silva', 'Ana', 'ACME']]);
     expect(r.skipped.map((s) => s.reason)).toEqual([
-      'Só tem URL do Sales Navigator (precisa da URL pública linkedin.com/in/…)',
+      'Só tem o link do Sales Navigator e nenhum nome para procurar o perfil',
       'URL de página de empresa, não de perfil',
       'Sem URL de perfil',
     ]);
+  });
+
+  it('exportação do Linked Helper: aceita Sales Navigator + nome (o app acha o perfil pela busca)', () => {
+    const csv = [
+      'id;public_id;member_id;sn_member_id;profile_url;full_name;first_name;last_name;headline;current_company;location_name;NOME;MSG-01',
+      '33574315;;33574315;ACwAAAIATasBA_OC0NMUDatWeEBCssGNHCpTT6U,9rcn,NAME_SEARCH;https://www.linkedin.com/sales/people/ACwAAAIATasBA_OC0NMUDatWeEBCssGNHCpTT6U,9rcn,NAME_SEARCH/;Priscila Rocha;Priscila;Rocha;Head de ESG;Volkswagen Caminhões e Ônibus;São Paulo;Priscila Rocha;Olá Priscila!',
+      '99;helena-m-baptista;99;;https://www.linkedin.com/in/helena-m-baptista/;Helena Baptista;Helena;Baptista;;Bosch;;Helena Baptista;Oi',
+      '77;;;ACwAAXYZ,1,NAME_SEARCH;https://www.linkedin.com/sales/people/ACwAAXYZ,1,NAME_SEARCH/;;;;;;;;',
+    ].join('\n');
+    const r = importPeopleFromCsv(csv);
+    expect(r.people.map((p) => [p.id, p.publicId, p.memberId, p.firstName, p.lastName, p.company, p.custom?.sn_id, p.custom?.['MSG-01']])).toEqual([
+      ['m:33574315', undefined, '33574315', 'Priscila', 'Rocha', 'Volkswagen Caminhões e Ônibus', 'ACwAAAIATasBA_OC0NMUDatWeEBCssGNHCpTT6U', 'Olá Priscila!'],
+      ['helena-m-baptista', 'helena-m-baptista', '99', 'Helena', 'Baptista', 'Bosch', undefined, 'Oi'],
+    ]);
+    expect(r.skipped.map((x) => x.reason)).toEqual(['Só tem o link do Sales Navigator e nenhum nome para procurar o perfil']);
+  });
+
+  it('mensagens prontas da planilha: {{custom.MSG-01}} e {{custom.MSG-CONEXÃO}} (com ou sem acento)', () => {
+    const p = { id: 'x', firstName: 'Priscila', custom: { 'MSG-01': 'Olá, Priscila!', 'MSG-CONEXÃO': 'Vamos conectar?' } };
+    expect(renderMessage('{{custom.MSG-01}}', p)).toBe('Olá, Priscila!');
+    expect(renderMessage('{{custom.MSG-CONEXÃO}}', p)).toBe('Vamos conectar?');
+    expect(renderMessage('{{custom.msg-conexao}}', p)).toBe('Vamos conectar?');
+    expect(renderMessage('{{custom.MSG-09 | "sem"}}', p)).toBe('sem');
   });
 
   it('com duas colunas de URL, usa a que for de perfil', () => {

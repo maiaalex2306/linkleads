@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld('linkleads', {
   saveDiagnosis: invoke('instance:saveDiagnosis'),
   listCollections: invoke('collections:list'),
   collectionPeople: invoke('collections:people'),
+  collectionColumns: invoke('collections:columns'),
   importCsv: invoke('collections:importCsv'),
   listCampaigns: invoke('campaigns:list'),
   createEngagementCampaign: invoke('campaigns:createEngagement'),

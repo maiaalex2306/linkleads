@@ -204,7 +204,7 @@ export class SqliteCampaignStore implements CampaignStore {
         `INSERT INTO people (id, public_id, member_id, first_name, last_name, headline, company, position, location, connection_degree, custom_json)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
-           public_id=excluded.public_id, member_id=COALESCE(excluded.member_id, member_id),
+           public_id=COALESCE(excluded.public_id, public_id), member_id=COALESCE(excluded.member_id, member_id),
            first_name=excluded.first_name, last_name=excluded.last_name, headline=excluded.headline,
            company=excluded.company, position=excluded.position, location=excluded.location,
            connection_degree=excluded.connection_degree, custom_json=excluded.custom_json,

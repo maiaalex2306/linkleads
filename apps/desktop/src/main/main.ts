@@ -287,6 +287,13 @@ ipcMain.handle('instance:saveCurrentProfile', async (_e, id: string) => {
 
 // Coleções -------------------------------------------------------------------
 ipcMain.handle('collections:list', (_e, id: string) => crms.get(account(id)).listCollections());
+/** Colunas extras da coleção (ex.: MSG-01…MSG-05 da planilha), para usar como {{custom.coluna}}. */
+ipcMain.handle('collections:columns', (_e, id: string, collectionId: string) => {
+  const keys = new Set<string>();
+  for (const p of crms.get(account(id)).listCollectionPeople(collectionId).slice(0, 40)) for (const [k, v] of Object.entries(p.custom ?? {})) if (v) keys.add(k);
+  return [...keys];
+});
+
 ipcMain.handle('collections:people', (_e, id: string, collectionId: string) => crms.get(account(id)).listCollectionPeople(collectionId));
 
 ipcMain.handle('collections:importCsv', async (_e, id: string) => {
