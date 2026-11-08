@@ -1,4 +1,4 @@
-import { BrowserWindow, session, type Session } from 'electron';
+import { app, BrowserWindow, session, type Session } from 'electron';
 import type { Account, Campaign, ExecutionResult, TickReport } from '@linkleads/core';
 import { CampaignRunner, ExecutorRegistry, resolveApproval, shouldAutoBrake } from '@linkleads/core';
 import { LlmPostInterpreter, createLlm, type LlmClient } from '@linkleads/ai';
@@ -28,6 +28,7 @@ import {
 } from './linkedin/outreach-executors.js';
 import { accountSummary, classifyCommittee, icpFilter, mapCompany, monitorSignals, type MapCompanyResult } from './linkedin/decision-executors.js';
 import { PageDriver } from './linkedin/page-driver.js';
+import { diagnosePage, type DiagnosisReport } from './linkedin/diagnostics.js';
 import { loadSelectors } from './linkedin/selectors.js';
 import { now } from './clock.js';
 import { proxyRules } from './proxy-check.js';
@@ -303,6 +304,12 @@ export class AccountInstance {
     const r = await accountSummary(this.deps, companyId);
     this.log(`Resumo da conta gerado (${this.crm.getCompany(companyId)?.name ?? companyId})`);
     return r;
+  }
+
+  /** Diagnóstico somente leitura da página aberta na janela da conta (não clica, não digita, não navega). */
+  diagnose(): Promise<DiagnosisReport> {
+    this.window.show();
+    return this.withBrowser(() => diagnosePage(this.driver, app.getVersion()));
   }
 
   /** Recarrega o mapa de seletores (ex.: a equipe publicou uma versão nova). */

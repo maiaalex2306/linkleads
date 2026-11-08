@@ -99,6 +99,9 @@ npm run ai:demo -- "Concluímos a telemetria de 120 km de rede e reduzimos as pe
    e distribui leads que chegam pelo webhook de entrada.
 3. **Instaladores e atualização automática**: `docs/DISTRIBUICAO.md` (Windows, macOS e Linux, assinatura e GitHub Actions).
 
+> 🧪 **Validação real**: siga `docs/VALIDACAO.md`. Ela começa pela aba **Diagnóstico**, que confere os seletores nas
+> páginas reais sem fazer nenhuma ação na sua conta.
+
 > ⚠️ Os seletores do LinkedIn (`apps/desktop/src/main/linkedin/selectors.ts`) ainda não foram validados numa conta real.
 > Valide primeiro com uma conta própria, com volume baixo. Para ajustar sem gerar nova versão, use `<userData>/selectors.json`.
 

@@ -226,3 +226,64 @@ export function extractContactInfo(sel: Record<string, readonly string[]>): { em
     .filter((t) => (t.match(/\d/g) ?? []).length >= 8);
   return { emails: [...new Set(emails)], phones: [...new Set(phones)] };
 }
+
+export interface KeyDiagnosis {
+  key: string;
+  found: boolean;
+  /** índice do candidato que funcionou (0 = o primeiro da lista) */
+  candidate: number | null;
+  count: number;
+  /** tamanho do texto do primeiro elemento (não o texto em si) */
+  textLength: number;
+}
+
+/** Somente leitura: para cada chave, qual seletor candidato encontra elementos visíveis. */
+export function diagnoseKeys(sel: Record<string, readonly string[]>, keys: string[]): KeyDiagnosis[] {
+  return keys.map((key) => {
+    const cands = sel[key] ?? [];
+    for (let i = 0; i < cands.length; i++) {
+      let els: Element[] = [];
+      try {
+        els = Array.from(document.querySelectorAll(cands[i]!));
+      } catch {
+        continue; // seletor inválido
+      }
+      const visible = els.filter((e) => {
+        const r = (e as HTMLElement).getBoundingClientRect?.();
+        return r && r.width > 0 && r.height > 0;
+      });
+      if (visible.length)
+        return { key, found: true, candidate: i, count: visible.length, textLength: ((visible[0] as HTMLElement).innerText ?? '').trim().length };
+    }
+    return { key, found: false, candidate: null, count: 0, textLength: 0 };
+  });
+}
+
+/**
+ * Rótulos visíveis de botões (texto/aria-label) num escopo, com o nome da pessoa do perfil trocado por [NOME].
+ * Serve para ajustar os rótulos (Conectar, Pendente, Mensagem…) ao idioma e à versão da interface.
+ */
+export function visibleButtonLabels(scopes: readonly string[], personName: string | null): string[] {
+  const roots = scopes.flatMap((c) => {
+    try {
+      return Array.from(document.querySelectorAll(c));
+    } catch {
+      return [];
+    }
+  });
+  const out = new Set<string>();
+  const redact = (t: string) => {
+    let s = t;
+    if (personName) for (const part of [personName, ...personName.split(' ')].filter((x) => x.length > 2)) s = s.split(part).join('[NOME]');
+    return s.replace(/\s+/g, ' ').trim().slice(0, 80);
+  };
+  for (const root of roots) {
+    for (const b of Array.from(root.querySelectorAll('button, [role="button"], a[role="button"]')).slice(0, 40)) {
+      const r = (b as HTMLElement).getBoundingClientRect();
+      if (r.width === 0 || r.height === 0) continue;
+      const label = [b.getAttribute('aria-label') ?? '', (b as HTMLElement).innerText ?? ''].map(redact).filter(Boolean).join(' | ');
+      if (label) out.add(label);
+    }
+  }
+  return [...out].slice(0, 40);
+}

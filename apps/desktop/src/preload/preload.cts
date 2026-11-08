@@ -14,6 +14,8 @@ contextBridge.exposeInMainWorld('linkleads', {
   stopInstance: invoke('instance:stop'),
   runNow: invoke('instance:runNow'),
   saveCurrentProfile: invoke('instance:saveCurrentProfile'),
+  diagnose: invoke('instance:diagnose'),
+  saveDiagnosis: invoke('instance:saveDiagnosis'),
   listCollections: invoke('collections:list'),
   collectionPeople: invoke('collections:people'),
   importCsv: invoke('collections:importCsv'),

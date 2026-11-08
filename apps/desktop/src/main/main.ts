@@ -142,6 +142,15 @@ ipcMain.handle('accounts:remove', async (_e, id: string) => {
 ipcMain.handle('instance:start', (_e, id: string) => void instances.start(account(id)));
 ipcMain.handle('instance:stop', (_e, id: string) => instances.stop(id));
 ipcMain.handle('instance:runNow', (_e, id: string) => instances.require(id).tickAll({ waitIfBusy: true }));
+ipcMain.handle('instance:diagnose', (_e, id: string) => instances.require(id).diagnose());
+ipcMain.handle('instance:saveDiagnosis', async (_e, reports: unknown[]) => {
+  const pick = process.env.LINKLEADS_TEST_EXPORT_PATH
+    ? { canceled: false, filePath: process.env.LINKLEADS_TEST_EXPORT_PATH }
+    : await dialog.showSaveDialog(launcher!, { title: 'Salvar relatório de diagnóstico', defaultPath: `linkleads-diagnostico-${new Date().toISOString().slice(0, 10)}.json`, filters: [{ name: 'JSON', extensions: ['json'] }] });
+  if (pick.canceled || !pick.filePath) return null;
+  writeFileSync(pick.filePath, JSON.stringify({ generatedAt: new Date().toISOString(), platform: process.platform, reports }, null, 2));
+  return pick.filePath;
+});
 ipcMain.handle('instance:saveCurrentProfile', async (_e, id: string) => {
   const r = await instances.require(id).saveCurrentProfile();
   return r.ok ? { ok: true, person: r.data?.person } : { ok: false, message: r.message ?? r.reason };

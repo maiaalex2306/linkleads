@@ -66,6 +66,7 @@ async function renderView() {
     ['companies', 'Empresas'],
     ['signals', `Sinais${stats.unseenSignals ? ` (${stats.unseenSignals})` : ''}`],
     ['deliveries', 'Entregas'],
+    ['diagnostics', 'Diagnóstico'],
     ['activity', 'Atividade'],
   ];
   const header = h('div', {},
@@ -87,7 +88,7 @@ async function renderView() {
     state.proxyOpen && proxyPanel(a, () => { state.proxyOpen = false; renderView(); }),
     h('div', { class: 'tabs' }, ...tabs.map(([k, l]) => h('button', { class: state.tab === k ? 'sel' : '', onclick: () => { state.tab = k; renderView(); } }, l))),
   );
-  const body = await ({ collections: collectionsView, campaigns: campaignsView, approvals: approvalsView, inbox: inboxView, companies: companiesView, signals: signalsView, deliveries: deliveriesView, activity: activityView }[state.tab] || collectionsView)(a);
+  const body = await ({ collections: collectionsView, campaigns: campaignsView, approvals: approvalsView, inbox: inboxView, companies: companiesView, signals: signalsView, deliveries: deliveriesView, diagnostics: diagnosticsView, activity: activityView }[state.tab] || collectionsView)(a);
   view.replaceChildren(header, body);
 }
 
