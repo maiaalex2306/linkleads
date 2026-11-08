@@ -160,7 +160,7 @@ ipcMain.handle('trace:export', async (_event, id?: string) => {
 });
 
 // Contas e instâncias ---------------------------------------------------------
-ipcMain.handle('accounts:list', () => accounts.list().map((a) => ({ ...publicAccount(a), ...accounts.loginInfo(a.id), running: instances.isRunning(a.id) })));
+ipcMain.handle('accounts:list', () => accounts.list().map((a) => ({ ...publicAccount(a), ...accounts.loginInfo(a.id), running: instances.isRunning(a.id), runnerEnabled: instances.get(a.id)?.schedulerRunning() ?? false })));
 
 /** Salva o login do LinkedIn (senha vazia mantém a salva; e-mail vazio apaga). */
 ipcMain.handle('accounts:setLogin', (_e, id: string, input: { email: string; password?: string }) => {
@@ -262,6 +262,9 @@ ipcMain.handle('accounts:remove', async (_e, id: string) => {
 });
 
 ipcMain.handle('instance:start', (_e, id: string) => void instances.start(account(id)));
+ipcMain.handle('instance:open', (_e, id: string) => void instances.open(account(id)));
+ipcMain.handle('instance:startRunner', (_e, id: string) => void instances.startRunner(account(id)));
+ipcMain.handle('instance:stopRunner', (_e, id: string) => void instances.stopRunner(id));
 ipcMain.handle('instance:stop', (_e, id: string) => instances.stop(id));
 /** Falhas que podem mudar numa nova tentativa (página não carregou, erro, sem efeito, bloqueio, sem post). */
 const RETRYABLE = ['NOT_FOUND', 'ERROR', 'NO_REAL_EFFECT', 'THROTTLED', 'NO_POST', 'LIMIT_REACHED'];

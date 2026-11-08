@@ -134,6 +134,7 @@ export class AccountInstance {
   readonly executors = new ExecutorRegistry();
   private deps: ExecutorDeps;
   private loop?: NodeJS.Timeout;
+  private initialCycle?: NodeJS.Timeout;
   private busy: Promise<unknown> = Promise.resolve();
   private currentTick?: Promise<TickReport[]>;
   private lastInboxScan = 0;
@@ -564,20 +565,34 @@ export class AccountInstance {
     }
   }
 
+  /** Abrir o navegador nunca implica iniciar o executor. */
+  schedulerRunning(): boolean { return Boolean(this.loop); }
+
   startScheduler(intervalMs = 5 * 60_000): void {
     this.stopScheduler();
+    if (this.account.paused) {
+      trace.record('campaign', 'runner_start_blocked_paused', {}, { accountId: this.account.id }, 'warn');
+      return;
+    }
     const run = () => {
+      if (this.window.isDestroyed() || this.account.paused) return;
       this.live.nextCycleAt = new Date(Date.now() + intervalMs).toISOString();
       void this.tickAll().catch((e) => this.log(`Erro no ciclo: ${String(e)}`));
     };
     this.live.nextCycleAt = new Date(Date.now() + 15_000).toISOString();
-    setTimeout(run, 15_000); // dá tempo de a página inicial carregar
+    this.initialCycle = setTimeout(run, 15_000);
     this.loop = setInterval(run, intervalMs);
+    trace.record('campaign', 'runner_started', {}, { accountId: this.account.id });
   }
 
   stopScheduler(): void {
+    const active = Boolean(this.loop || this.initialCycle);
     if (this.loop) clearInterval(this.loop);
+    if (this.initialCycle) clearTimeout(this.initialCycle);
     this.loop = undefined;
+    this.initialCycle = undefined;
+    this.live.nextCycleAt = undefined;
+    if (active) trace.record('campaign', 'runner_stopped', {}, { accountId: this.account.id });
   }
 
   /** Mapeia o comitê da empresa (busca de pessoas + vagas) e pede à IA os papéis. */

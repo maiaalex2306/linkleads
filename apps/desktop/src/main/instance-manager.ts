@@ -29,16 +29,42 @@ export class InstanceManager {
     return inst;
   }
 
-  start(account: Account): AccountInstance {
-    if (this.instances.has(account.id)) throw new Error('A conta já está em execução');
+  /** Legado: iniciar instância com executor (para fluxos que solicitam execução). */
+  start(account: Account, options: { runCampaigns?: boolean } = {}): AccountInstance {
+    if (this.instances.has(account.id)) throw new Error('A conta já está aberta');
     const inst = new AccountInstance(account, this.crms.get(account), this.settings, this.events, this.integrations);
     inst.window.on('closed', () => {
       inst.stopScheduler();
       this.instances.delete(account.id);
     });
     this.instances.set(account.id, inst);
-    inst.startScheduler();
+    if (options.runCampaigns !== false && !account.paused) inst.startScheduler();
     return inst;
+  }
+
+  /** Abre o LinkedIn sem executar campanhas, inclusive quando a conta está pausada. */
+  open(account: Account): AccountInstance {
+    const existing = this.instances.get(account.id);
+    if (existing) {
+      if (!existing.window.isDestroyed()) {
+        existing.window.show();
+        existing.window.focus();
+      }
+      return existing;
+    }
+    return this.start(account, { runCampaigns: false });
+  }
+
+  /** Executar campanhas é comando separado e bloqueado enquanto a conta estiver pausada. */
+  startRunner(account: Account): AccountInstance {
+    if (account.paused) throw new Error('Conta pausada: revise o motivo antes de iniciar campanhas');
+    const inst = this.instances.get(account.id) ?? this.start(account, { runCampaigns: false });
+    if (!inst.schedulerRunning()) inst.startScheduler();
+    return inst;
+  }
+
+  stopRunner(accountId: string): void {
+    this.require(accountId).stopScheduler();
   }
 
   async stop(accountId: string): Promise<void> {
