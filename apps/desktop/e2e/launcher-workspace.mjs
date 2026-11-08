@@ -28,6 +28,11 @@ try {
   const call = (name, ...args) => ui.evaluate(([n, a]) => window.linkleads[n](...a), [name, args]);
   await ui.locator('.launcher-page').waitFor();
   check(await ui.getByRole('heading', { name: 'Contas do LinkedIn' }).isVisible(), 'inicia no Launcher de contas');
+  await ui.getByRole('button', { name: 'Configurações', exact: true }).click();
+  await ui.getByText('Sobre mim').first().waitFor();
+  await ui.getByRole('button', { name: '← Voltar' }).click();
+  await ui.locator('.launcher-page').waitFor();
+  check(true, 'configurações globais acessíveis e retorno correto ao Launcher');
   const a = await call('createAccount', { label: 'Conta Alfa', tier: 'basic' });
   const b = await call('createAccount', { label: 'Conta Beta', tier: 'premium' });
   const camp = await call('createMonitorCampaign', a.id, { name: 'Monitoramento industrial', everyDays: 7 });
