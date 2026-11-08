@@ -6,9 +6,10 @@ on:
   pull_request:
 
 jobs:
-  test:
+  checks:
+    name: Tipos, testes unitários e build
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -19,14 +20,60 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
-      - name: Navegador do Playwright (painel do gestor no e2e)
+
+  e2e:
+    name: E2E — ${{ matrix.name }}
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Campanha e sequência
+            suite: "run sequence"
+          - name: Decisão e integrações
+            suite: "decision integrations"
+          - name: Equipe e diagnóstico
+            suite: "team diagnostics"
+          - name: Prospecção e Sales Navigator
+            suite: "prospecting salesnav"
+          - name: Login e limites
+            suite: "login limits"
+          - name: Interface guiada e falhas
+            suite: "simple explain"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Preparar Electron e Playwright
         run: npx playwright install --with-deps chromium
-      - name: Testes ponta a ponta (app Electron real contra site falso)
+      - name: Executar fluxos Electron em site simulado
         run: |
-          for t in run sequence decision integrations team diagnostics; do
-            xvfb-run -a node apps/desktop/e2e/$t.mjs
+          for t in ${{ matrix.suite }}; do
+            echo "::group::E2E $t"
+            xvfb-run -a node apps/desktop/e2e/$t.mjs || exit 1
+            echo "::endgroup::"
           done
-      - name: Mesmo e2e contra o pacote (app-dist)
-        run: |
-          npm run bundle -w @linkleads/desktop
-          LINKLEADS_E2E_APP=$PWD/apps/desktop/app-dist xvfb-run -a node apps/desktop/e2e/run.mjs
+
+  packaged:
+    name: E2E da aplicação empacotada
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run bundle -w @linkleads/desktop
+      - name: Testar aplicativo empacotado
+        run: LINKLEADS_E2E_APP=$PWD/apps/desktop/app-dist xvfb-run -a node apps/desktop/e2e/run.mjs
