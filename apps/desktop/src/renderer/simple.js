@@ -55,10 +55,16 @@ function flowDiagram(o = {}) {
 /** Situação da conta em uma palavra + o botão principal. */
 function statusBar(a, active) {
   const inside = scheduleStatus(a).inside;
-  const [label, cls] = a.paused ? ['Pausado', 'warn'] : !a.running ? ['Parado', 'idle'] : !active ? ['Sem campanha ativa', 'idle'] : !inside ? ['Fora do horário', 'warn'] : ['Trabalhando', 'ok'];
+  const [label, cls] = a.paused ? ['Pausado', 'warn'] : !a.runnerEnabled ? [a.running ? 'Navegador aberto, executor desligado' : 'Parado', 'idle'] : !active ? ['Sem campanha ativa', 'idle'] : !inside ? ['Fora do horário', 'warn'] : ['Executor ativo', 'ok'];
   let btn;
   if (a.paused) btn = h('button', { class: 'primary big', onclick: () => safe(() => api.setPaused(a.id, false)).then(refresh) }, '▶ Retomar');
-  else if (!a.running) btn = h('button', { class: 'primary big', disabled: !active, title: active ? '' : 'Crie e ative uma campanha primeiro (etapa 2)', onclick: () => safe(() => api.startInstance(a.id)).then(refresh) }, '▶ Começar');
+  else if (!a.running) btn = [
+    h('button', { class: 'big', onclick: () => safe(() => api.openBrowser(a.id)).then(refresh) }, 'Abrir LinkedIn'),
+    h('button', { class: 'primary big', disabled: !active, title: active ? '' : 'Crie e ative uma campanha primeiro (etapa 2)',
+      onclick: () => safe(() => api.startRunner(a.id)).then(refresh) }, '▶ Começar'),
+  ];
+  else if (!a.runnerEnabled) btn = h('button', { class: 'primary big', disabled: !active,
+    onclick: () => safe(() => api.startRunner(a.id)).then(refresh) }, '▶ Iniciar campanhas');
   else btn = h('button', { class: 'big', onclick: () => safe(() => api.setPaused(a.id, true)).then(refresh) }, '⏸ Pausar');
   return h('div', { class: 'gtop' },
     h('h2', { style: 'margin:0' }, a.label),

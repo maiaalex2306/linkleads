@@ -122,8 +122,8 @@ async function renderWorkspaceSidebar(a) {
       h('span', { class: 'muted' }, (WORK_STATUS[c.status] || c.status) + ' · ' + c.contacts + ' contatos'))),
     h('div', { class: 'sidebar-divider' }),
     h('div', { class: 'sidebar-heading' }, 'Ferramentas da conta'),
-    ...[['collections','Coleções / CRM'],['approvals','Aprovações'],['inbox','Inbox'],
-      ['companies','Empresas'],['signals','Sinais'],['deliveries','Entregas'],['diagnostics','Diagnóstico'],['activity','TRACE / Atividade']]
+    ...[['collections','Coleções / CRM'],['approvals','Rascunhos pendentes'],['inbox','Mensagens recebidas'],
+      ['companies','Comitês de compra'],['signals','Radar comercial'],['deliveries','Histórico de integrações'],['diagnostics','Validar páginas'],['activity','TRACE / Atividade']]
       .map(([tab, label]) => h('button', {
         class: 'workspace-sidebar-link' + (state.tab === tab ? ' selected' : ''),
         onclick: () => { state.tab = tab; state.campaignId = null; state.mode = 'advanced'; renderView(); },
