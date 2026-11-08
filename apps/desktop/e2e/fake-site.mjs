@@ -215,7 +215,7 @@ export function startFakeSite(port = 0) {
       state.companyVisits++;
       const card = (slug, name, headline) => `<li class="org-people-profile-card__profile-card-spacing"><a href="/in/${slug}/">
         <div class="artdeco-entity-lockup__title">${name}</div></a><div class="artdeco-entity-lockup__subtitle">${headline}</div></li>`;
-      return html(`<ul>${card('ana-silva', 'Ana Silva', state.anaHeadline)}${Object.entries(COLLEAGUES).map(([s, p]) => card(s, p.name, p.headline)).join('')}
+      return html(`<ul>${card('ana-silva', 'Ana Silva', state.anaHeadline)}${Object.entries(COLLEAGUES).filter(([s]) => !s.startsWith('carlos-pereira')).map(([s, p]) => card(s, p.name, p.headline)).join('')}
         ${card('headless', 'LinkedIn Member', 'Analista')}</ul><div class="spacer"></div>`);
     }
     if (url.startsWith('/company/acme/jobs/'))
