@@ -128,11 +128,6 @@ async function launcherView(accounts) {
         renderAccounts();
         document.querySelector('.new-account input[name="label"]')?.focus();
       } }, '+ Nova conta LinkedIn')),
-    h('div', { class: 'workspace-metrics' },
-      metricBox('Contas cadastradas', accounts.length),
-      metricBox('Navegadores abertos', opened),
-      metricBox('Executores ligados', activeRunners),
-      metricBox('Automação pausada', paused)),
     !accounts.length && h('div', { class: 'card stack' },
       h('strong', {}, 'Sua primeira conta'),
       h('div', { class: 'muted' }, 'Cadastre uma conta no formulário ao lado. Não é obrigatório salvar a senha do LinkedIn.')),
@@ -153,8 +148,7 @@ async function launcherView(accounts) {
             await safe(() => api.openBrowser(a.id));
             await refresh();
           } }, a.running ? 'Mostrar LinkedIn' : 'Abrir LinkedIn · sem executar'))))),
-    h('div', { class: 'card muted' },
-      'Abertura da conta, navegador LinkedIn e execução de campanhas são operações separadas. Contas pausadas permanecem pausadas.'));
+    h('div',{class:'muted'},'Selecione sua conta. Abrir campanhas não inicia a automação.'));
 }
 
 async function renderWorkspaceSidebar(a) {
@@ -167,7 +161,7 @@ async function renderWorkspaceSidebar(a) {
     h('div', { class: 'sidebar-heading' }, 'Campanhas desta conta',
       h('span', { class: 'muted' }, String(summaries.length))),
     h('button', { class: 'workspace-sidebar-link' + (!state.campaignId && state.tab === 'campaigns' ? ' selected' : ''),
-      onclick: () => { state.tab = 'campaigns'; state.campaignId = null; renderView(); } }, 'Todas as campanhas'),
+      onclick: () => { state.tab = 'campaigns'; state.campaignId = null; renderView(); } }, 'Campanhas'),
     ...summaries.map((c) => h('button', {
       class: 'workspace-sidebar-link' + (state.campaignId === c.id && state.tab === 'campaigns' ? ' selected' : ''),
       title: c.name,
