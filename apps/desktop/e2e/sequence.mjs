@@ -115,7 +115,8 @@ try {
   await ui.getByRole('button', { name: '+ Criar nova campanha' }).click();
   await ui.getByText('Criar sequência').waitFor();
   await ui.screenshot({ path: join(shots, 'fase2-campanhas.png'), fullPage: true });
-  await ui.getByRole('button', { name: 'Configurações', exact: true }).click();
+  await ui.locator('.top-menu > summary').click();
+  await ui.getByRole('button', { name: 'Configurações gerais' }).click();
   await ui.getByText('Interruptor geral').waitFor();
   await ui.screenshot({ path: join(shots, 'fase2-configuracoes.png'), fullPage: true });
 } catch (e) {
