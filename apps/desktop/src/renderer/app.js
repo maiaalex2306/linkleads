@@ -49,7 +49,7 @@ async function renderAccounts() {
     },
       h('input', { name: 'label', placeholder: 'Nova conta (nome)', required: true, autocomplete: 'off' }),
       h('input', { name: 'linkedinEmail', type: 'email', placeholder: 'E-mail do LinkedIn', autocomplete: 'off' }),
-      h('input', { name: 'linkedinPassword', type: 'password', placeholder: 'Senha do LinkedIn', autocomplete: 'new-password' }),
+      passwordInput({ name: 'linkedinPassword', placeholder: 'Senha do LinkedIn', autocomplete: 'new-password' }).element,
       h('div', { class: 'muted', style: 'font-size:12px' }, 'A senha fica criptografada neste computador e serve só para entrar sozinho no LinkedIn.'),
       h('select', { name: 'linkedinAge', title: 'Conta nova no LinkedIn começa devagar e sobe em ~6 semanas' },
         h('option', { value: 'established' }, 'Conta do LinkedIn com mais de 1 ano'),
