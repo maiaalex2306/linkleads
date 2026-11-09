@@ -59,7 +59,9 @@ try {
 
   await ui.reload();
   await ui.locator('.account-list .acc').first().click();
-  await ui.getByRole('button', { name: /Aprovações/ }).click();
+  await ui.getByRole('button', { name: 'Tela completa' }).click();
+  await ui.locator('.tabs:visible').first().waitFor();
+  await ui.locator('.tabs:visible').first().getByRole('button', { name: /Aprovações/ }).click();
   await ui.getByText('Aprovar e enviar').waitFor();
   await ui.screenshot({ path: join(shots, 'fase2-aprovacao-convite.png') });
 
@@ -107,7 +109,9 @@ try {
 
   await ui.reload();
   await ui.locator('.account-list .acc').first().click();
-  await ui.getByRole('button', { name: /Inbox/ }).click();
+  await ui.getByRole('button', { name: 'Tela completa' }).click();
+  await ui.locator('.tabs:visible').first().waitFor();
+  await ui.locator('.tabs:visible').first().getByRole('button', { name: /Inbox/ }).click();
   await ui.getByText('Marcar como tratado').waitFor();
   await ui.getByText('ver conversa').click();
   await ui.screenshot({ path: join(shots, 'fase2-inbox.png') });
