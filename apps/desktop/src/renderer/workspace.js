@@ -169,11 +169,9 @@ function detailInfo(a, c) {
         h('button', { onclick: () => { state.campaignTab = 'statistics'; renderView(); } }, 'Ver estatísticas'))));
 }
 
-function detailWorkflow(a, c) {
+async function detailWorkflow(a, c) {
   if (state.editCampaign) {
-    return h('div', { class: 'card stack' },
-      h('div', { class: 'row' }, h('strong', {}, 'Editar etapas da campanha')),
-      campaignEditor(a, c, () => { state.editCampaign = false; renderView(); }));
+    return advancedWorkflowEditor(a, c, () => { state.editCampaign = false; renderView(); });
   }
   return h('div', { class: 'stack' },
     h('div', { class: 'row' },
@@ -299,7 +297,7 @@ async function campaignDetailView(a) {
         onclick: () => { state.campaignTab = id; state.editCampaign = false; renderView(); },
       }, label))),
     selected === 'info' ? detailInfo(a, c)
-      : selected === 'workflow' ? detailWorkflow(a, c)
+      : selected === 'workflow' ? await detailWorkflow(a, c)
       : selected === 'lists' ? detailLists(c)
       : selected === 'dashboard' ? detailDashboard(c)
       : detailStatistics(c));
