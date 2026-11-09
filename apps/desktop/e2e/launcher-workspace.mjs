@@ -59,25 +59,23 @@ try {
   check(await ui.locator('.campaign-overview-item:visible').count() === 0, 'pesquisa filtra campanhas sem consultar contatos');
   await ui.getByRole('searchbox', { name: 'Pesquisar campanhas' }).fill('Monitoramento');
   check(await ui.locator('.campaign-overview-item:visible').count() === 1, 'pesquisa encontra campanha pelo nome');
-  await ui.getByLabel('Ordenar').selectOption('contacts');
-  check(await ui.getByLabel('Ordenar').inputValue() === 'contacts',
+  await ui.getByLabel('Ordenar campanhas').selectOption('contacts');
+  check(await ui.getByLabel('Ordenar campanhas').inputValue() === 'contacts',
     'ordenacao escolhida permanece visivel apos redesenhar a tela');
-  await ui.getByLabel('Situação').selectOption('stopped');
-  check(await ui.getByLabel('Situação').inputValue() === 'stopped',
+  await ui.getByLabel('Filtrar campanhas').selectOption('stopped');
+  check(await ui.getByLabel('Filtrar campanhas').inputValue() === 'stopped',
     'filtro por situacao permanece selecionado');
   await ui.screenshot({ path: join(shots, 'workspace-campanhas.png'), fullPage: true });
 
   await ui.locator('#work-nav').getByRole('button', { name: /Monitoramento industrial/ }).click();
-  await ui.getByRole('button', { name: 'Fluxo de trabalho', exact: true }).waitFor();
+  await ui.getByRole('button', { name: 'Etapas', exact: true }).waitFor();
   await ui.getByRole('heading', { name: 'Monitoramento industrial' }).waitFor();
-  await ui.getByRole('button', { name: 'Fluxo de trabalho', exact: true }).click();
+  await ui.getByRole('button', { name: 'Etapas', exact: true }).click();
   await ui.locator('.workflow-node').first().waitFor();
-  await ui.getByRole('button', { name: 'Listas', exact: true }).click();
+  await ui.getByRole('button', { name: 'Leads', exact: true }).click();
   await ui.getByText('Perfis da campanha').waitFor();
-  await ui.getByRole('button', { name: 'Painel', exact: true }).click();
+  await ui.getByRole('button', { name: 'Resultados', exact: true }).click();
   await ui.getByText('Distribuição de resultados por etapa').waitFor();
-  await ui.getByRole('button', { name: 'Estatísticas' }).click();
-  await ui.getByText('Estatísticas por ação').waitFor();
   await ui.screenshot({ path: join(shots, 'workspace-campanha.png'), fullPage: true });
 
   await call('openBrowser', a.id);
@@ -117,7 +115,7 @@ try {
   await ui.locator('.launcher-account', { hasText: 'Conta Beta' })
     .getByRole('button', { name: 'Abrir campanhas' }).click();
   await ui.locator('#work-nav').getByRole('button', { name: /Fluxo editável/ }).click();
-  await ui.getByRole('button', { name:'Fluxo de trabalho', exact:true }).click();
+  await ui.getByRole('button', { name:'Etapas', exact:true }).click();
   await ui.getByRole('button', { name:'Editar etapas' }).click();
   await ui.locator('.wb-root').waitFor();
   check(await ui.locator('.wb-action.is-unavailable').count() > 0,

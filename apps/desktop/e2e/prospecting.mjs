@@ -92,6 +92,7 @@ try {
   await ui.reload();
   await ui.locator('.account-list .acc').first().click();
   await ui.locator('.account-list').getByText('Conta teste').click();
+  await ui.getByRole('button', { name:'Atividade', exact:true }).click();
   await ui.locator('#live-box').getByText('O que acabou de fazer').waitFor();
   await ui.waitForTimeout(1500);
   await ui.locator('#live-box').screenshot({ path: join(shots, 'painel-agora.png') });

@@ -54,13 +54,14 @@ try {
   await ui.reload();
   await ui.locator('.account-list .acc').first().click();
   await ui.locator('.account-list').getByText('Conta teste').click();
+  await ui.getByRole('button', { name: 'Atividade', exact:true }).click();
   await ui.locator('#live-box').getByText(/Parado: as campanhas ativas não têm mais nada a fazer/).waitFor();
   await ui.locator('#live-box').getByText('Motivos das falhas: perfil não encontrado (2)').waitFor();
   await ui.waitForTimeout(1200);
   await ui.locator('#live-box').screenshot({ path: join(shots, 'painel-explica.png') });
   await ui.getByRole('button', { name: 'Campanhas', exact: true }).click();
   await ui.locator('.campaign-overview-item').first().getByRole('button', { name: 'Abrir campanha' }).click();
-  await ui.getByRole('button', { name: 'Listas', exact: true }).click();
+  await ui.getByRole('button', { name: 'Leads', exact: true }).click();
   await ui.getByText(/O LinkedIn mostrou "página não encontrada"/).first().waitFor();
   check(true, 'lista individual da campanha mostra o detalhe da falha');
 
