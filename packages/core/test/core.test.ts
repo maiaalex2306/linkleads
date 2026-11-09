@@ -62,6 +62,10 @@ describe('ritmo', () => {
     expect(remainingBudget(partial, 'profile_url', usage, MONDAY_10AM)).toBe(40);
     expect(remainingBudget(partial, 'invites', usage, MONDAY_10AM)).toBe(20);
     expect(remainingBudget(partial, 'comments', usage, MONDAY_10AM)).toBe(20);
+    expect(remainingBudget(partial, 'search_pages', usage, MONDAY_10AM)).toBe(100);
+    expect(remainingBudget(partial, 'inmails', usage, MONDAY_10AM)).toBe(30);
+    expect(remainingBudget(partial, 'withdrawals', usage, MONDAY_10AM)).toBe(50);
+    expect(remainingBudget(partial, 'extractions', usage, MONDAY_10AM)).toBe(100);
     expect(remainingBudget(partial, 'likes', usage, MONDAY_10AM)).toBe(30);
     const oversized = account({ limitRules: [
       { key: 'activity', max: 200, hours: 24 },
