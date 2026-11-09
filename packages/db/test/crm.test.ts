@@ -52,6 +52,22 @@ describe('LocalCrm', () => {
     expect(() => crm.campaignActionRows('lists',{filter:'DROP TABLE'})).toThrow('Filtro');
   });
 
+  it('arquiva e restaura campanhas sem perder ações e filas', () => {
+    const crm = new LocalCrm(openAccountDb(':memory:'), 'America/Sao_Paulo');
+    const campaign = engagementCampaign({id:'archive-test', accountId:'acc', name:'Arquivar', commentMode:'manual'});
+    crm.saveCampaign(campaign);
+    crm.upsertPerson({id:'p',publicId:'p',firstName:'Contato'});
+    crm.enqueue('archive-test',campaign.actions[0]!.id,'p');
+    crm.setCampaignArchived('archive-test',true);
+    expect(crm.listCampaigns('acc')).toHaveLength(0);
+    expect(crm.listCampaigns('acc',true)[0]!.archived).toBe(true);
+    expect(() => crm.setCampaignActive('archive-test',true)).toThrow(/Restaure/);
+    crm.setCampaignArchived('archive-test',false);
+    expect(crm.listCampaigns('acc')).toHaveLength(1);
+    expect(crm.campaignActionRows('archive-test').total).toBe(1);
+    expect(crm.loadCampaign('archive-test','acc')?.actions).toHaveLength(campaign.actions.length);
+  });
+
   it('posts e rascunhos de comentário', () => {
     const crm = new LocalCrm(openAccountDb(':memory:'), 'America/Sao_Paulo');
     crm.upsertPerson({ id: 'p1', publicId: 'p1', firstName: 'Ana' });

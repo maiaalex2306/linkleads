@@ -137,6 +137,15 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
       CREATE INDEX IF NOT EXISTS idx_cap_campaign_status ON campaign_action_people (campaign_id, status, action_id, seq);
     `,
   },
+  {
+    version: 10,
+    // arquivamento e descrição sem exclusão do histórico da campanha
+    sql: `
+      ALTER TABLE campaigns ADD COLUMN archived INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE campaigns ADD COLUMN description TEXT;
+      CREATE INDEX IF NOT EXISTS idx_campaigns_archived ON campaigns (archived, created_at);
+    `,
+  },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.version;
@@ -418,10 +427,11 @@ export class LocalCrm extends SqliteCampaignStore {
     try {
       this.db
         .prepare(
-          `INSERT INTO campaigns (id, name, active, exclusions_json) VALUES (?, ?, ?, ?)
-           ON CONFLICT(id) DO UPDATE SET name=excluded.name, active=excluded.active, exclusions_json=excluded.exclusions_json`,
+          `INSERT INTO campaigns (id, name, active, exclusions_json, description) VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET name=excluded.name, active=excluded.active, exclusions_json=excluded.exclusions_json,
+             description=excluded.description`,
         )
-        .run(c.id, c.name, c.active ? 1 : 0, JSON.stringify(c.exclusions ?? []));
+        .run(c.id, c.name, c.active ? 1 : 0, JSON.stringify(c.exclusions ?? []), c.description ?? null);
       const up = this.db.prepare(
         `INSERT INTO campaign_actions (id, campaign_id, position, type, name, description, cool_down_ms, max_results, settings_json, exclusions_json, wait_hours, continue_on_fail_json)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -464,17 +474,30 @@ export class LocalCrm extends SqliteCampaignStore {
           : {}),
       }),
     );
-    return { id, accountId, name: c.name as string, active: Boolean(c.active), exclusions: JSON.parse(c.exclusions_json as string), actions };
+    return { id, accountId, name: c.name as string, active: Boolean(c.active),
+      archived: Boolean(c.archived), description: c.description as string | undefined,
+      exclusions: JSON.parse(c.exclusions_json as string), actions };
   }
 
-  listCampaigns(accountId: string): Campaign[] {
-    return (this.db.prepare('SELECT id FROM campaigns ORDER BY created_at DESC').all() as Row[])
+  listCampaigns(accountId: string, includeArchived = false): Campaign[] {
+    return (this.db.prepare('SELECT id FROM campaigns ' +
+      (includeArchived ? '' : 'WHERE archived=0 ') + 'ORDER BY created_at DESC').all() as Row[])
       .map((r) => this.loadCampaign(r.id as string, accountId)!)
       .filter(Boolean);
   }
 
   setCampaignActive(id: string, active: boolean): void {
+    const existing = this.db.prepare('SELECT archived FROM campaigns WHERE id=?').get(id) as {archived:number} | undefined;
+    if (!existing) throw new Error('Campanha não encontrada');
+    if (active && existing.archived) throw new Error('Restaure a campanha antes de ativá-la');
     this.db.prepare('UPDATE campaigns SET active = ? WHERE id = ?').run(active ? 1 : 0, id);
+  }
+
+  /** Arquivar não exclui ações, registros, histórico nem pessoas. */
+  setCampaignArchived(id: string, archived: boolean): void {
+    const row = this.db.prepare('UPDATE campaigns SET archived=?, active=0 WHERE id=?')
+      .run(archived ? 1 : 0, id);
+    if (!row.changes) throw new Error('Campanha não encontrada para arquivamento');
   }
 
   /** Coloca todas as pessoas da coleção na fila da primeira ação. */
