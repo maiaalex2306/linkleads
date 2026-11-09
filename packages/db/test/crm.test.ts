@@ -32,6 +32,26 @@ describe('LocalCrm', () => {
     expect(crm.loadCampaign('condition', 'acc')!.actions[0]!.continueOnFail).toEqual(['NO_POST', 'AI_SKIPPED']);
   });
 
+  it('filtra e pagina estados reais por ação sem perder histórico', () => {
+    const crm = new LocalCrm(openAccountDb(':memory:'), 'America/Sao_Paulo');
+    const campaign = engagementCampaign({ id:'lists', accountId:'acc', name:'Listas', commentMode:'manual' });
+    crm.saveCampaign(campaign);
+    const first = campaign.actions[0]!;
+    for (let i=0;i<12;i++) {
+      const id='person-'+i;
+      crm.upsertPerson({ id, publicId:id, firstName:'Pessoa', lastName:String(i), company:'Fábrica' });
+      crm.enqueue('lists', first.id, id);
+      if(i<3) crm.setStatus('lists',first.id,id,'failed',i===0?'NO_POST':'NOT_FOUND');
+    }
+    const all = crm.campaignActionRows('lists',{pageSize:10});
+    expect(all.total).toBe(12); expect(all.rows).toHaveLength(10);
+    expect(crm.campaignActionRows('lists',{page:1,pageSize:10}).rows).toHaveLength(2);
+    expect(crm.campaignActionRows('lists',{filter:'ignored'}).rows.map((r)=>r.reason)).toEqual(['NO_POST']);
+    expect(crm.campaignActionRows('lists',{filter:'failed'}).total).toBe(3);
+    expect(crm.campaignActionRows('lists',{search:'Fábrica'}).total).toBe(12);
+    expect(() => crm.campaignActionRows('lists',{filter:'DROP TABLE'})).toThrow('Filtro');
+  });
+
   it('posts e rascunhos de comentário', () => {
     const crm = new LocalCrm(openAccountDb(':memory:'), 'America/Sao_Paulo');
     crm.upsertPerson({ id: 'p1', publicId: 'p1', firstName: 'Ana' });

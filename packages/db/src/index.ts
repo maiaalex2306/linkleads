@@ -132,7 +132,10 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
   {
     version: 9,
     // preservar continuidade condicional ao fechar/reabrir uma campanha
-    sql: `ALTER TABLE campaign_actions ADD COLUMN continue_on_fail_json TEXT NOT NULL DEFAULT '[]';`,
+    sql: `
+      ALTER TABLE campaign_actions ADD COLUMN continue_on_fail_json TEXT NOT NULL DEFAULT '[]';
+      CREATE INDEX IF NOT EXISTS idx_cap_campaign_status ON campaign_action_people (campaign_id, status, action_id, seq);
+    `,
   },
 ];
 
@@ -516,6 +519,75 @@ export class LocalCrm extends SqliteCampaignStore {
       notBefore: r.not_before ? new Date(Number(r.not_before)).toISOString() : undefined,
       message: (r.message as string) ?? undefined,
     }));
+  }
+
+  /**
+   * Listas por ação/campanha: consulta paginada por SQLite, preservando todas
+   * as etapas (campaignPeople mostra apenas a última etapa por pessoa).
+   * Apenas filtros pré-definidos: nunca interpolar SQL vindo da interface.
+   */
+  campaignActionRows(
+    campaignId: string,
+    opts: { actionId?: string; filter?: string; search?: string; page?: number; pageSize?: number } = {},
+  ): {
+    total: number; page: number; pageSize: number;
+    rows: Array<{ personId: string; actionId: string; actionName: string; name: string;
+      company: string; status: string; reason: string | null; message: string | null;
+      updatedAt: string; notBefore: string | null }>;
+  } {
+    const page = Math.max(0, Math.min(100000, Math.trunc(Number(opts.page) || 0)));
+    const pageSize = Math.max(10, Math.min(100, Math.trunc(Number(opts.pageSize) || 50)));
+    const filter = opts.filter ?? 'all';
+    const now = Date.now();
+    const where = ['cap.campaign_id = ?'];
+    const params: Array<string | number> = [campaignId];
+    if (opts.actionId) {
+      where.push('cap.action_id = ?'); params.push(opts.actionId);
+    }
+    const reasons: Record<string, string> = {
+      replied: 'REPLIED', excluded: 'EXCLUDED',
+    };
+    if (filter === 'ready') {
+      where.push("cap.status='queued' AND (cap.not_before IS NULL OR cap.not_before <= ?)");
+      params.push(now);
+    } else if (filter === 'waiting') {
+      where.push("cap.status='queued' AND cap.not_before > ?"); params.push(now);
+    } else if (filter === 'ignored') {
+      where.push("cap.status='failed' AND cap.reason IN ('NO_POST','AI_SKIPPED','ICP_REJECTED')");
+    } else if (reasons[filter]) {
+      where.push("cap.reason = ?"); params.push(reasons[filter]);
+    } else if (['queued','processed','successful','failed'].includes(filter)) {
+      where.push('cap.status = ?'); params.push(filter);
+    } else if (filter !== 'all') throw new Error('Filtro de lista não reconhecido');
+    const search = String(opts.search || '').trim().slice(0, 120);
+    if (search) {
+      where.push("(instr(lower(COALESCE(p.first_name,'')),lower(?)) > 0 OR " +
+        "instr(lower(COALESCE(p.last_name,'')),lower(?)) > 0 OR " +
+        "instr(lower(COALESCE(p.company,'')),lower(?)) > 0 OR " +
+        "instr(lower(COALESCE(p.public_id,'')),lower(?)) > 0)");
+      params.push(search, search, search, search);
+    }
+    const join = ' FROM campaign_action_people cap JOIN people p ON p.id=cap.person_id ' +
+      ' JOIN campaign_actions ca ON ca.id=cap.action_id WHERE ' + where.join(' AND ');
+    const count = this.db.prepare('SELECT COUNT(*) AS n' + join).get(...params) as { n: number };
+    const records = this.db.prepare(
+      'SELECT cap.person_id, cap.action_id, ca.name AS action_name, p.first_name, p.last_name, ' +
+      'p.public_id, p.company, cap.status, cap.reason, cap.message, cap.updated_at, cap.not_before' +
+      join + " ORDER BY CASE WHEN cap.status='queued' THEN 0 ELSE 1 END, cap.seq, cap.updated_at DESC LIMIT ? OFFSET ?"
+    ).all(...params, pageSize, page * pageSize) as Row[];
+    return {
+      total: Number(count.n), page, pageSize,
+      rows: records.map((r) => ({
+        personId: String(r.person_id), actionId: String(r.action_id),
+        actionName: String(r.action_name),
+        name: [r.first_name, r.last_name].filter(Boolean).join(' ') || String(r.public_id || '—'),
+        company: String(r.company || '—'), status: String(r.status),
+        reason: r.reason == null ? null : String(r.reason),
+        message: r.message == null ? null : String(r.message),
+        updatedAt: String(r.updated_at),
+        notBefore: r.not_before == null ? null : new Date(Number(r.not_before)).toISOString(),
+      })),
+    };
   }
 
   // Posts e rascunhos ----------------------------------------------------
