@@ -103,7 +103,7 @@ try {
   await ui.screenshot({ path: join(shots, 'fase2-inbox.png') });
   await ui.getByRole('button', { name: 'Campanhas', exact: true }).click();
   await ui.getByRole('button', { name: '+ Criar nova campanha' }).click();
-  await ui.getByText('Criar sequência').waitFor();
+  await ui.getByText('Criar campanha', { exact:true }).waitFor();
   await ui.screenshot({ path: join(shots, 'fase2-campanhas.png'), fullPage: true });
   await ui.getByRole('button', { name: 'Configurações', exact: true }).click();
   await ui.getByText('Interruptor geral').waitFor();

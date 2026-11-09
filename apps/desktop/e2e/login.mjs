@@ -69,7 +69,8 @@ try {
   await ui.locator('.account-list .acc').first().click();
   await ui.evaluate(() => window.linkleads.onLog((e) => window.__log(e.line)));
   await ui.locator('.account-list').getByText('Alexandre').click();
-  await ui.getByRole('button', { name: /Login do LinkedIn/ }).click();
+  await ui.getByRole('button', { name: 'Ajustes da conta' }).click();
+  await ui.getByRole('button', { name: 'Login', exact:true }).click();
   await ui.getByPlaceholder('•••••• (senha salva)').fill(site.state.loginPassword);
   await ui.screenshot({ path: join(shots, 'login-painel.png') });
   await ui.getByRole('button', { name: 'Salvar', exact: true }).click();

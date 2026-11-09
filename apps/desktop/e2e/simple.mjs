@@ -37,7 +37,7 @@ try {
   await app.evaluate(({ dialog }, f) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [f] }); }, csv);
   await ui.reload();
   await ui.locator('.account-list .acc').first().click();
-  await ui.getByRole('button', { name: 'Tela guiada' }).click();
+  await ui.evaluate(() => { state.mode='simple'; renderView(); });
   await ui.locator('.gsteps').waitFor();
   check(await ui.locator('.tabs').count() === 0, 'tela guiada: 4 etapas numeradas, sem a barra de abas');
   await ui.screenshot({ path: join(shots, 'guiada-1-listas.png') });
@@ -74,8 +74,8 @@ try {
   await ui.screenshot({ path: join(shots, 'guiada-6-config.png'), fullPage: true });
 
   await ui.getByRole('button', { name: 'Tela completa' }).click();
-  await ui.locator('.tabs').waitFor();
-  await ui.getByRole('button', { name: 'Tela guiada' }).click();
+  await ui.locator('.campaign-simple-overview').waitFor();
+  await ui.evaluate(() => { state.mode='simple'; renderView(); });
   await ui.locator('.gsteps').waitFor();
   check(true, 'alterna entre a tela guiada e a tela completa');
 } catch (e) {

@@ -85,13 +85,16 @@ try {
   await ui.reload();
   await ui.locator('.account-list .acc').first().click();
   await ui.locator('.account-list').getByText('Conta teste').click();
+  await ui.getByRole('button', { name: 'Ajustes da conta' }).click();
   await ui.getByRole('button', { name: 'Limites', exact: true }).click();
   await ui.getByText('Limites desta conta').waitFor();
   await ui.locator('table.limits').waitFor();
   check((await ui.locator('table.limits tr').count()) === rules.length + 1, 'painel mostra todas as regras', rules.length);
   check(/1 de 1 · libera às/.test(await ui.locator('table.limits').innerText()), 'painel mostra o uso e quando a vaga libera');
   await ui.screenshot({ path: join(shots, 'limites.png'), fullPage: true });
+  await ui.getByRole('button', { name:'Atividade', exact:true }).click();
   await ui.locator('#health-box').screenshot({ path: join(shots, 'medidores.png') });
+  // O painel de limites continua aberto no estado da interface após navegar em Atividade.
   await ui.getByRole('button', { name: 'Restaurar padrão' }).click();
   await ui.getByRole('button', { name: 'Salvar', exact: true }).click();
   await ui.waitForTimeout(500);

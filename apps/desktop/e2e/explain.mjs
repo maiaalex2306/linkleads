@@ -54,18 +54,19 @@ try {
   await ui.reload();
   await ui.locator('.account-list .acc').first().click();
   await ui.locator('.account-list').getByText('Conta teste').click();
+  await ui.getByRole('button', { name: 'Atividade', exact:true }).click();
   await ui.locator('#live-box').getByText(/Parado: as campanhas ativas não têm mais nada a fazer/).waitFor();
   await ui.locator('#live-box').getByText('Motivos das falhas: perfil não encontrado (2)').waitFor();
   await ui.waitForTimeout(1200);
   await ui.locator('#live-box').screenshot({ path: join(shots, 'painel-explica.png') });
+  check(await ui.locator('#live-box').getByRole('button', { name: /Tentar de novo/ }).count() === 0,
+    'painel não oferece repetir falhas NOT_FOUND');
   await ui.getByRole('button', { name: 'Campanhas', exact: true }).click();
   await ui.locator('.campaign-overview-item').first().getByRole('button', { name: 'Abrir campanha' }).click();
-  await ui.getByRole('button', { name: 'Listas', exact: true }).click();
+  await ui.getByRole('button', { name: 'Leads', exact: true }).click();
   await ui.getByText(/O LinkedIn mostrou "página não encontrada"/).first().waitFor();
   check(true, 'lista individual da campanha mostra o detalhe da falha');
 
-  check(await ui.locator('#live-box').getByRole('button', { name: /Tentar de novo/ }).count() === 0,
-    'painel não oferece repetir falhas NOT_FOUND');
   const refused = await ui.evaluate(async ([id, campaignId]) => {
     try { await window.linkleads.retryFailed(id, campaignId); return false; }
     catch { return true; }

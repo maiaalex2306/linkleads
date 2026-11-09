@@ -306,131 +306,131 @@ function campaignCard(a, c, cols) {
 }
 
 async function campaignsView(a) {
-  // Visão geral leve: NÃO carrega todas as pessoas das campanhas.
   const includeArchived = Boolean(state.showArchived);
-  const summaries = (await api.listCampaignSummaries(a.id, includeArchived))
-    .filter((c) => Boolean(c.archived) === includeArchived);
-  const formOpen = !includeArchived && Boolean(state.newCampaignOpen || !summaries.length);
-  const filtered = summaries.filter((c) => state.campaignStatusFilter === 'all' || c.status === state.campaignStatusFilter);
-  const sort = state.campaignSort || 'active';
-  const ordered = [...filtered].sort((x, y) => sort === 'name'
-    ? x.name.localeCompare(y.name, 'pt-BR')
-    : sort === 'contacts'
-    ? y.contacts - x.contacts || x.name.localeCompare(y.name, 'pt-BR')
-    : Number(y.active) - Number(x.active) || x.name.localeCompare(y.name, 'pt-BR'));
-  const search = String(state.campaignSearch || '').toLocaleLowerCase('pt-BR');
-  const list = h('div', { class: 'campaign-overview-list' },
-    ...ordered.map((c) => h('section', {
-      class: 'card campaign-overview-item',
-      'data-search': c.name.toLocaleLowerCase('pt-BR'),
-      hidden: Boolean(search && !c.name.toLocaleLowerCase('pt-BR').includes(search)),
-    },
-      h('div', { class: 'row campaign-overview-heading' },
-        h('span', { class: 'workspace-state' + (c.status === 'blocked' || c.status === 'attention' ? ' paused' : c.status === 'running' ? ' on' : '') },
-          WORK_STATUS[c.status] || c.status),
-        h('strong', { class: 'campaign-overview-name' }, c.name),
-        h('button', { class: 'primary', onclick: () => openCampaignWorkspace(c.id) }, 'Abrir campanha')),
-      h('div', { class: 'campaign-overview-stats' },
-        metricBox('Contatos', c.contacts),
-        metricBox('Prontas', c.ready),
-        metricBox('Aguardando prazo', c.waiting),
-        metricBox('Etapas com falha', c.failed)),
-      h('div', { class: 'row campaign-overview-footer' },
-        h('span', { class: 'muted', style: 'flex:1' }, c.actions + ' etapas · ' + c.successful + ' conclusões de etapa'),
-        !c.archived && h('button', {
-          disabled: a.paused && !c.active,
-          onclick: async () => {
-            await safe(() => api.setCampaignActive(a.id, c.id, !c.active));
-            await refresh();
-          },
-        }, c.active ? 'Parar campanha' : 'Ativar campanha'),
-        !c.archived && h('button', {
-          title:'Copia só as etapas, sem pessoas',
-          onclick: async () => {
-            const result=await safe(() => api.duplicateCampaign(a.id,c.id));
-            if(result?.campaignId) { toast('Fluxo duplicado, sem contatos ou histórico.'); await refresh(); }
-          },
-        }, 'Duplicar'),
-        h('button', { disabled:a.runnerEnabled,
-          onclick: async () => {
-            if (!c.archived && !window.confirm('Arquivar esta campanha? Ela ficará parada, mas os dados serão preservados.')) return;
-            const result=await safe(() => api.archiveCampaign(a.id,c.id,!c.archived));
-            if(result?.ok) { toast(c.archived ? 'Campanha restaurada' : 'Campanha arquivada'); await refresh(); }
-          },
-        }, c.archived ? 'Restaurar' : 'Arquivar')))));
-  const searchInput = h('input', {
-    type: 'search', placeholder: 'Pesquisar campanhas', value: state.campaignSearch || '',
-    'aria-label': 'Pesquisar campanhas',
-    oninput: (event) => {
-      state.campaignSearch = event.target.value;
-      const query = state.campaignSearch.toLocaleLowerCase('pt-BR').trim();
-      for (const item of list.children)
-        item.hidden = Boolean(query && !String(item.getAttribute('data-search')).includes(query));
-    },
+  const summaries = (await cachedCampaignSummaries(a.id, includeArchived))
+    .filter((c)=>Boolean(c.archived)===includeArchived);
+  const search = (state.campaignSearch||'').trim().toLocaleLowerCase('pt-BR');
+  const filtered = summaries.filter((c)=>{
+    if(state.campaignStatusFilter==='stopped') return !c.active;
+    if(state.campaignStatusFilter==='enabled') return c.active;
+    return true;
   });
-  const controls = summaries.length ? h('div', { class: 'campaign-overview-controls' },
-    h('label', {}, 'Pesquisar', searchInput),
-    h('label', {}, 'Situação', h('select', {
-      value: state.campaignStatusFilter || 'all',
-      onchange: (event) => { state.campaignStatusFilter = event.target.value; renderView(); },
-    }, h('option', { value: 'all' }, 'Todas as situações'),
-      ...[...new Set(summaries.map((c) => c.status))].map((status) =>
-        h('option', { value: status }, WORK_STATUS[status] || status)))),
-    h('label', {}, 'Ordenar', h('select', {
-      value: sort, onchange: (event) => { state.campaignSort = event.target.value; renderView(); },
-    }, h('option', { value: 'active' }, 'Ativas primeiro'),
-      h('option', { value: 'name' }, 'Nome A–Z'),
-      h('option', { value: 'contacts' }, 'Mais contatos')))) : null;
-  const out = h('div', { class: 'stack' },
-    h('div', { class: 'workspace-title' },
-      h('div', {}, h('div', { class: 'kind' }, 'CAMPANHAS · ' + a.label),
-        h('h2', {}, includeArchived ? 'Campanhas arquivadas (' + summaries.length + ')' :
-          'Suas campanhas (' + summaries.filter((x) => x.active).length + ' ativa(s) de ' + summaries.length + ')')),
-      h('div', { class:'row' },
-        h('button', { onclick: () => {
-          state.showArchived = !includeArchived;
-          state.campaignStatusFilter='all'; state.newCampaignOpen=false; renderView();
-        } }, includeArchived ? '← Ver campanhas ativas' : 'Ver arquivadas'),
-        !includeArchived && summaries.length > 0 && h('button', {
-          class: formOpen ? '' : 'primary',
-          onclick: () => { state.newCampaignOpen = !formOpen; renderView(); },
-        }, formOpen ? 'Fechar "Nova campanha"' : '+ Criar nova campanha'))),
-    !includeArchived && summaries.length > 0 && h('div', { class: 'muted' },
-      'As campanhas ativas só executam ações quando o executor da conta estiver ligado. Abrir esta tela não inicia campanhas.'),
-    controls,
-    list,
-    !summaries.length && includeArchived && h('div', { class:'card muted' }, 'Nenhuma campanha arquivada.'),
-    summaries.length > 0 && !filtered.length && h('div', { class: 'card muted' }, 'Nenhuma campanha nesta situação.'));
-  if (formOpen) {
-    const [cols, settings, integ] = await Promise.all([
-      api.listCollections(a.id), api.getSettings(), api.getIntegrations(),
-    ]);
-    const kinds = [['sequence', 'Sequência de prospecção'], ['engagement', 'Só engajamento (curtir + comentar)'], ['blank', 'Fluxo vazio · editor visual']];
-    const formBox = h('div');
-    const tabs = h('div', { class: 'tabs', style: 'margin:0 0 8px' });
-    const renderForm = () => {
-      tabs.replaceChildren(...kinds.map(([kind, label]) => h('button', {
-        type: 'button', class: newCampaignKind === kind ? 'sel' : '',
-        onclick: () => { newCampaignKind = kind; renderForm(); },
-      }, label)));
-      formBox.replaceChildren(newCampaignKind === 'sequence'
-        ? sequenceForm(a, cols, settings, integ)
-        : newCampaignKind === 'engagement' ? engagementForm(a, cols)
-        : h('form', { class: 'stack', onsubmit: async (ev) => {
-          ev.preventDefault();
-          const name = ev.target.elements.namedItem('campaignName')?.value?.trim();
-          const created = await safe(() => api.createBlankCampaign(a.id, name));
-          if (created?.campaignId) { state.newCampaignOpen = false; await openCampaignWorkspace(created.campaignId); state.campaignTab = 'workflow'; state.editCampaign = true; await renderView(); }
-        } },
-          h('div', { class: 'muted' }, 'Cria um rascunho vazio. Adicione ações pelo catálogo visual. Não executa nada ao criar.'),
-          h('label', {}, 'Nome do fluxo', h('input', { name: 'campaignName', value: 'Nova campanha', required: true, maxLength: 150 })),
-          h('button', { class: 'primary' }, 'Criar fluxo vazio')));
-    };
-    renderForm();
-    out.append(h('div', { class: 'card stack' },
-      h('strong', {}, 'Nova campanha'),
-      !cols.length && h('div', { class: 'muted' }, 'Importe uma coleção (CSV) primeiro.'),
-      tabs, formBox));
-  }
-  return out;
+  const sort=state.campaignSort||'recent';
+  const ordered=[...filtered].sort((x,y)=>sort==='name'
+    ? x.name.localeCompare(y.name,'pt-BR')
+    : sort==='contacts' ? y.contacts-x.contacts
+      : Number(y.active)-Number(x.active) || x.name.localeCompare(y.name,'pt-BR'));
+
+  const createForm = h('form',{class:'campaign-create-form card stack',
+    onsubmit:async (ev)=>{
+      ev.preventDefault();
+      const elements=ev.target.elements;
+      const name=elements.namedItem('campaignName')?.value?.trim();
+      const template=elements.namedItem('campaignTemplate')?.value || 'engagement';
+      const created=await safe(()=>api.createStarterCampaign(a.id,{name,template}));
+      if(!created?.campaignId) return;
+      state.newCampaignOpen=false;invalidateCampaignSummaries(a.id);
+      await openCampaignWorkspace(created.campaignId);
+      state.campaignTab=template==='blank'?'workflow':'lists';
+      state.editCampaign=template==='blank';
+      await renderView();
+    }},
+    h('div', {class:'row'},
+      h('div',{style:'flex:1'},h('h3',{},'Criar campanha'),
+        h('p',{class:'muted'},'Escolha um objetivo. Você adicionará leads e iniciará a execução depois.')),
+      h('button',{type:'button',onclick:()=>{state.newCampaignOpen=false;renderView();}},'Cancelar')),
+    h('label',{},'Nome da campanha',
+      h('input',{name:'campaignName',placeholder:'Ex.: Engajamento · Indústria automotiva',
+        maxLength:150,required:true,autofocus:true})),
+    h('label',{},'O que deseja fazer?',
+      h('select',{name:'campaignTemplate'},
+        h('option',{value:'engagement'},'Visitar, curtir e preparar comentários'),
+        h('option',{value:'outreach'},'Conectar e acompanhar'),
+        h('option',{value:'blank'},'Criar fluxo personalizado'))),
+    h('div',{class:'muted'},'Nenhuma ação será iniciada ao criar a campanha.'),
+    h('button',{class:'primary',type:'submit'},'Criar e configurar campanha'));
+
+  const sections=ordered.map((c)=>{
+    const ux=campaignUserStatus(a,c);
+    const next = c.archived ? 'Preservada no arquivo.'
+      : !c.actions ? '1. Configure as ações.'
+      : !c.contacts ? '2. Importe seus leads.'
+      : a.paused ? 'A conta está pausada por segurança.'
+      : !c.active ? 'Pronta para iniciar.'
+      : c.status==='running' ? 'Em execução neste momento.'
+      : 'Na programação. Aguarde o próximo ciclo.';
+    return h('section',{class:'card campaign-overview-item',
+      hidden:!!search&&!c.name.toLocaleLowerCase('pt-BR').includes(search)},
+      h('div',{class:'campaign-overview-heading row'},
+        h('div',{style:'flex:1;min-width:0'},
+          h('strong',{class:'campaign-overview-name'},c.name),
+          h('div',{class:'muted'},next)),
+        h('span',{class:'workspace-state'+(ux.kind==='warning'?' paused':ux.kind==='success'?' on':'')},ux.text),
+        h('button',{class:'primary',onclick:()=>openCampaignWorkspace(c.id)},'Abrir campanha')),
+      h('div',{class:'campaign-list-facts'},
+        h('span',{},'Leads: ',h('b',{},String(c.contacts))),
+        h('span',{},'Etapas: ',h('b',{},String(c.actions))),
+        h('span',{},'Concluídas: ',h('b',{},String(c.successful))),
+        c.failed>0 && h('span',{class:'campaign-error-count'},'Falhas: '+c.failed)),
+      h('div',{class:'campaign-card-actions'},
+        h('button',{class:'link',onclick:async()=>{
+          await openCampaignWorkspace(c.id);
+          state.renamingCampaignId=c.id;await renderView();
+        }},'Renomear'),
+        h('button',{class:'link',onclick:()=>{state.campaignMenuId=state.campaignMenuId===c.id?null:c.id;renderView();}},
+          state.campaignMenuId===c.id?'Menos opções':'Mais opções')),
+      state.campaignMenuId===c.id && h('div',{class:'campaign-card-more row'},
+        !c.archived && h('button',{onclick:async()=>{
+          const result=await safe(()=>api.duplicateCampaign(a.id,c.id));
+          if(result?.campaignId){toast('Campanha duplicada sem leads nem histórico.');invalidateCampaignSummaries(a.id);await refresh();}
+        }},'Duplicar fluxo'),
+        h('button',{disabled:a.runnerEnabled,onclick:async()=>{
+          const verb=c.archived?'restaurar':'arquivar';
+          if(!window.confirm('Deseja '+verb+' a campanha “'+c.name+'”? Os dados serão mantidos.'))return;
+          const result=await safe(()=>api.archiveCampaign(a.id,c.id,!c.archived));
+          if(result?.ok){state.campaignMenuId=null;invalidateCampaignSummaries(a.id);await refresh();}
+        }},c.archived?'Restaurar campanha':'Arquivar campanha')));
+  });
+  const emptySearch=h('p',{class:'muted',hidden:!search||ordered.some(c=>c.name.toLocaleLowerCase('pt-BR').includes(search))},
+    'Nenhuma campanha corresponde a esta busca.');
+  const findInput = h('input',{type:'search',placeholder:'Buscar campanha por nome',
+    value:state.campaignSearch||'', 'aria-label':'Pesquisar campanhas',
+    oninput:(ev)=>{state.campaignSearch=ev.target.value;
+      const value=state.campaignSearch.toLocaleLowerCase('pt-BR').trim();
+      const cards=document.querySelectorAll('.campaign-overview-item');
+      let visible=0;
+      cards.forEach((card)=>{const name=card.querySelector('.campaign-overview-name')?.textContent||'';
+        card.hidden=!!value&&!name.toLocaleLowerCase('pt-BR').includes(value);
+        if(!card.hidden)visible++;
+      });
+      emptySearch.hidden=visible>0;
+    }});
+  return h('div',{class:'stack campaign-simple-overview'},
+    h('div',{class:'workspace-title'},
+      h('div',{},h('div',{class:'kind'},'CAMPANHAS · '+a.label),
+        h('h2',{},includeArchived?'Campanhas arquivadas':'Suas campanhas'),
+        h('p',{class:'muted'},'Crie, configure, importe leads e acompanhe tudo dentro de cada campanha.')),
+      h('div',{class:'row'},
+        h('button',{onclick:()=>{state.showArchived=!includeArchived;state.campaignMenuId=null;renderView();}},
+          includeArchived?'← Voltar às campanhas':'Arquivadas'),
+        !includeArchived && h('button',{class:'primary',onclick:()=>{
+          state.newCampaignOpen=!state.newCampaignOpen;renderView();
+        }},state.newCampaignOpen?'Fechar criação':'+ Criar nova campanha'))),
+    !includeArchived && (state.newCampaignOpen || summaries.length===0) && createForm,
+    !!summaries.length && h('div',{class:'campaign-simple-filters row'},
+      findInput,
+      h('select',{value:state.campaignStatusFilter||'all',
+        'aria-label':'Filtrar campanhas',
+        onchange:(ev)=>{state.campaignStatusFilter=ev.target.value;renderView();}},
+        h('option',{value:'all'},'Todas as campanhas'),
+        h('option',{value:'enabled'},'Habilitadas'),
+        h('option',{value:'stopped'},'Paradas')),
+      h('select',{value:sort,'aria-label':'Ordenar campanhas',
+        onchange:(ev)=>{state.campaignSort=ev.target.value;renderView();}},
+        h('option',{value:'recent'},'Habilitadas primeiro'),
+        h('option',{value:'name'},'Nome A–Z'),
+        h('option',{value:'contacts'},'Mais leads'))),
+    h('div',{class:'campaign-overview-list'},...sections),emptySearch,
+    !!summaries.length&&!ordered.length && h('div',{class:'card muted'},'Nenhuma campanha corresponde ao filtro.'),
+    !summaries.length&&includeArchived && h('div',{class:'card muted'},'Nenhuma campanha arquivada.'));
 }

@@ -46,7 +46,7 @@ jobs:
           - name: Login e limites
             suite: "login limits"
           - name: Launcher e workspace por conta
-            suite: "launcher-workspace"
+            suite: "launcher-workspace campaign-first"
           - name: Interface guiada e falhas
             suite: "simple explain"
     steps:
