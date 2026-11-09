@@ -95,15 +95,37 @@ async function listsPage(a, cols, camps) {
         const r = await safe(() => api.importCsv(a.id));
         if (!r) return;
         state.importReport = { ...r, accountId: a.id };
+        state.selectedCollectionId = r.collectionId;
         state.wiz = { ...(state.wiz || {}), colId: r.collectionId };
         renderView();
       } }, '⬆ Importar planilha')),
     state.importReport && state.importReport.accountId === a.id && importReportCard(state.importReport, () => { state.importReport = null; renderView(); }),
     cols.length
-      ? h('div', { class: 'glist' }, ...cols.map((c) => h('div', { class: 'card gcard' },
-          h('div', { class: 'gcard-ico' }, '📋'),
-          h('div', { style: 'flex:1;min-width:0' }, h('b', {}, c.name), h('div', { class: 'muted' }, `${c.size} pessoa(s)${usedBy(c.id).length ? ` · usada em ${usedBy(c.id).join(', ')}` : ''}`)),
-          h('button', { class: 'primary', onclick: () => { state.wiz = { step: 2, colId: c.id }; state.g = 'campaign'; state.creating = true; renderView(); } }, 'Criar campanha com esta lista →'))))
+      ? h('div', { class: 'stack' },
+          h('div', { class: 'muted' }, 'Marque a planilha que deseja utilizar. As colunas adicionais permanecem disponíveis sem ocupar esta página.'),
+          h('div', { class: 'collection-picker' },
+            ...cols.map((c) => {
+              const chosen = (state.selectedCollectionId || state.wiz?.colId) === c.id;
+              return h('label', { class: 'collection-row' + (chosen ? ' selected' : '') },
+                h('input', { type: 'checkbox', checked: chosen, 'aria-label': 'Selecionar lista ' + c.name,
+                  onchange: (ev) => {
+                    state.selectedCollectionId = ev.target.checked ? c.id : null;
+                    state.wiz = { ...(state.wiz || {}), colId: state.selectedCollectionId };
+                    renderView();
+                  } }),
+                h('span', { class: 'collection-info' },
+                  h('strong', { title: c.name }, c.name),
+                  h('small', { class: 'muted' }, c.size + ' leads' +
+                    (usedBy(c.id).length ? ' · ' + usedBy(c.id).length + ' campanha(s)' : ''))));
+            })),
+          h('div', { class: 'row' },
+            h('button', { class: 'primary big',
+              disabled: !cols.some((c) => c.id === (state.selectedCollectionId || state.wiz?.colId)),
+              onclick: () => {
+                const id = state.selectedCollectionId || state.wiz?.colId;
+                state.wiz = { step: 2, colId: id };
+                state.g = 'campaign'; state.creating = true; renderView();
+              } }, 'Continuar para criar campanha →')))
       : h('div', { class: 'card muted' }, 'Nenhuma lista ainda. Comece importando sua planilha.'));
 }
 
