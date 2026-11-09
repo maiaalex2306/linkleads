@@ -93,7 +93,7 @@ try {
   await ui.locator('.account-list .acc').first().click();
   await ui.getByRole('button', { name: 'Tela completa' }).click();
   await ui.locator('.tabs:visible').first().waitFor();
-  await ui.getByRole('button', { name: /Aprovações/ }).click();
+  await ui.locator('.tabs:visible').first().getByRole('button', { name: /Aprovações/ }).click();
   await ui.getByText('Aprovar e publicar').waitFor();
   await ui.screenshot({ path: join(shots, 'aprovacoes.png') });
 
