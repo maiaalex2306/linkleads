@@ -73,13 +73,18 @@ try {
   await call('setPaused', acc.id, false); // comando explícito do teste, não efeito do login
 
   // 3. senha errada: não insiste, avisa
+  // Já ocorreram dois logins válidos (entrada inicial + reautenticação após pausa).
+  // Medir o DELTA de tentativas com a senha errada, não um total absoluto.
+  const attemptsBeforeWrongPassword = site.state.logins.length;
   await call('setLogin', acc.id, { email: site.state.loginEmail, password: 'senha-errada' });
   site.state.loggedOut = true;
   await call('runNow', acc.id);
   const told = await waitFor(async () => logs.some((l) => /recusou o login/.test(l)), 60_000);
   check(told, 'senha errada: avisa para conferir o e-mail e a senha', logs.slice(-5));
-  const tries = site.state.logins.length;
-  check(tries === 2, 'senha errada: tentou uma vez só neste ciclo', tries);
+  const wrongPasswordAttempts = site.state.logins.slice(attemptsBeforeWrongPassword)
+    .filter((attempt) => attempt.password === 'senha-errada');
+  check(wrongPasswordAttempts.length === 1, 'senha errada: tentou uma vez só neste ciclo',
+    { count: wrongPasswordAttempts.length, total: site.state.logins.length });
 
   // 4. corrigir pela tela: entra na hora
   await ui.reload();
