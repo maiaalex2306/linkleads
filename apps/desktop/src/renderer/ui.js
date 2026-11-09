@@ -4,14 +4,18 @@ const api = window.linkleads;
 /** Cria elementos sem innerHTML (todo texto vai por textContent). */
 function h(tag, props, ...children) {
   const el = document.createElement(tag);
+  let selectValue;
   for (const [k, v] of Object.entries(props || {})) {
     if (v == null || v === false) continue;
     if (k.startsWith('on')) el.addEventListener(k.slice(2).toLowerCase(), v);
     else if (k === 'class') el.className = v;
+    else if (k === 'value' && tag === 'select') selectValue = v;
     else if (k === 'value') el.value = v;
     else el.setAttribute(k, v === true ? '' : v);
   }
   for (const c of children.flat()) if (c != null && c !== false) el.append(c instanceof Node ? c : String(c));
+  // <select> precisa receber value DEPOIS de ter recebido suas <option>.
+  if (tag === 'select' && selectValue !== undefined) el.value = selectValue;
   return el;
 }
 

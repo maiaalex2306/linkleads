@@ -4,7 +4,8 @@
  */
 const WORK_STATUS = {
   draft: 'Rascunho', running: 'Executor ativo', queued: 'Em fila',
-  stopped: 'Parada', completed: 'Concluída', blocked: 'Conta pausada'
+  stopped: 'Parada', completed: 'Concluída', blocked: 'Conta pausada',
+  waiting: 'Em espera', attention: 'Revisar falhas'
 };
 const WORK_FILTERS = [
   ['all', 'Todos'], ['queued', 'Na fila'], ['processed', 'Processando'],
@@ -26,6 +27,8 @@ async function openAccountWorkspace(id) {
   state.campaignId = null;
   state.campaignTab = 'info';
   state.campaignPage = 0;
+  state.campaignStatusFilter = 'all';
+  state.campaignSearch = '';
   state.editCampaign = false;
   await refresh();
 }
@@ -217,7 +220,9 @@ function detailLists(c) {
               h('td', {}, p.name || '—'), h('td', {}, p.company || '—'),
               h('td', {}, p.actionName || '—'),
               h('td', {}, STATUS[p.status] || p.status),
-              h('td', {}, (REASONS[p.reason] || p.reason || '—'))))))),
+              h('td', {},
+                REASONS[p.reason] || p.reason || '—',
+                p.message && p.status === 'failed' && h('div', { class: 'muted workspace-error-detail' }, p.message))))))),
       h('div', { class: 'row' },
         h('button', { disabled: page <= 0, onclick: () => { state.campaignPage = page - 1; renderView(); } }, '← Anterior'),
         h('span', { class: 'muted' }, 'Página ' + (page + 1) + ' de ' + Math.max(1, Math.ceil(rows.length / 50))),
@@ -262,12 +267,17 @@ function detailStatistics(c) {
 }
 
 async function campaignDetailView(a) {
-  const campaigns = await api.listCampaigns(a.id);
-  const c = campaigns.find((x) => x.id === state.campaignId);
-  if (!c) {
-    state.campaignId = null;
-    return campaignsView(a);
+  const requested = state.campaignId;
+  let c;
+  try {
+    c = await api.campaignDetail(a.id, requested);
+  } catch (error) {
+    return h('div', { class: 'card stack' },
+      h('strong', {}, 'Não foi possível abrir a campanha'),
+      h('p', { class: 'muted' }, String(error && error.message || error)),
+      h('button', { onclick: () => { state.campaignId = null; renderView(); } }, 'Voltar às campanhas'));
   }
+  if (state.campaignId !== requested || state.accountId !== a.id) return h('div');
   const sections = [['info','Informações'], ['workflow','Fluxo de trabalho'],
     ['lists','Listas'], ['dashboard','Painel'], ['statistics','Estatísticas']];
   const selected = sections.some(([id]) => id === state.campaignTab) ? state.campaignTab : 'info';

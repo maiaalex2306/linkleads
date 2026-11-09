@@ -37,6 +37,12 @@ try {
   const b = await call('createAccount', { label: 'Conta Beta', tier: 'premium' });
   const camp = await call('createMonitorCampaign', a.id, { name: 'Monitoramento industrial', everyDays: 7 });
   check(!!camp.campaignId, 'campanha da conta Alfa foi persistida');
+  const onlySummaries = await call('listCampaignSummaries', a.id);
+  check(onlySummaries.length === 1 && !('people' in onlySummaries[0]),
+    'lista inicial transfere somente resumos, sem carteiras completas');
+  const onlyDetail = await call('campaignDetail', a.id, camp.campaignId);
+  check(onlyDetail.id === camp.campaignId && Array.isArray(onlyDetail.people),
+    'consulta detalhada carrega apenas a campanha solicitada');
   await ui.reload();
   await ui.locator('.launcher-account').first().waitFor();
   check(await ui.locator('.launcher-account').count() === 2, 'Launcher exibe duas contas');
@@ -47,6 +53,18 @@ try {
   const before = (await call('listAccounts')).find((x) => x.id === a.id);
   check(!before.running && !before.runnerEnabled, 'selecionar conta não abre navegador nem inicia campanhas');
   await ui.getByRole('button', { name: 'Campanhas', exact: true }).waitFor();
+  await ui.locator('.campaign-overview-item').first().waitFor();
+  check((await ui.locator('.campaign-overview-item').count()) === 1, 'resumo da conta sem carregar listas completas');
+  await ui.getByRole('searchbox', { name: 'Pesquisar campanhas' }).fill('sem correspondência');
+  check(await ui.locator('.campaign-overview-item:visible').count() === 0, 'pesquisa filtra campanhas sem consultar contatos');
+  await ui.getByRole('searchbox', { name: 'Pesquisar campanhas' }).fill('Monitoramento');
+  check(await ui.locator('.campaign-overview-item:visible').count() === 1, 'pesquisa encontra campanha pelo nome');
+  await ui.getByLabel('Ordenar').selectOption('contacts');
+  check(await ui.getByLabel('Ordenar').inputValue() === 'contacts',
+    'ordenacao escolhida permanece visivel apos redesenhar a tela');
+  await ui.getByLabel('Situação').selectOption('stopped');
+  check(await ui.getByLabel('Situação').inputValue() === 'stopped',
+    'filtro por situacao permanece selecionado');
   await ui.screenshot({ path: join(shots, 'workspace-campanhas.png'), fullPage: true });
 
   await ui.locator('#work-nav').getByRole('button', { name: /Monitoramento industrial/ }).click();
@@ -70,6 +88,13 @@ try {
   await call('stopRunner', a.id);
   check(!(await call('listAccounts')).find((x) => x.id === a.id).runnerEnabled, 'parar executor não fecha navegador');
 
+  await call('startRunner', a.id);
+  await call('setPaused', a.id, true);
+  check(!(await call('listAccounts')).find((x) => x.id === a.id).runnerEnabled,
+    'pausar conta cancela executor em andamento');
+  await call('setPaused', a.id, false);
+  check(!(await call('listAccounts')).find((x) => x.id === a.id).runnerEnabled,
+    'retirar pausa não retoma campanhas sem comando explícito');
   await call('setPaused', a.id, true);
   const denied = await ui.evaluate(async (id) => {
     try { await window.linkleads.startRunner(id); return false; } catch { return true; }

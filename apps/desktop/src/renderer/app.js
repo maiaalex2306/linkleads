@@ -1,5 +1,6 @@
 /* global window, document, h, toast, safe */
 const state = {
+  campaignSort: 'active', campaignStatusFilter: 'all', campaignSearch: '',
   screen: 'launcher', accountId: null, tab: 'campaigns', logs: [], mode: 'advanced',
   campaignId: null, campaignTab: 'info', campaignFilter: 'all', campaignPage: 0,
 };
