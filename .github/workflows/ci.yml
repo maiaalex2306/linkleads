@@ -110,3 +110,26 @@ jobs:
         shell: powershell
         run: |
           powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\homologar-linkleads.ps1 -SkipE2E -SkipBundle
+
+  windows-e2e-smoke:
+    name: Windows Electron E2E — login, limites e decisão
+    needs: checks
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Validar Electron real no Windows com dados isolados e site simulado
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($suite in @('login', 'limits', 'decision')) {
+            Write-Host "E2E Windows: $suite"
+            & node "apps/desktop/e2e/$suite.mjs"
+            if ($LASTEXITCODE -ne 0) { throw "E2E Windows reprovado: $suite (exit $LASTEXITCODE)" }
+          }
