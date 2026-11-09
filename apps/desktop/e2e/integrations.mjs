@@ -134,7 +134,8 @@ try {
   await ui.getByRole('button', { name: 'Entregas' }).click();
   await ui.getByText('Enviar pendentes agora').waitFor();
   await ui.screenshot({ path: join(shots, 'fase4-entregas.png') });
-  await ui.getByRole('button', { name: 'Configurações', exact: true }).click();
+  await ui.locator('.top-menu > summary').click();
+  await ui.getByRole('button', { name: 'Configurações gerais' }).click();
   await ui.getByText('Enriquecimento: Apollo.io').waitFor();
   await ui.getByText('Integrações', { exact: true }).scrollIntoViewIfNeeded();
   await ui.screenshot({ path: join(shots, 'fase4-integracoes.png') });
