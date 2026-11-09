@@ -1,0 +1,16 @@
+# Instalador privado para testes do proprietário — não publicar como release comercial.
+# Herda o empacotamento principal, mas usa identidade Windows exclusiva.
+extends: ./electron-builder.yml
+appId: br.com.linkleads.preview
+productName: LinkLeads Avaliacao
+protocols: []
+directories:
+  output: preview-release
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  artifactName: LinkLeads-Avaliacao-Setup-${version}.${ext}
+publish:
+  - provider: generic
+    url: https://preview.invalid/linkleads

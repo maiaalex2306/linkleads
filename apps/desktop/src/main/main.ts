@@ -61,9 +61,15 @@ const isolatedTestData = resolveTestUserData(
 if (isolatedTestData) {
   mkdirSync(isolatedTestData, { recursive: true });
   app.setPath('userData', isolatedTestData);
+} else if (process.env.LINKLEADS_PREVIEW_BUILD === '1') {
+  // Instalador de avaliação: não compartilha SQLite, sessões, contas ou chaves
+  // com a instalação operacional. O canal vem embutido no bundle.
+  const previewUserData = join(app.getPath('appData'), 'LinkLeads-Preview');
+  mkdirSync(previewUserData, { recursive: true });
+  app.setPath('userData', previewUserData);
 }
 trace.configure(join(app.getPath('userData'), 'traces'));
-trace.record('lifecycle', 'process_start', { mode: process.env.LINKLEADS_TEST_BASE_URL ? 'test' : 'production' });
+trace.record('lifecycle', 'process_start', { mode: process.env.LINKLEADS_TEST_BASE_URL ? 'test' : process.env.LINKLEADS_PREVIEW_BUILD === '1' ? 'evaluation' : 'production' });
 
 // Testes e2e em Linux sem chaveiro do sistema: armazenamento básico para o safeStorage funcionar.
 if (process.env.LINKLEADS_TEST_BASE_URL && process.platform === 'linux') app.commandLine.appendSwitch('password-store', 'basic');

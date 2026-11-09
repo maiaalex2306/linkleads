@@ -22,6 +22,9 @@ await build({
   external: ['electron'],
   sourcemap: 'linked',
   legalComments: 'none',
+  // Carimbo imutável do canal de distribuição dentro do executável.
+  // Apenas o build privado de avaliação recebe a flag habilitada.
+  define: { 'process.env.LINKLEADS_PREVIEW_BUILD': JSON.stringify(process.env.LINKLEADS_PREVIEW_BUILD === '1' ? '1' : '') },
   // dependências CommonJS dentro de um bundle ESM precisam de require/__dirname
   banner: {
     js: "import { createRequire as __llReq } from 'node:module'; import { fileURLToPath as __llF } from 'node:url'; import { dirname as __llD } from 'node:path'; const require = __llReq(import.meta.url); const __filename = __llF(import.meta.url); const __dirname = __llD(__filename);",
@@ -47,7 +50,7 @@ cpSync(join(root, 'src/renderer'), join(out, 'renderer'), { recursive: true });
   let commit = 'local';
   try { commit = execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(); } catch {}
   const builtAt = new Date().toISOString();
-  writeFileSync(join(out, 'build-info.json'), JSON.stringify({ id: `${commit}-${builtAt}`, commit, builtAt }));
+  writeFileSync(join(out, 'build-info.json'), JSON.stringify({ id: `${commit}-${builtAt}`, commit, builtAt, channel: process.env.LINKLEADS_PREVIEW_BUILD === '1' ? 'evaluation' : 'production' }));
 }
 
 writeFileSync(
@@ -55,7 +58,7 @@ writeFileSync(
   JSON.stringify(
     {
       name: 'linkleads',
-      productName: 'LinkLeads',
+      productName: process.env.LINKLEADS_PREVIEW_BUILD === '1' ? 'LinkLeads Avaliacao' : 'LinkLeads',
       version: pkg.version,
       description: 'LinkLeads — prospecção B2B com ritmo humano',
       author: pkg.author ?? 'LinkLeads',

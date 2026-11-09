@@ -21,6 +21,10 @@ export function setupUpdater(notify: (s: UpdateState) => void): () => UpdateStat
   };
   ipcMain.handle('update:status', () => current);
 
+  if (process.env.LINKLEADS_PREVIEW_BUILD === '1') {
+    set({ state: 'disabled', reason: 'versão privada de avaliação — atualização automática desativada' });
+    return () => current;
+  }
   if (!app.isPackaged) {
     set({ state: 'disabled', reason: 'modo de desenvolvimento' });
     return () => current;
