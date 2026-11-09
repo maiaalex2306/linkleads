@@ -10,7 +10,9 @@ export interface ExecutionContext {
 
 export type ExecutionResult =
   | { ok: true; data?: Record<string, unknown> }
-  | { ok: false; reason: FailureReason; message?: string; screenshotPath?: string; retryAfterMs?: number };
+  | { ok: false; reason: FailureReason; message?: string; screenshotPath?: string; retryAfterMs?: number;
+      /** Efeitos parciais já realizados, para auditoria e orçamentos conservadores. */
+      data?: Record<string, unknown> };
 
 /**
  * Contrato de um executor de ação. A implementação concreta (no app desktop)
