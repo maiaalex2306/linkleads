@@ -60,7 +60,6 @@ async function openCampaignWorkspace(campaignId) {
 /** Um estado visível ao usuário; 'ativa' é apenas a habilitação interna no banco. */
 function campaignUserStatus(a, c) {
   if (c.archived) return { text:'Arquivada', reason:'Campanha preservada, fora da programação.', kind:'neutral' };
-  if (!c.actions) c.actions = []; // compatibilidade com resumo leve
   if (a.paused) return { text:'Conta pausada', reason:'A conta está protegida. Nenhuma campanha pode executar.', kind:'warning' };
   if (c.status === 'running') return { text:'Executando agora', reason:'Uma ação desta campanha está em andamento.', kind:'success' };
   if (!c.active) return { text:'Parada', reason:'Esta campanha não participa da programação.', kind:'neutral' };
