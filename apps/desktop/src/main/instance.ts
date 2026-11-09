@@ -637,6 +637,9 @@ export class AccountInstance {
     const text = (editedText ?? draft.comment).trim();
     const campaign = this.crm.loadCampaign(draft.campaignId, this.account.id);
     const action = campaign?.actions.find((a) => a.id === draft.actionId);
+    if (draft.kind === 'comment' && action?.type === 'LikeAndComment' &&
+        this.settings.disabledActions().includes('LikeAndComment'))
+      throw new Error('Ação unificada desligada no interruptor geral');
     const person = this.crm.getPerson(draft.personId);
     const blockedReason = this.crm.isGloballyBlocked(draft.personId);
     const exclusions = new Set([...(campaign?.exclusions ?? []), ...(action?.exclusions ?? [])]);
