@@ -262,6 +262,8 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
 
 interface CommentActionSettings extends CommentSettings {
   mode?: 'manual' | 'auto';
+  /** URN exato selecionado pela ação composta; impede comentar outro post. */
+  targetPostUrn?: string;
 }
 
 /** Publica um comentário num post e confirma que ele aparece. */
@@ -312,7 +314,7 @@ export function commentWithAi(d: ExecutorDeps): ActionExecutor {
     type: 'CommentPost',
     execute: async (ctx) => {
       const s = ctx.action.settings as CommentActionSettings;
-      const post = d.crm.lastLikedPost(ctx.person.id);
+      const post = d.crm.lastLikedPost(ctx.person.id, s.targetPostUrn);
       if (!post) return { ok: false, reason: 'NO_POST', message: 'Nenhum post curtido para comentar' };
       if (post.commented) {
         verified.set(ctx, true);
