@@ -23,6 +23,9 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # Dependências usadas no runtime: impedir distribuição com vulnerabilidade alta/crítica conhecida.
+      - name: Auditar dependências de runtime
+        run: npm audit --omit=dev --audit-level=high
       # A primeira operação após instalar deve funcionar sem dist pré-existente.
       - name: Testar workspace em checkout limpo
         run: npm test
