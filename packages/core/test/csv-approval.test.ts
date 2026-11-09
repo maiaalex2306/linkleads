@@ -44,7 +44,7 @@ describe('CSV', () => {
 describe('aprovação humana', () => {
   it('comentário fica pendente e avança após aprovação', async () => {
     const campaign = { ...engagementCampaign({ id: 'c', accountId: 'acc', name: 'Engajar', commentMode: 'manual' }), active: true };
-    const [engagement] = campaign.actions;
+    const [, engagement] = campaign.actions;
     const store = new InMemoryCampaignStore();
     store.addPerson({ id: 'p1' });
     store.enqueue('c', engagement!.id, 'p1');
