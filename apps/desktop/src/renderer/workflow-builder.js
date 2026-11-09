@@ -230,7 +230,13 @@ async function advancedWorkflowEditor(a, campaign, onDone) {
       h('label', {}, 'Intervalo mínimo entre execuções (segundos)', cooldown),
       h('label', {}, 'Máximo de pessoas por ciclo (-1 = sem limite interno)', max),
       h('div', { class:'sidebar-divider' }),
-      h('strong', {}, 'Parâmetros específicos'),
+      h('strong', { class: 'wb-section-heading' }, 'Parâmetros específicos'),
+      step.type === 'LikePosts' && h('div', { class: 'wb-feature-note' },
+        h('strong', {}, 'Curtidas em publicações'),
+        h('p', {}, 'Capacidade atual: 1 publicação elegível por perfil. Quantidades maiores, artigos separados e comentários múltiplos ainda não possuem executor comprovado. Não são oferecidos como opções funcionais.')),
+      step.type === 'CommentPost' && h('div', { class: 'wb-feature-note' },
+        h('strong', {}, 'Comentários com IA — configuráveis'),
+        h('p', {}, 'O comentário usa a publicação previamente curtida, o objetivo, idioma, comprimento e tom selecionados. A publicação depende de confirmação real. Modo manual é o padrão.')),
       ...((def?.fields || []).length
         ? def.fields.map((field) => wbField(field, step.settings[field.key], (v) => {
           step.settings[field.key]=v;

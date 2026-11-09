@@ -5,6 +5,7 @@ import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   DEFAULT_LIMIT_RULES,
+  PROTECTED_LIMIT_RULES,
   LIMIT_LABELS,
   limitStatus,
   remainingBudget,
@@ -235,7 +236,9 @@ ipcMain.handle('accounts:limits', (_e, id: string) => {
   const read = (k: BudgetKey, since: number) => crm.usageTimes(a.id, k, since);
   const rules = a.limitRules?.length ? a.limitRules : DEFAULT_LIMIT_RULES;
   const status = (Object.keys(LIMIT_LABELS) as BudgetKey[]).flatMap((k) => limitStatus(a, k, read, t).map((s) => ({ ...s, nextFreeAt: s.nextFreeAt?.toISOString() })));
-  return { rules, custom: !!a.limitRules?.length, defaults: DEFAULT_LIMIT_RULES, labels: LIMIT_LABELS, linkedinAge: a.linkedinAge ?? 'established', status };
+  return { rules, custom: !!a.limitRules?.length, defaults: DEFAULT_LIMIT_RULES,
+    protectedRules: PROTECTED_LIMIT_RULES, labels: LIMIT_LABELS,
+    linkedinAge: a.linkedinAge ?? 'established', status };
 });
 
 ipcMain.handle('accounts:setProxy', (_e, id: string, proxy: ProxyConfig | null) => {

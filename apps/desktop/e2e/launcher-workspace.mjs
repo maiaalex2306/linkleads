@@ -46,6 +46,20 @@ try {
   await ui.reload();
   await ui.locator('.launcher-account').first().waitFor();
   check(await ui.locator('.launcher-account').count() === 2, 'Launcher exibe duas contas');
+  await ui.getByRole('searchbox', { name: 'Pesquisar contas' }).fill('Alfa');
+  check(await ui.locator('.launcher-account:visible').count() === 1,
+    'pesquisa de contas filtra sem recarregar campanhas');
+  await ui.getByRole('searchbox', { name: 'Pesquisar contas' }).fill('');
+  await ui.getByRole('button', { name: 'Campanhas rodando' }).click();
+  check(await ui.locator('.launcher-account:visible').count() === 0,
+    'filtro de executores mostra zero contas com runner desligado');
+  await ui.getByRole('button', { name: 'Navegador fechado' }).click();
+  check(await ui.locator('.launcher-account:visible').count() === 2,
+    'filtro de navegador fechado mostra as contas paradas');
+  await ui.getByRole('button', { name: 'Todas', exact: true }).click();
+  check(await ui.locator('.launcher-account:visible').count() === 2,
+    'restaurar filtro não perde contas');
+
   await ui.screenshot({ path: join(shots, 'launcher-contas.png'), fullPage: true });
 
   await ui.locator('.launcher-account', { hasText: 'Conta Alfa' }).getByRole('button', { name: 'Abrir campanhas' }).click();
