@@ -91,6 +91,7 @@ try {
   await ui.locator('.account-list .acc').first().click();
   await ui.evaluate(() => window.linkleads.onLog((e) => window.__log(e.line)));
   await ui.locator('.account-list').getByText('Alexandre').click();
+  await ui.getByRole('button', { name: 'Tela completa' }).click();
   await ui.getByRole('button', { name: /Login do LinkedIn/ }).click();
   const passwordField = ui.getByPlaceholder('•••••• (senha salva)');
   const reveal = passwordField.locator('..').getByRole('button', { name: 'Mostrar senha' });
