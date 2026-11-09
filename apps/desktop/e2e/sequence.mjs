@@ -64,6 +64,16 @@ try {
   await ui.screenshot({ path: join(shots, 'fase2-aprovacao-convite.png') });
 
   const note = 'Olá Ana, vi seu trabalho com telemetria na Águas do Vale e gostaria de me conectar.';
+  // A aprovação manual não pode ignorar o orçamento geral (activity).
+  await call('updateAccount', { ...acc, limitRules: [{ key: 'activity', max: 0, hours: 24, variation: 0 }] });
+  let budgetBlocked = false;
+  try { await call('approveDraft', acc.id, drafts[0].id, note); }
+  catch (err) { budgetBlocked = /Limite geral de atividades/.test(String(err)); }
+  check(budgetBlocked && site.state.invites === 0,
+    'aprovação manual respeita limite geral sem enviar convite');
+  check((await call('listDrafts', acc.id)).some((d) => d.id === drafts[0].id),
+    'bloqueio conserva rascunho pendente');
+  await call('updateAccount', { ...acc, limitRules: undefined });
   const ap = await call('approveDraft', acc.id, drafts[0].id, note);
   check(ap.ok && site.state.connection === 'pending' && site.state.inviteNote === note, 'convite enviado com a nota aprovada e "Pendente" confirmado');
 

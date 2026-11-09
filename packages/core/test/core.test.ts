@@ -55,6 +55,36 @@ describe('ritmo', () => {
     expect(effectiveMax(fresh, { ...rule, max: 500 }, MONDAY_10AM)).toBe(50);
   });
 
+  it('limites de proteção continuam obrigatórios após personalização parcial ou excessiva', () => {
+    const usage = (_key: string, _since: number): number[] => [];
+    const partial = account({ limitRules: [{ key: 'likes', max: 5000, hours: 24 }] });
+    expect(remainingBudget(partial, 'activity', usage, MONDAY_10AM)).toBe(150);
+    expect(remainingBudget(partial, 'profile_url', usage, MONDAY_10AM)).toBe(40);
+    expect(remainingBudget(partial, 'invites', usage, MONDAY_10AM)).toBe(20);
+    expect(remainingBudget(partial, 'comments', usage, MONDAY_10AM)).toBe(20);
+    expect(remainingBudget(partial, 'search_pages', usage, MONDAY_10AM)).toBe(100);
+    expect(remainingBudget(partial, 'inmails', usage, MONDAY_10AM)).toBe(30);
+    expect(remainingBudget(partial, 'withdrawals', usage, MONDAY_10AM)).toBe(50);
+    expect(remainingBudget(partial, 'extractions', usage, MONDAY_10AM)).toBe(100);
+    expect(remainingBudget(partial, 'likes', usage, MONDAY_10AM)).toBe(30);
+    const oversized = account({ limitRules: [
+      { key: 'activity', max: 200, hours: 24 },
+      { key: 'profile_url', max: 80, hours: 24 },
+    ] });
+    expect(remainingBudget(oversized, 'activity', usage, MONDAY_10AM)).toBe(150);
+    expect(remainingBudget(oversized, 'profile_url', usage, MONDAY_10AM)).toBe(40);
+  });
+
+  it('regras mais restritivas da conta continuam prevalecendo', () => {
+    const read = (_key: string, _since: number): number[] => [];
+    const customized = account({ limitRules: [
+      { key: 'profile_url', max: 1, hours: 24 },
+      { key: 'invites', max: 2, hours: 24 },
+    ] });
+    expect(remainingBudget(customized, 'profile_url', read, MONDAY_10AM)).toBe(1);
+    expect(remainingBudget(customized, 'invites', read, MONDAY_10AM)).toBe(2);
+  });
+
   it('variação reduz até o % pedido e fica estável no mesmo dia', () => {
     const rule = { key: 'profile_load' as const, max: 100, hours: 24, variation: 10 };
     const a = account();
@@ -151,6 +181,51 @@ describe('CampaignRunner', () => {
     expect(store.statusOf('c1', 'a2', 'p2')?.reason).toBe('NO_REAL_EFFECT');
     expect(store.used('acc1', 'invites')).toBe(2);
     expect(report.successful).toBe(3);
+  });
+
+  it('contabiliza interações externas no limite geral e interrompe ao atingir teto', async () => {
+    const store = setup();
+    const executors = new ExecutorRegistry().register({
+      type: 'SendInvite',
+      execute: async () => ({ ok: true }),
+      verify: async () => true,
+    });
+    const onlyInvites: Campaign = {
+      ...campaign, actions: [campaign.actions[1]!],
+    };
+    for (const id of ['p1', 'p2', 'p3', 'p4'])
+      store.enqueue('c1', 'a2', id);
+    const runner = new CampaignRunner({
+      store, executors, now: () => MONDAY_10AM,
+      sleep: async () => {}, delayRange: [0, 0],
+    });
+    const a = account({ limitRules: [
+      { key: 'activity', max: 2, hours: 24 },
+      { key: 'invites', max: 10, hours: 24 },
+    ] });
+    const result = await runner.tick(onlyInvites, a);
+    expect(result.successful).toBe(2);
+    expect(store.used(a.id, 'invites')).toBe(2);
+    expect(store.used(a.id, 'activity')).toBe(2);
+    expect((await runner.tick(onlyInvites, a)).processed).toBe(0);
+  });
+
+  it('não consome curtida nem atividade geral por reação que já existia', async () => {
+    const store = setup();
+    const like: Campaign = { ...campaign, actions: [
+      { id: 'a1', type: 'LikePosts', name: 'Curtir', coolDown: 0, maxResults: 1, settings: {} },
+    ] };
+    const runner = new CampaignRunner({
+      store, executors: new ExecutorRegistry().register({
+        type: 'LikePosts',
+        execute: async () => ({ ok: true, data: { alreadyLiked: true } }),
+        verify: async () => true,
+      }), now: () => MONDAY_10AM, sleep: async () => {},
+    });
+    const result = await runner.tick(like, account());
+    expect(result.successful).toBe(1);
+    expect(store.used('acc1', 'likes')).toBe(0);
+    expect(store.used('acc1', 'activity')).toBe(0);
   });
 
   it('não roda fora do horário e respeita orçamento', async () => {

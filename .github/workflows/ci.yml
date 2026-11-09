@@ -1,5 +1,11 @@
 name: CI
 
+# Descarte pipelines substituídos por novos commits do mesmo PR.
+# Evita consumo de runners e minutos em revisões obsoletas.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 on:
   push:
     branches: [main]
@@ -17,8 +23,13 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # Dependências usadas no runtime: impedir distribuição com vulnerabilidade alta/crítica conhecida.
+      - name: Auditar dependências de runtime
+        run: npm audit --omit=dev --audit-level=high
+      # A primeira operação após instalar deve funcionar sem dist pré-existente.
+      - name: Testar workspace em checkout limpo
+        run: npm test
       - run: npm run typecheck
-      - run: npm test
       - run: npm run build
       - name: Verificar sintaxe de todas as telas JavaScript
         run: |
@@ -42,7 +53,7 @@ jobs:
           - name: Equipe e diagnóstico
             suite: "team diagnostics"
           - name: Prospecção e Sales Navigator
-            suite: "prospecting salesnav"
+            suite: "prospecting salesnav comment-duplicate"
           - name: Login e limites
             suite: "login limits"
           - name: Launcher e workspace por conta
@@ -84,3 +95,41 @@ jobs:
       - run: npm run bundle -w @linkleads/desktop
       - name: Testar aplicativo empacotado
         run: LINKLEADS_E2E_APP=$PWD/apps/desktop/app-dist xvfb-run -a node apps/desktop/e2e/run.mjs
+
+  windows-homologator:
+    name: Windows PowerShell 5.1 — homologação local
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Instalar, tipar, testar e compilar via homologador Windows
+        shell: powershell
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\homologar-linkleads.ps1 -SkipE2E -SkipBundle
+
+  windows-e2e-smoke:
+    name: Windows Electron E2E — login, limites e decisão
+    needs: checks
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Validar Electron real no Windows com dados isolados e site simulado
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($suite in @('login', 'limits', 'decision')) {
+            Write-Host "E2E Windows: $suite"
+            & node "apps/desktop/e2e/$suite.mjs"
+            if ($LASTEXITCODE -ne 0) { throw "E2E Windows reprovado: $suite (exit $LASTEXITCODE)" }
+          }

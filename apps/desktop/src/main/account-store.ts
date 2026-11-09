@@ -1,5 +1,6 @@
 import { app, safeStorage } from 'electron';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
+import { readAccountFile, writeAccountFile } from './account-file.js';
 import { join } from 'node:path';
 import type { Account, ProxyConfig } from '@linkleads/core';
 
@@ -20,16 +21,11 @@ export class AccountStore {
   private file = join(app.getPath('userData'), 'accounts.json');
 
   private readRaw(): StoredAccount[] {
-    try {
-      return JSON.parse(readFileSync(this.file, 'utf8')) as StoredAccount[];
-    } catch {
-      return [];
-    }
+    return readAccountFile<StoredAccount>(this.file);
   }
 
   private writeRaw(all: StoredAccount[]) {
-    mkdirSync(app.getPath('userData'), { recursive: true });
-    writeFileSync(this.file, JSON.stringify(all, null, 2));
+    writeAccountFile(this.file, all);
   }
 
   private decode(stored: StoredAccount): Account {

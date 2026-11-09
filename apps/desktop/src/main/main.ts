@@ -1,10 +1,12 @@
 import { app, BrowserWindow, dialog, ipcMain, safeStorage } from 'electron';
 import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
+import { resolveTestUserData } from './test-user-data.js';
 import { fileURLToPath } from 'node:url';
 import {
   DEFAULT_LIMIT_RULES,
+  PROTECTED_LIMIT_RULES,
   LIMIT_LABELS,
   limitStatus,
   remainingBudget,
@@ -49,6 +51,17 @@ import { SAFE_RETRY_REASONS, isSafeManualRetry } from './retry-policy.js';
 import { actionCatalogForEditor, validateCampaignWorkflow } from './workflow-model.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
+// E2E Electron deve SEMPRE usar dados isolados, inclusive no Windows, no qual
+// XDG_CONFIG_HOME normalmente não altera userData. Fail closed se faltar raiz.
+const isolatedTestData = resolveTestUserData(
+  process.env.LINKLEADS_TEST_BASE_URL,
+  process.env.LINKLEADS_TEST_USER_DATA,
+  process.env.XDG_CONFIG_HOME,
+);
+if (isolatedTestData) {
+  mkdirSync(isolatedTestData, { recursive: true });
+  app.setPath('userData', isolatedTestData);
+}
 trace.configure(join(app.getPath('userData'), 'traces'));
 trace.record('lifecycle', 'process_start', { mode: process.env.LINKLEADS_TEST_BASE_URL ? 'test' : 'production' });
 
@@ -207,7 +220,9 @@ ipcMain.handle('accounts:update', (_e, a: Account) => {
   }
   if (a.limitRules) a.limitRules = validRules(a.limitRules);
   if (a.linkedinAge && a.linkedinAge !== 'new' && a.linkedinAge !== 'established') throw new Error('Idade da conta inválida');
-  accounts.save({ ...a, proxy: current.proxy });
+  // A pausa só pode mudar pelo comando explícito accounts:setPaused.
+  // Um formulário antigo ou desatualizado não pode reativar campanhas.
+  accounts.save({ ...a, paused: current.paused, onboardedAt: current.onboardedAt, proxy: current.proxy });
   // conta em execução: aplica na hora (sem reiniciar)
   const inst = instances.get(a.id);
   if (inst) Object.assign(inst.account, { label: a.label, workingHours: a.workingHours, tier: a.tier, limitRules: a.limitRules, linkedinAge: a.linkedinAge });
@@ -235,7 +250,9 @@ ipcMain.handle('accounts:limits', (_e, id: string) => {
   const read = (k: BudgetKey, since: number) => crm.usageTimes(a.id, k, since);
   const rules = a.limitRules?.length ? a.limitRules : DEFAULT_LIMIT_RULES;
   const status = (Object.keys(LIMIT_LABELS) as BudgetKey[]).flatMap((k) => limitStatus(a, k, read, t).map((s) => ({ ...s, nextFreeAt: s.nextFreeAt?.toISOString() })));
-  return { rules, custom: !!a.limitRules?.length, defaults: DEFAULT_LIMIT_RULES, labels: LIMIT_LABELS, linkedinAge: a.linkedinAge ?? 'established', status };
+  return { rules, custom: !!a.limitRules?.length, defaults: DEFAULT_LIMIT_RULES,
+    protectedRules: PROTECTED_LIMIT_RULES, labels: LIMIT_LABELS,
+    linkedinAge: a.linkedinAge ?? 'established', status };
 });
 
 ipcMain.handle('accounts:setProxy', (_e, id: string, proxy: ProxyConfig | null) => {

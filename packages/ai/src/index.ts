@@ -28,7 +28,11 @@ export type PostInterpretation = z.infer<typeof PostInterpretationSchema>;
 
 export interface CommentSettings {
   /** tom do comentário */
-  tone?: 'profissional' | 'caloroso' | 'consultivo';
+  tone?: 'profissional' | 'caloroso' | 'consultivo' | 'amigavel' | 'casual';
+  /** objetivo concreto da interação, informado pelo usuário */
+  goal?: string;
+  /** comprimento desejado (aproximado, sujeito às regras de pertinência) */
+  length?: 'short' | 'medium' | 'long';
   /** idioma forçado; padrão: o mesmo do post */
   language?: string;
   /** quem é o usuário (para o comentário soar como ele) */
@@ -49,11 +53,11 @@ Como interpretar:
 Como escrever o comentário:
 - Sempre profissional, cordial e específico: cite algo concreto do post (um dado, uma ideia, o projeto), para ficar claro que foi lido.
 - Demonstre interesse genuíno em conhecer mais o trabalho da pessoa: por exemplo, uma pergunta curta sobre o projeto ou um convite leve para trocar ideias. Nada de pitch de vendas, links, emojis em excesso ou hashtags.
-- 1 a 3 frases. Escreva no idioma do post, salvo instrução em contrário.
+- Respeite a faixa de tamanho indicada pelo usuário; se ausente, escreva de 1 a 3 frases. Escreva no idioma do post, salvo instrução em contrário.
 - Não invente fatos que não estão no post. Não bajule. Não comece com "Ótimo post".
 - Escreva em primeira pessoa, como o próprio usuário.`;
 
-function buildUserMessage(post: PostSnapshot, person: Person, s: CommentSettings): string {
+export function buildUserMessage(post: PostSnapshot, person: Person, s: CommentSettings): string {
   const author = [person.firstName, person.lastName].filter(Boolean).join(' ') || post.authorName || 'o autor';
   const lines = [
     `Autor: ${author}`,
@@ -63,6 +67,8 @@ function buildUserMessage(post: PostSnapshot, person: Person, s: CommentSettings
     post.hasMedia ? 'O post contém imagem/vídeo/documento (você não vê a mídia, só o texto).' : '',
     '',
     `Tom desejado: ${s.tone ?? 'profissional'}`,
+    s.goal ? `Objetivo da interação: ${s.goal}` : '',
+    s.length ? `Comprimento desejado: ${s.length === 'short' ? '1 a 2 frases' : s.length === 'medium' ? '3 a 4 frases' : '5 ou mais frases'}` : '',
     s.language ? `Escreva o comentário em: ${s.language}` : '',
     `Tamanho máximo do comentário: ${s.maxChars ?? 400} caracteres.`,
     s.aboutMe ? `Sobre mim (quem vai comentar): ${s.aboutMe}` : '',
@@ -125,4 +131,4 @@ export function createInterpreter(opts: { provider: AiProvider; apiKey?: string;
   return new LlmPostInterpreter(createLlm(opts));
 }
 
-export { SYSTEM_PROMPT, buildUserMessage };
+export { SYSTEM_PROMPT };

@@ -4,7 +4,7 @@ import { assertApprovalSafe, type ApprovalSafetyState } from '../src/main/approv
 const state = (): ApprovalSafetyState => ({
   kind: 'invite_note', actionType: 'SendInvite',
   accountPaused: false, campaignActive: true, campaignArchived: false,
-  excluded: false, withinHours: true, remaining: 1, text: 'Olá',
+  excluded: false, withinHours: true, remaining: 1, activityRemaining: 1, text: 'Olá',
 });
 describe('aprovação manual não contorna regras do executor', () => {
   it('permite rascunho elegível no horário e orçamento', () => {
@@ -20,6 +20,8 @@ describe('aprovação manual não contorna regras do executor', () => {
     [{ withinHours: false }, /Fora do horário/],
     [{ remaining: 0 }, /Limite de ações/],
     [{ remaining: -1 }, /Limite de ações/],
+    [{ activityRemaining: 0 }, /Limite geral/],
+    [{ activityRemaining: -1 }, /Limite geral/],
     [{ text: ' ' }, /sem conteúdo/],
   ] as const)('bloqueia envio sem pré-condição %j', (changes, error) => {
     expect(() => assertApprovalSafe({ ...state(), ...changes })).toThrow(error);

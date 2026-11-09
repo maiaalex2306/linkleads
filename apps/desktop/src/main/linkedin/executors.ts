@@ -3,8 +3,9 @@ import { detectJobChange, getActionDefinition, parseRelativeAgeDays, publicIdFro
 import type { CommentSettings, LlmClient, PostInterpreter } from '@linkleads/ai';
 import type { IntegrationCrm } from '@linkleads/db';
 import type { EnrichmentProvider } from '@linkleads/integrations';
-import { commentPublished, editorText, extractPosts, extractProfile, likeState, profileReady, type PostExtract } from './dom-scripts.js';
+import { matchingCommentCount, editorText, extractPosts, extractProfile, likeState, profileReady, type PostExtract } from './dom-scripts.js';
 import { BlockedError, type PageDriver } from './page-driver.js';
+import { isCanonicalPostUrn } from './post-identity.js';
 
 /** LINKLEADS_TEST_BASE_URL aponta para o site falso dos testes e2e; nunca usar em produção. */
 export const BASE = process.env.LINKLEADS_TEST_BASE_URL ?? 'https://www.linkedin.com';
@@ -147,34 +148,44 @@ export function pickPost(posts: PostExtract[], publicId: string, s: LikeSettings
 }
 
 /** Como pickPost, mas explica por que nenhum post serviu (para a tela). */
-export function choosePost(posts: PostExtract[], publicId: string, s: LikeSettings, personName = ''): { post?: PostExtract; why: string } {
+export function choosePost(posts: PostExtract[], publicId: string, s: LikeSettings, personName = ''): { post?: PostExtract; why: string; uncertain?: boolean } {
   const maxAge = s.maxPostAgeDays ?? 30;
-  const norm = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-  const last = norm(personName).split(/\s+/).filter(Boolean).pop() ?? '';
+  const norm = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+  const expected = norm(personName);
   const isOwn = (p: PostExtract) => {
     const actor = p.actorHref ? profileSlug(p.actorHref) : undefined;
-    if (!actor) return true;
-    if (actor === publicId.toLowerCase()) return true;
-    if (/^acoaa|^acwaa/i.test(actor)) return !last || !p.actorName || norm(p.actorName).includes(last); // link pelo id interno
-    return !!last && !!p.actorName && norm(p.actorName).includes(last);
+    if (actor && actor === publicId.toLowerCase()) return true;
+    // IDs internos podem não coincidir com o slug, mas exigimos nome completo
+    // exato, nunca somente o sobrenome (pessoas homônimas podem ter sobrenome igual).
+    if ((!actor || /^(?:acoaa|acwaa)/i.test(actor)) && expected && p.actorName)
+      return norm(p.actorName) === expected;
+    return false;
   };
   let empty = 0;
   let reshare = 0;
   let others = 0;
+  let uncertainActors = 0;
   let old = 0;
   let newest: number | undefined;
   const eligible = posts.filter((p) => {
     if (!p.text && !p.hasMedia) return (empty++, false);
     if (p.isReshare && !s.includeReshares) return (reshare++, false);
+    const actor = p.actorHref ? profileSlug(p.actorHref) : undefined;
+    if ((!actor && !p.actorName) || (actor && /^(?:acoaa|acwaa)/i.test(actor) && !p.actorName))
+      return (uncertainActors++, false);
     if (!isOwn(p)) return (others++, false);
     const age = p.age ? parseRelativeAgeDays(p.age) : undefined;
     if (age !== undefined) newest = newest === undefined ? age : Math.min(newest, age);
     if (age !== undefined && age > maxAge) return (old++, false);
     return true;
   });
-  // o mais recente que você ainda não curtiu; se todos já foram curtidos, o mais recente
-  const post = eligible.find((p) => p.liked !== true) ?? eligible[0];
+  // Nunca clicar em publicação já curtida; estado desconhecido exige confirmação
+  // adicional antes de tocar na plataforma.
+  const post = eligible.find((p) => p.liked === false) ??
+    eligible.find((p) => p.liked == null);
   if (post) return { post, why: '' };
+  if (eligible.length) return { why: 'Todas as publicações elegíveis já foram curtidas; nenhuma ação adicional necessária' };
+  if (uncertainActors) return { why: 'Não foi possível confirmar a identidade do autor de ' + uncertainActors + ' publicação(ões)', uncertain: true };
   if (!posts.length) return { why: 'Não reconheci nenhum post na página de atividade (layout diferente ou a página não carregou)' };
   const parts = [
     old && `${old} com mais de ${maxAge} dias${newest !== undefined ? ` (o mais recente há ${newest} dias)` : ''}`,
@@ -200,10 +211,25 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
           const post = pick.post;
           if (!post) {
             const empty = await d.driver.exists('emptyActivity').catch(() => false);
-            const file = !posts.length && !empty ? await d.reportUnrecognized?.().catch(() => undefined) : undefined;
-            return { ok: false, reason: 'NO_POST', message: empty ? 'A pessoa não tem publicações' : `${pick.why}${file ? `. Relatório para ajuste: ${file}` : ''}` };
+            const unreadable = !posts.length && !empty;
+            const file = unreadable ? await d.reportUnrecognized?.().catch(() => undefined) : undefined;
+            if (unreadable || pick.uncertain) return { ok: false, reason: 'NO_REAL_EFFECT',
+              message: (pick.uncertain ? pick.why :
+                'Página de atividades não reconhecida ou carregamento incompleto. Ação interrompida') +
+                (file ? '. Diagnóstico: ' + file : '') };
+            return { ok: false, reason: 'NO_POST', message: empty ? 'A pessoa não tem publicações' : pick.why };
           }
 
+          if (post.liked === null) {
+            await d.reportUnrecognized?.().catch(() => undefined);
+            return { ok: false, reason: 'NO_REAL_EFFECT',
+              message: 'Não foi possível verificar se a publicação já estava curtida' };
+          }
+          if (!isCanonicalPostUrn(post.urn)) {
+            await d.reportUnrecognized?.().catch(() => undefined);
+            return { ok: false, reason: 'NO_REAL_EFFECT',
+              message: 'Publicação sem identificador canônico: nenhuma curtida realizada' };
+          }
           const snapshot: PostSnapshot = { url: post.urn, text: post.text, postedAt: post.age ?? undefined, hasMedia: post.hasMedia };
           d.crm.savePost(ctx.person.id, snapshot);
 
@@ -237,6 +263,10 @@ interface CommentActionSettings extends CommentSettings {
 
 /** Publica um comentário num post e confirma que ele aparece. */
 export async function publishComment(d: ExecutorDeps, urn: string, text: string): Promise<ExecutionResult> {
+  if (!isCanonicalPostUrn(urn)) return {
+    ok: false, reason: 'NO_REAL_EFFECT',
+    message: 'Publicação sem identificador canônico: comentário não enviado',
+  };
   return guard(async () => {
     await d.driver.goto(postUrl(urn), 'postItem');
     if (!(await d.driver.exists('commentEditor'))) {
@@ -253,13 +283,19 @@ export async function publishComment(d: ExecutorDeps, urn: string, text: string)
     const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
     if (norm(typed) !== norm(text)) return { ok: false, reason: 'NO_REAL_EFFECT', message: 'O texto digitado não confere com o comentário' };
 
+    const before = await d.driver.read(matchingCommentCount,
+      d.driver.sel as unknown as Record<string, readonly string[]>, urn, text);
+    if (before > 0) return { ok: false, reason: 'NO_REAL_EFFECT',
+      message: 'Texto idêntico já presente: envio interrompido para evitar duplicidade' };
     if (!(await d.driver.click('commentSubmit'))) return { ok: false, reason: 'NO_REAL_EFFECT', message: 'Botão de publicar não encontrado' };
-    const snippet = norm(text).slice(0, 60);
-    const published = await d.driver.waitUntil(
-      () => d.driver.read(commentPublished, d.driver.sel as unknown as Record<string, readonly string[]>, snippet),
-      12_000,
-    );
-    return published ? { ok: true, data: { post: urn } } : { ok: false, reason: 'NO_REAL_EFFECT', message: 'Comentário não apareceu após publicar' };
+    const published = await d.driver.waitUntil(async () => {
+      const after = await d.driver.read(matchingCommentCount,
+        d.driver.sel as unknown as Record<string, readonly string[]>, urn, text);
+      return after > before;
+    }, 12_000);
+    return published ? { ok: true, data: { post: urn } }
+      : { ok: false, reason: 'NO_REAL_EFFECT',
+        message: 'Nenhum novo comentário confirmado no post identificado' };
   });
 }
 
@@ -289,7 +325,7 @@ export function commentWithAi(d: ExecutorDeps): ActionExecutor {
         return { ok: false, reason: 'ERROR', message: `IA: ${e instanceof Error ? e.message : String(e)}` };
       }
       if (!interpretation.shouldComment) {
-        d.crm.markPostCommented(post.url, '', interpretation); // guarda a interpretação; não comenta
+        d.crm.savePostInterpretation(post.url, interpretation); // guarda decisão sem falso comentário
         return { ok: false, reason: 'AI_SKIPPED', message: interpretation.skipReason };
       }
 

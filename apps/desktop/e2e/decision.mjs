@@ -33,8 +33,20 @@ try {
     icpThreshold: 60, signalTopics: ['perdas de água', 'telemetria'],
   });
   const companyId = await call('saveCompany', acc.id, { name: 'ACME Saneamento', url: 'https://www.linkedin.com/company/acme/', roleKeywords: ['diretor', 'compras'] });
-  await call('startInstance', acc.id);
-  await new Promise((r) => setTimeout(r, 3000));
+  // Abre apenas o navegador: o scheduler não pode disputar a execução
+  // determinística dos ciclos disparados por runNow neste E2E.
+  await call('openBrowser', acc.id);
+  const accountWindow = await (async () => {
+    const deadline = Date.now() + 20_000;
+    while (Date.now() < deadline) {
+      const window = app.windows().find((candidate) => candidate !== ui && !candidate.isClosed());
+      if (window) return window;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    throw new Error('E2E decisão: janela da conta não abriu em 20 s');
+  })();
+  await accountWindow.waitForURL((url) => url.origin === new URL(site.url).origin, { timeout: 20_000 });
+  await accountWindow.waitForLoadState('domcontentloaded');
 
   const map = await call('mapCompany', acc.id, companyId);
   check(map.found === 4 && map.added === 4, 'comitê mapeado: 4 pessoas (ignora "Membro do LinkedIn")', map);

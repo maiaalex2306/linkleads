@@ -13,7 +13,38 @@ on:
     tags: ['v*']
 
 jobs:
+  # Fail closed before creating public or customer-facing installers.
+  # Secrets are never printed and must be configured in Actions settings.
+  production-preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validar HTTPS, certificados e notarização
+        shell: bash
+        env:
+          UPDATE_URL: ${{ secrets.LINKLEADS_UPDATE_URL }}
+          WIN_CERT: ${{ secrets.WIN_CSC_LINK }}
+          WIN_PASS: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+          MAC_CERT: ${{ secrets.MAC_CSC_LINK }}
+          MAC_PASS: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          case "$UPDATE_URL" in
+            https://*) ;;
+            *) echo "::error::LINKLEADS_UPDATE_URL deve ser HTTPS e estar configurada"; exit 1 ;;
+          esac
+          for key in WIN_CERT WIN_PASS MAC_CERT MAC_PASS APPLE_ID APPLE_PASSWORD APPLE_TEAM; do
+            if [ -z "${!key}" ]; then
+              echo "::error::Segredo obrigatório ausente: $key"
+              exit 1
+            fi
+          done
+          echo "Pré-validação de credenciais concluída, sem expor valores."
+
   build:
+    needs: production-preflight
     strategy:
       fail-fast: false
       matrix:
@@ -49,6 +80,18 @@ jobs:
           npm run bundle
           if [ -z "$APPLE_ID" ]; then export SKIP_NOTARIZE=1; fi
           npx electron-builder --publish never $( [ -n "$SKIP_NOTARIZE" ] && echo "-c.mac.notarize=false" )
+      - name: Validar assinatura do instalador Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $installers = @(Get-ChildItem -Path 'apps/desktop/release' -Filter 'LinkLeads-Setup-*.exe' -File)
+          if ($installers.Count -eq 0) { throw 'Instalador Windows ausente.' }
+          foreach ($installer in $installers) {
+            $signature = Get-AuthenticodeSignature -FilePath $installer.FullName
+            if ($signature.Status -ne 'Valid') {
+              throw "Assinatura Windows inválida em $($installer.Name): $($signature.Status)"
+            }
+          }
       - uses: actions/upload-artifact@v4
         with:
           name: instaladores-${{ matrix.os }}

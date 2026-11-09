@@ -55,14 +55,36 @@ try {
   check(site.state.logins[0]?.email === site.state.loginEmail && site.state.logins[0]?.password === site.state.loginPassword, 'digitou o e-mail e a senha certos');
   check(await waitFor(async () => logs.some((l) => /Login no LinkedIn feito automaticamente/.test(l)), 30_000), 'log em português do login', logs);
 
+  // 2b. Com a conta pausada, um login válido não retira a pausa nem aciona o executor.
+  await call('setPaused', acc.id, true);
+  site.state.loggedOut = true;
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()
+    .find((x) => x.getTitle().startsWith('LinkLeads —')).webContents.reload());
+  const relogged = await waitFor(async () =>
+    !site.state.loggedOut && (await accountUrl()).endsWith('/feed/'), 60_000);
+  const stillPaused = (await call('listAccounts')).find((a) => a.id === acc.id);
+  check(relogged && stillPaused?.paused === true && stillPaused?.runnerEnabled === false,
+    'novo login NÃO retira pausa nem inicia campanhas', stillPaused);
+  // Formulários genéricos e snapshots obsoletos jamais removem checkpoint.
+  await call('updateAccount', { ...acc, paused: false });
+  const afterStaleUpdate = (await call('listAccounts')).find((a) => a.id === acc.id);
+  check(afterStaleUpdate?.paused === true && afterStaleUpdate?.runnerEnabled === false,
+    'edição genérica com estado antigo NÃO remove pausa de segurança', afterStaleUpdate);
+  await call('setPaused', acc.id, false); // comando explícito do teste, não efeito do login
+
   // 3. senha errada: não insiste, avisa
+  // Já ocorreram dois logins válidos (entrada inicial + reautenticação após pausa).
+  // Medir o DELTA de tentativas com a senha errada, não um total absoluto.
+  const attemptsBeforeWrongPassword = site.state.logins.length;
   await call('setLogin', acc.id, { email: site.state.loginEmail, password: 'senha-errada' });
   site.state.loggedOut = true;
   await call('runNow', acc.id);
   const told = await waitFor(async () => logs.some((l) => /recusou o login/.test(l)), 60_000);
   check(told, 'senha errada: avisa para conferir o e-mail e a senha', logs.slice(-5));
-  const tries = site.state.logins.length;
-  check(tries === 2, 'senha errada: tentou uma vez só neste ciclo', tries);
+  const wrongPasswordAttempts = site.state.logins.slice(attemptsBeforeWrongPassword)
+    .filter((attempt) => attempt.password === 'senha-errada');
+  check(wrongPasswordAttempts.length === 1, 'senha errada: tentou uma vez só neste ciclo',
+    { count: wrongPasswordAttempts.length, total: site.state.logins.length });
 
   // 4. corrigir pela tela: entra na hora
   await ui.reload();

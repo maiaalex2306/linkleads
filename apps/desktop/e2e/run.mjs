@@ -2,7 +2,7 @@
 import { createRequire } from 'node:module';
 import { mkdtempSync, writeFileSync, existsSync, readdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startFakeSite } from './fake-site.mjs';
 
@@ -24,6 +24,11 @@ const fail = (msg) => { console.error('FALHOU:', msg); process.exitCode = 1; };
 try {
   const ui = await app.firstWindow();
   await ui.waitForLoadState('domcontentloaded');
+  const dataPath = await app.evaluate(({ app }) => app.getPath('userData'));
+  const expectedData = resolve(join(tmp, '@linkleads', 'desktop'));
+  if (resolve(dataPath) !== expectedData)
+    fail('ERRO P0: E2E não está usando dados isolados. Atual=' + dataPath + '; esperado=' + expectedData);
+  else console.log('ok - test userData isolado e verificado');
   const call = (fn, ...args) => ui.evaluate(([fn, args]) => window.linkleads[fn](...args), [fn, args]);
 
   // cria a conta pela tela, digitando como uma pessoa, com um redesenho automático (10 s) no meio

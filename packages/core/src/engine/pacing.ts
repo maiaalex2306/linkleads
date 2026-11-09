@@ -29,6 +29,27 @@ export const HARD_CAP_24H: Record<BudgetKey, number> = {
 /** Convites: teto semanal do próprio LinkedIn. */
 export const WEEKLY_INVITE_CAP = 150;
 
+/**
+ * Não removíveis: bases prudenciais internas por conta, não "limites oficiais"
+ * nem garantia de ausência de restrições no LinkedIn.
+ * Mantidas mesmo quando o usuário substitui todas as regras da conta.
+ */
+export const PROTECTED_LIMIT_RULES: readonly LimitRule[] = [
+  { key: 'activity', max: 150, hours: 24 },
+  { key: 'profile_load', max: 150, hours: 24 },
+  { key: 'profile_url', max: 40, hours: 24 },
+  { key: 'company_url', max: 40, hours: 24 },
+  { key: 'invites', max: 20, hours: 24 },
+  { key: 'invites', max: 100, hours: 168 },
+  { key: 'messages', max: 100, hours: 24 },
+  { key: 'likes', max: 30, hours: 24 },
+  { key: 'comments', max: 20, hours: 24 },
+  { key: 'search_pages', max: 100, hours: 24 },
+  { key: 'inmails', max: 30, hours: 24 },
+  { key: 'withdrawals', max: 50, hours: 24 },
+  { key: 'extractions', max: 100, hours: 24 },
+];
+
 export const LIMIT_LABELS: Record<BudgetKey, string> = {
   activity: 'Atividade total da conta',
   profile_load: 'Páginas de perfil abertas',
@@ -87,7 +108,23 @@ function stableRandom(seed: string): number {
 }
 
 export function rulesOf(account: Account): LimitRule[] {
-  return account.limitRules?.length ? account.limitRules : DEFAULT_LIMIT_RULES;
+  const configured = account.limitRules?.length ? account.limitRules : DEFAULT_LIMIT_RULES;
+  const protectedByWindow = new Map(PROTECTED_LIMIT_RULES.map(
+    (r) => [r.key + '|' + r.hours, r],
+  ));
+  const covered = new Set<string>();
+  const effective = configured.map((r) => {
+    const id = r.key + '|' + r.hours;
+    covered.add(id);
+    const guardrail = protectedByWindow.get(id);
+    // Configuração pode reduzir o limite, nunca elevar o teto de proteção.
+    return guardrail ? { ...r, max: Math.min(r.max, guardrail.max) } : r;
+  });
+  for (const rule of PROTECTED_LIMIT_RULES) {
+    const id = rule.key + '|' + rule.hours;
+    if (!covered.has(id)) effective.push({ ...rule });
+  }
+  return effective;
 }
 
 /** Máximo efetivo de uma regra agora: aquecimento (conta nova), variação do dia e teto do produto. */

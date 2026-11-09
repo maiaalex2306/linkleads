@@ -74,6 +74,14 @@ describe('LocalCrm', () => {
     crm.savePost('p1', { url: 'urn:li:activity:1', text: 'Entregamos o projeto', hasMedia: false });
     crm.markPostLiked('urn:li:activity:1');
     expect(crm.lastLikedPost('p1')).toMatchObject({ url: 'urn:li:activity:1', commented: false });
+    crm.savePostInterpretation('urn:li:activity:1', { shouldComment: false, skipReason: 'tema sensível' });
+    expect(crm.lastLikedPost('p1')?.commented).toBe(false);
+    const analyzed = crm.db.prepare('SELECT commented_at, interpretation_json FROM posts WHERE url=?')
+      .get('urn:li:activity:1') as { commented_at: string | null; interpretation_json: string };
+    expect(analyzed.commented_at).toBeNull();
+    expect(JSON.parse(analyzed.interpretation_json)).toMatchObject({ shouldComment: false });
+    crm.markPostCommented('urn:li:activity:1', 'Parabéns!', { shouldComment: true });
+    expect(crm.lastLikedPost('p1')?.commented).toBe(true);
 
     crm.saveDraft({ campaignId: 'c', actionId: 'a', personId: 'p1', postUrl: 'urn:li:activity:1', comment: 'Parabéns!', interpretation: { summary: 's' } });
     const [d] = crm.listDrafts();

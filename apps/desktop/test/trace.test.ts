@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -44,8 +44,16 @@ describe('TRACE JSONL', () => {
     expect(data).toContain('lifecycle');
     expect(data).not.toContain('id-Y');
     const bad = new TraceJournal(join(dir, 'out.jsonl', 'bad-path'));
-    expect(() => bad.record('campaign', 'action_done')).not.toThrow();
-    expect(bad.getFailedWrites()).toBe(1);
+    // O ENOTDIR é intencional: a escrita deve falhar sem interromper o programa.
+    // Intercepta apenas o stderr deste cenário de teste, não o log de produção.
+    const expectedFailure = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      expect(() => bad.record('campaign', 'action_done')).not.toThrow();
+      expect(bad.getFailedWrites()).toBe(1);
+      expect(expectedFailure).toHaveBeenCalled();
+    } finally {
+      expectedFailure.mockRestore();
+    }
   });
   it('remove identificadores sensíveis das URLs', () => {
     expect(safeRoute('https://www.linkedin.com/in/pessoa-123/?x=secret')).toBe('www.linkedin.com/in/[id]/');
