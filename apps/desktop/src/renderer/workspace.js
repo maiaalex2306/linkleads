@@ -478,8 +478,6 @@ async function campaignDetailView(a) {
                   invalidateCampaignSummaries(a.id);await refresh();
                 }},a.running?'Iniciar campanha':'Abrir LinkedIn para iniciar')),
         h('button',{onclick:()=>safe(()=>api.exportCsv(a.id,{campaignId:c.id,name:c.name}))},'Exportar CSV'))),
-    a.paused && h('div',{class:'campaign-status-explainer'},
-      'Conta pausada por segurança. Suas campanhas e listas foram preservadas; nenhuma ação será executada até você resolver a pausa e iniciar explicitamente.'),
     h('div', { class: 'cw-tabs' },
       ...sections.map(([id, label]) => h('button', {
         class: selected === id ? 'selected' : '',
