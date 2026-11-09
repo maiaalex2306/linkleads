@@ -23,6 +23,28 @@ describe('escolha de publicação com confirmação do estado', () => {
     expect(selection.post).toBeUndefined();
     expect(selection.why).toMatch(/já foram curtidas/);
   });
+  it('não confunde homônimos nem usa apenas o sobrenome', () => {
+    const posts = [{ ...one('urn:li:activity:444444444444', false),
+      actorHref: 'https://www.linkedin.com/in/maria-silva/',
+      actorName: 'Maria Silva' }];
+    const chosen = choosePost(posts, 'ana-silva', { maxPostAgeDays: 30 }, 'Ana Silva');
+    expect(chosen.post).toBeUndefined();
+    expect(chosen.why).toMatch(/outro autor/);
+  });
+  it('identidade do autor desconhecida gera diagnóstico e nunca NO_POST por padrão', () => {
+    const posts = [{ ...one('urn:li:activity:555555555555', false),
+      actorHref: null, actorName: null }];
+    const chosen = choosePost(posts, 'ana-silva', { maxPostAgeDays: 30 }, 'Ana Silva');
+    expect(chosen.post).toBeUndefined();
+    expect(chosen.uncertain).toBe(true);
+    expect(chosen.why).toMatch(/identidade do autor/);
+  });
+  it('aceita nome completo exatamente igual quando a página não informa o slug', () => {
+    const posts = [{ ...one('urn:li:activity:666666666666', false),
+      actorHref: null, actorName: 'Ana Silva' }];
+    expect(choosePost(posts, 'ana-silva', { maxPostAgeDays: 30 }, 'Ana Silva').post?.urn)
+      .toBe('urn:li:activity:666666666666');
+  });
   it('estado de curtida desconhecido é identificado como candidato de diagnóstico, nunca sucesso automático', () => {
     const p = one('urn:li:activity:333333333333', null);
     expect(pickPost([p], 'ana-silva', { maxPostAgeDays: 30 }, 'Ana Silva')?.liked).toBeNull();
