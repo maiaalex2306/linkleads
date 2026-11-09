@@ -3,6 +3,7 @@ const state = {
   campaignSort: 'active', campaignStatusFilter: 'all', campaignSearch: '',
   screen: 'launcher', accountId: null, tab: 'campaigns', logs: [], mode: 'advanced',
   campaignId: null, campaignTab: 'info', campaignFilter: 'all', campaignPage: 0,
+  showAccountDetails:false, accountToolsOpen:false, advancedToolsOpen:false, renamingCampaignId:null,
 };
 let storedMode = null;
 try {
@@ -71,7 +72,9 @@ async function renderAccounts() {
     ...list.map((a) =>
       h('button', { class: 'acc' + (a.id === state.accountId && state.screen === 'workspace' ? ' sel' : ''), onclick: () => openAccountWorkspace(a.id) },
         h('span', { class: 'dot' + (a.paused ? ' paused' : a.running ? ' on' : '') }),
-        h('div', { class: 'grow' }, a.label, h('div', { class: 'muted' }, a.paused ? 'pausada' : a.running ? 'em execução' : 'parada')),
+        h('div', { class: 'grow' }, a.label, h('div', { class: 'muted' },
+        a.paused ? 'conta pausada' : a.runnerEnabled ? 'campanhas executando' :
+          a.running ? 'navegador aberto' : 'navegador fechado')),
       )),
   );
   const previousBack = box.querySelector('.workspace-back');
@@ -93,17 +96,15 @@ async function renderAccounts() {
 function topNav() {
   const ver = h('span', { class: 'build-tag', title: 'Versão do código que está rodando agora' }, '');
   document.getElementById('topnav').replaceChildren(
-    h('button', { class: 'link', onclick: () => {
-      state.backScreen = state.screen;
-      state.screen = 'settings';
-      state.tab = 'settings';
-      renderView();
-    } }, 'Configurações'),
-    h('button', { class: 'link', onclick: async () => {
-      const result = await safe(() => api.exportTrace(state.accountId || undefined));
-      if (result && !result.canceled) toast('TRACE exportado: ' + result.file + ' (' + result.files + ' arquivo(s))', 6500);
-    } }, 'Exportar TRACE'),
-    ver,
+    h('div',{class:'topnav-controls'},
+      h('button',{class:'link',onclick:()=>{
+        state.backScreen=state.screen;state.screen='settings';state.tab='settings';renderView();
+      }},'Configurações'),
+      h('button',{class:'link',onclick:async()=>{
+        const result=await safe(()=>api.exportTrace(state.accountId||undefined));
+        if(result&&!result.canceled)toast('TRACE exportado: '+result.file,6500);
+      }},'Exportar diagnóstico'),
+      ver),
   );
   api.appInfo().then((i) => {
     const when = i.builtAt ? new Date(i.builtAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
@@ -112,74 +113,104 @@ function topNav() {
 }
 
 // Visão da conta -------------------------------------------------------------------
+let workspaceRenderSequence = 0;
 async function renderView() {
+  const seq = ++workspaceRenderSequence;
   const view = document.getElementById('view');
   document.getElementById('layout').classList.toggle('is-launcher', state.screen === 'launcher');
   if (state.screen === 'launcher') {
-    return view.replaceChildren(await launcherView(await api.listAccounts()));
+    const accounts = await api.listAccounts();
+    if (seq === workspaceRenderSequence) view.replaceChildren(await launcherView(accounts));
+    return;
   }
-  if (state.tab === 'settings') return view.replaceChildren(await settingsView());
+  if (state.tab === 'settings') {
+    const settings = await settingsView();
+    if (seq === workspaceRenderSequence) view.replaceChildren(settings);
+    return;
+  }
   const accounts = await api.listAccounts();
-  const a = accounts.find((x) => x.id === state.accountId);
-  if (!a) return view.replaceChildren(h('p', { class: 'muted' }, 'Adicione uma conta para começar.'));
+  const a = accounts.find((item) => item.id === state.accountId);
+  if (seq !== workspaceRenderSequence) return;
+  if (!a) return view.replaceChildren(h('p', { class:'muted' }, 'Cadastre uma conta para começar.'));
+  if (state.mode === 'simple') {
+    const page = await simpleView(a);
+    if (seq === workspaceRenderSequence) view.replaceChildren(page);
+    return;
+  }
 
-  if (state.mode === 'simple') return view.replaceChildren(await simpleView(a));
-  const stats = await api.accountStats(a.id);
-  const tabs = [
-    ['campaigns', 'Campanhas'], ['collections', 'Coleções'],
-    ['approvals', `Aprovações${stats.pendingApprovals ? ` (${stats.pendingApprovals})` : ''}`],
-    ['inbox', `Inbox${stats.unhandledReplies ? ` (${stats.unhandledReplies})` : ''}`],
-    ['companies', 'Empresas'],
-    ['signals', `Sinais${stats.unseenSignals ? ` (${stats.unseenSignals})` : ''}`],
-    ['deliveries', 'Entregas'],
-    ['diagnostics', 'Diagnóstico'],
-    ['activity', 'Atividade'],
+  // Consultas de métricas e eventos somente quando a tela de Atividade estiver visível.
+  // Não executar accountStats/liveStatus em cada visita a campanhas ou ao editor.
+  const stats = state.tab === 'activity' || state.showAccountDetails
+    ? await api.accountStats(a.id) : null;
+  if (seq !== workspaceRenderSequence) return;
+
+  const navigation = [
+    ['campaigns','Campanhas'],['approvals','Aprovações'],
+    ['inbox','Mensagens'],['activity','Atividade'],
   ];
-  const header = h('div', {},
-    h('div', { class: 'row' },
-      h('button', { class: 'link', onclick: returnToLauncher }, '← Contas'),
-      h('button', { class: 'link', onclick: () => { state.mode = 'simple'; renderView(); } }, 'Tela guiada'),
-      h('h2', { style: 'margin:0;flex:1' }, a.label),
-      a.running
-        ? [
-            h('button', { onclick: () => safe(() => api.openBrowser(a.id)).then(refresh) }, 'Mostrar LinkedIn'),
-            h('button', { onclick: () => safe(() => api.saveCurrentProfile(a.id)).then((r) => r && toast(r.ok ? 'Perfil salvo no CRM' : r.message)) }, 'Salvar perfil aberto'),
-            a.runnerEnabled
-              ? h('button', { onclick: () => safe(() => api.stopRunner(a.id)).then(refresh) }, 'Parar campanhas')
-              : h('button', { class: 'primary', disabled: a.paused, title: a.paused ? 'Resolva a pausa antes de executar' : '',
-                onclick: () => safe(() => api.startRunner(a.id)).then(refresh) }, 'Iniciar campanhas'),
-            a.runnerEnabled && h('button', { disabled: a.paused, onclick: () => runNowExplained(a) }, 'Rodar agora'),
-            h('button', { onclick: () => safe(() => api.stopInstance(a.id)).then(refresh) }, 'Fechar navegador'),
-          ]
-        : [
-            h('button', { onclick: () => safe(() => api.openBrowser(a.id)).then(refresh) }, 'Abrir LinkedIn'),
-            h('button', { class: 'primary', disabled: a.paused,
-              title: a.paused ? 'Resolva a pausa antes de executar' : '',
-              onclick: () => safe(() => api.startRunner(a.id)).then(refresh) }, 'Iniciar campanhas'),
-          ],
-      h('button', { onclick: () => { state.loginOpen = !state.loginOpen; renderView(); } }, a.hasLinkedinPassword ? 'Login do LinkedIn ✓' : 'Login do LinkedIn'),
-      h('button', { onclick: () => { state.limitsOpen = !state.limitsOpen; renderView(); } }, 'Limites'),
-      h('button', { onclick: () => { state.proxyOpen = !state.proxyOpen; renderView(); } }, a.proxy ? `Proxy: ${a.proxy.host}` : 'Proxy'),
-      h('button', { onclick: () => {
-        if (a.paused && !window.confirm('Confirma que a verificação de segurança do LinkedIn já foi resolvida? Isso retira a pausa da conta, mas não inicia o executor automaticamente.')) return;
-        safe(() => api.setPaused(a.id, !a.paused)).then(refresh);
-      } }, a.paused ? 'Retirar pausa' : 'Pausar automação'),
-      h('button', { onclick: () => window.confirm(`Remover a conta "${a.label}" e seus dados locais?`) && safe(() => api.removeAccount(a.id)).then(() => { state.accountId = null; refresh(); }) }, 'Remover'),
-    ),
-    h('div', { class: 'muted' }, `${a.tier} · ${a.linkedinAge === 'new' ? 'conta nova (aquecendo)' : 'conta estabelecida'} · ${a.workingHours.start}–${a.workingHours.end} (${a.workingHours.timezone}) · ${a.proxy ? 'proxy ' + a.proxy.host : 'sem proxy'} · ${a.hasLinkedinPassword ? `entra sozinho como ${a.linkedinEmail}` : 'login manual na janela'}`),
-    h('div', { id: 'health-box' }, healthBar(stats)),
-    scheduleBanner(a),
-    livePanel(a),
-    state.hoursOpen && hoursPanel(a, () => { state.hoursOpen = false; renderView(); }),
-    state.loginOpen && loginPanel(a, () => { state.loginOpen = false; renderView(); }),
-    state.limitsOpen && limitsPanel(a, () => { state.limitsOpen = false; renderView(); }),
-    state.proxyOpen && proxyPanel(a, () => { state.proxyOpen = false; renderView(); }),
-    h('div', { class: 'tabs' }, ...tabs.map(([k, l]) => h('button', { class: state.tab === k ? 'sel' : '', onclick: () => { state.tab = k; renderView(); } }, l))),
-  );
-  const body = state.tab === 'campaigns' && state.campaignId
+  const advanced = [['collections','Base de leads'],['companies','Empresas'],
+    ['signals','Sinais'],['deliveries','Entregas'],['diagnostics','Diagnóstico']];
+  if (advanced.some(([tab]) => state.tab===tab)) navigation.push(...advanced);
+
+  const openAccountSettings = (key) => {
+    state.accountToolsOpen = true;
+    state[key] = !state[key];
+    renderView();
+  };
+  const actions = h('div',{class:'row account-actions'},
+    h('button',{onclick:async()=>{await safe(()=>api.openBrowser(a.id));await refresh();}},
+      a.running ? 'Mostrar LinkedIn' : 'Abrir LinkedIn e fazer login'),
+    a.runnerEnabled
+      ? h('button',{onclick:async()=>{await safe(()=>api.stopRunner(a.id));await refresh();}},'Parar execução')
+      : h('button',{class:'primary',disabled:a.paused,
+          title:a.paused?'A conta está pausada; nenhuma campanha pode executar.':'',
+          onclick:async()=>{
+            const summaries=await cachedCampaignSummaries(a.id);
+            if(!summaries.some((c)=>c.active&&!c.archived))return toast('Habilite uma campanha antes de iniciar.');
+            await safe(()=>api.startRunner(a.id));await refresh();
+          }},'Iniciar campanhas'),
+    h('button',{onclick:()=>{state.accountToolsOpen=!state.accountToolsOpen;renderView();}},
+      'Ajustes da conta'));
+
+  const header = h('div',{class:'account-workspace-header stack'},
+    h('div',{class:'account-heading row'},
+      h('button',{class:'link',onclick:returnToLauncher},'← Contas'),
+      h('div',{class:'grow'},
+        h('h2',{},a.label),
+        h('div',{class:'muted'},a.paused?'Conta pausada por segurança':
+          a.runnerEnabled?'Campanhas em execução':
+          a.running?'LinkedIn aberto · execução desligada':'Navegador fechado · execução desligada')),
+      actions),
+    a.paused && h('div',{class:'campaign-status-explainer'},
+      'Esta conta está pausada. Seus dados estão seguros e nenhuma campanha executa. Abra o LinkedIn para verificar sua sessão; o desbloqueio e a execução exigem comandos explícitos.'),
+    state.accountToolsOpen && h('div',{class:'card stack account-secondary-tools'},
+      h('div',{class:'row'},
+        h('button',{onclick:()=>openAccountSettings('loginOpen')},'Login'),
+        h('button',{onclick:()=>openAccountSettings('limitsOpen')},'Limites'),
+        h('button',{onclick:()=>openAccountSettings('proxyOpen')},'Proxy'),
+        h('button',{onclick:()=>openAccountSettings('hoursOpen')},'Horários'),
+        h('button',{onclick:()=>{
+          if(a.paused&&!window.confirm('A verificação de segurança já foi resolvida manualmente? Isso não inicia campanhas.'))return;
+          safe(()=>api.setPaused(a.id,!a.paused)).then(refresh);
+        }},a.paused?'Revisar pausa de segurança':'Pausar conta'),
+        h('button',{onclick:()=>window.confirm('Remover conta e TODOS os dados locais?')&&
+          safe(()=>api.removeAccount(a.id)).then(()=>{state.accountId=null;refresh();})},'Remover conta')),
+      state.hoursOpen && hoursPanel(a,()=>{state.hoursOpen=false;renderView();}),
+      state.loginOpen && loginPanel(a,()=>{state.loginOpen=false;renderView();}),
+      state.limitsOpen && limitsPanel(a,()=>{state.limitsOpen=false;renderView();}),
+      state.proxyOpen && proxyPanel(a,()=>{state.proxyOpen=false;renderView();})),
+    state.tab==='activity' && stats && h('div',{class:'account-diagnostics stack'},
+      h('div',{id:'health-box'},healthBar(stats)), scheduleBanner(a), livePanel(a)),
+    !state.campaignId && h('div',{class:'tabs simple-tabs'},
+      ...navigation.map(([tab,label])=>h('button',{class:state.tab===tab?'sel':'',
+        onclick:()=>{state.tab=tab;state.campaignId=null;renderView();}},label))));
+  const body=state.tab==='campaigns' && state.campaignId
     ? await campaignDetailView(a)
-    : await ({ collections: collectionsView, campaigns: campaignsView, approvals: approvalsView, inbox: inboxView, companies: companiesView, signals: signalsView, deliveries: deliveriesView, diagnostics: diagnosticsView, activity: activityView }[state.tab] || campaignsView)(a);
-  view.replaceChildren(header, body);
+    : await ({collections:collectionsView,campaigns:campaignsView,
+      approvals:approvalsView,inbox:inboxView,companies:companiesView,
+      signals:signalsView,deliveries:deliveriesView,diagnostics:diagnosticsView,
+      activity:activityView}[state.tab]||campaignsView)(a);
+  if (seq===workspaceRenderSequence) view.replaceChildren(header,body);
 }
 
 async function collectionsView(a) {
@@ -238,6 +269,7 @@ async function activityView(a) {
 }
 
 async function refresh() {
+  invalidateCampaignSummaries(state.accountId);
   await renderAccounts();
   if (state.tab === 'settings') state.tab = 'campaigns';
   await renderView();
@@ -266,7 +298,7 @@ api.onDeepLink((l) => {
 api.updateStatus().then(renderUpdate).catch(() => {});
 topNav();
 api.appInfo().then((i) => { if (!storedMode && i.defaultMode) state.mode = i.defaultMode; }).catch(() => {}).finally(refresh);
-setInterval(renderAccounts, 10000);
+setInterval(() => { if (!document.hidden) renderAccounts().catch(() => {}); }, 20000);
 
 // TRACE de interface: controles e eventos, nunca valores digitados.
 document.addEventListener('click', (event) => {
