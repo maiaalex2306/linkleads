@@ -44,7 +44,11 @@ try {
   await ui.reload();
   await ui.locator('.account-list .acc').first().click();
   await ui.locator('.account-list').getByText('Conta teste').click();
-  await ui.getByRole('button', { name: 'Campanhas', exact: true }).click();
+  // A versão guiada é a tela inicial: abrir explicitamente a navegação avançada
+  // antes de acessar o formulário legado de mensagens por coluna.
+  await ui.getByRole('button', { name: 'Tela completa' }).click();
+  await ui.locator('.tabs:visible').first().waitFor();
+  await ui.locator('.tabs:visible').first().getByRole('button', { name: 'Campanhas', exact: true }).click();
   await ui.getByRole('button', { name: 'Usar as mensagens da planilha' }).click();
   const areas = await ui.locator('form textarea').evaluateAll((els) => els.map((e) => e.value));
   check(areas.includes('{{custom.MSG-CONEXÃO}}') && areas.includes('{{custom.MSG-01}}') && areas.includes('{{custom.MSG-02}}'), 'botão preenche convite e mensagens com as colunas da planilha', areas);
