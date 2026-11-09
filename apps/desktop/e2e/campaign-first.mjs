@@ -12,7 +12,7 @@ const { _electron:electron }=require('playwright');
 const dir=join(dirname(fileURLToPath(import.meta.url)),'..');
 const temp=mkdtempSync(join(tmpdir(),'linkleads-campaign-first-'));
 const csv=join(temp,'leads.csv');
-writeFileSync(csv,'firstName,lastName,profileUrl\\nAna,Silva,https://www.linkedin.com/in/ana-silva/\\nBruno,Lima,https://www.linkedin.com/in/bruno-lima/\\n');
+writeFileSync(csv,'firstName,lastName,profileUrl\nAna,Silva,https://www.linkedin.com/in/ana-silva/\nBruno,Lima,https://www.linkedin.com/in/bruno-lima/\n');
 const site=await startFakeSite();
 const app=await electron.launch({
   executablePath:require(join(dir,'../../node_modules/electron')),
