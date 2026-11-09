@@ -59,6 +59,12 @@ try {
   check(await ui.locator('.campaign-overview-item:visible').count() === 0, 'pesquisa filtra campanhas sem consultar contatos');
   await ui.getByRole('searchbox', { name: 'Pesquisar campanhas' }).fill('Monitoramento');
   check(await ui.locator('.campaign-overview-item:visible').count() === 1, 'pesquisa encontra campanha pelo nome');
+  await ui.getByLabel('Ordenar').selectOption('contacts');
+  check(await ui.getByLabel('Ordenar').inputValue() === 'contacts',
+    'ordenacao escolhida permanece visivel apos redesenhar a tela');
+  await ui.getByLabel('Situação').selectOption('stopped');
+  check(await ui.getByLabel('Situação').inputValue() === 'stopped',
+    'filtro por situacao permanece selecionado');
   await ui.screenshot({ path: join(shots, 'workspace-campanhas.png'), fullPage: true });
 
   await ui.locator('#work-nav').getByRole('button', { name: /Monitoramento industrial/ }).click();
