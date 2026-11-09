@@ -67,12 +67,71 @@ async function launcherView(accounts) {
   const opened = accounts.filter((a) => a.running).length;
   const activeRunners = accounts.filter((a) => a.runnerEnabled).length;
   const paused = accounts.filter((a) => a.paused).length;
-  return h('div', { class: 'launcher-page stack' },
+  const filters = [
+    ['all', 'Todas'], ['running', 'Campanhas rodando'],
+    ['browser', 'Navegador aberto'], ['paused', 'Pausadas'],
+    ['closed', 'Navegador fechado'],
+  ];
+  const currentFilter = state.launcherFilter || 'all';
+  const search = h('input', { type: 'search', 'aria-label': 'Pesquisar contas',
+    placeholder: 'Pesquisar contas pelo nome ou e-mail',
+    value: state.launcherQuery || '' });
+  const count = h('span', { class: 'muted launcher-count' }, '');
+  const cards = h('div', { class: 'launcher-cards' },
+    ...accounts.map((a) => h('section', { class: 'card launcher-account' },
+      h('div', { class: 'row' },
+        h('span', { class: 'account-avatar' }, (a.label || '?').slice(0, 1).toUpperCase()),
+        h('div', { class: 'account-title' },
+          h('strong', {}, a.label),
+          h('div', { class: 'muted' }, a.linkedinEmail || 'Login manual · LinkedIn')),
+        h('span', { class: 'workspace-state ' + (a.paused ? 'paused' : a.runnerEnabled ? 'on' : '') }, workspaceStatus(a))),
+      h('div', { class: 'muted launcher-account-meta' },
+        (a.tier || 'basic') + ' · ' + (a.workingHours?.timezone || 'America/Sao_Paulo') +
+        ' · ' + (a.proxy?.host ? 'proxy configurado' : 'sem proxy')),
+      h('div', { class: 'launcher-actions' },
+        h('button', { class: 'primary', onclick: () => openAccountWorkspace(a.id) }, 'Abrir campanhas'),
+        h('button', { onclick: async () => {
+          await safe(() => api.openBrowser(a.id));
+          await refresh();
+        } }, a.running ? 'Mostrar LinkedIn' : 'Abrir LinkedIn · sem executar')))));
+  const buttons = filters.map(([id,label]) => h('button', {
+    class: 'launcher-filter-btn',
+    'aria-pressed': currentFilter === id ? 'true' : 'false',
+    onclick: () => { state.launcherFilter = id; update(); },
+  }, label));
+  function accepted(a, filter) {
+    return filter === 'all' || (filter === 'running' && a.runnerEnabled) ||
+      (filter === 'browser' && a.running) || (filter === 'paused' && a.paused) ||
+      (filter === 'closed' && !a.running);
+  }
+  function update() {
+    const q = (search.value || '').trim().toLocaleLowerCase();
+    const filter = state.launcherFilter || 'all';
+    state.launcherQuery = search.value;
+    let shown = 0;
+    for (const [i, card] of [...cards.children].entries()) {
+      const a = accounts[i];
+      if (!a) continue;
+      const match = accepted(a, filter) &&
+        (a.label + ' ' + (a.linkedinEmail || '')).toLocaleLowerCase().includes(q);
+      card.hidden = !match;
+      if (match) shown++;
+    }
+    buttons.forEach((button, i) => {
+      const active = filters[i][0] === filter;
+      button.classList.toggle('selected', active);
+      button.setAttribute('aria-pressed', String(active));
+    });
+    count.textContent = shown + ' de ' + accounts.length + ' contas exibidas';
+  }
+  search.addEventListener('input', update);
+  const node = h('div', { class: 'launcher-page stack' },
     h('div', { class: 'workspace-title' },
       h('div', {},
         h('div', { class: 'kind' }, 'LINKLEADS · CENTRAL DE CONTAS'),
         h('h2', {}, 'Contas do LinkedIn'),
-        h('p', { class: 'muted' }, 'Escolha uma conta para gerenciar suas campanhas. A seleção não inicia o navegador nem executa atividades.')),
+        h('p', { class: 'muted' },
+          'Escolha uma conta para gerenciar suas campanhas. A seleção não inicia o navegador nem executa atividades.')),
       h('button', { class: 'primary', onclick: () => {
         state.newAccountOpen = true;
         renderAccounts();
@@ -86,25 +145,14 @@ async function launcherView(accounts) {
     !accounts.length && h('div', { class: 'card stack' },
       h('strong', {}, 'Sua primeira conta'),
       h('div', { class: 'muted' }, 'Cadastre uma conta no formulário ao lado. Não é obrigatório salvar a senha do LinkedIn.')),
-    h('div', { class: 'launcher-cards' },
-      ...accounts.map((a) => h('section', { class: 'card launcher-account' },
-        h('div', { class: 'row' },
-          h('span', { class: 'account-avatar' }, (a.label || '?').slice(0, 1).toUpperCase()),
-          h('div', { class: 'account-title' },
-            h('strong', {}, a.label),
-            h('div', { class: 'muted' }, a.linkedinEmail || 'Login manual · LinkedIn')),
-          h('span', { class: 'workspace-state ' + (a.paused ? 'paused' : a.runnerEnabled ? 'on' : '') }, workspaceStatus(a))),
-        h('div', { class: 'muted' },
-          (a.tier || 'basic') + ' · ' + (a.workingHours?.timezone || 'America/Sao_Paulo') +
-          ' · ' + (a.proxy?.host ? 'proxy configurado' : 'sem proxy')),
-        h('div', { class: 'launcher-actions' },
-          h('button', { class: 'primary', onclick: () => openAccountWorkspace(a.id) }, 'Abrir campanhas'),
-          h('button', { onclick: async () => {
-            await safe(() => api.openBrowser(a.id));
-            await refresh();
-          } }, a.running ? 'Mostrar LinkedIn' : 'Abrir LinkedIn · sem executar'))))),
+    h('div', { class: 'launcher-toolbar' },
+      h('div', { class: 'launcher-filters' }, ...buttons),
+      h('div', { class: 'launcher-search' }, search, count)),
+    cards,
     h('div', { class: 'card muted' },
       'Abertura da conta, navegador LinkedIn e execução de campanhas são operações separadas. Contas pausadas permanecem pausadas.'));
+  update();
+  return node;
 }
 
 async function renderWorkspaceSidebar(a) {

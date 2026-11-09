@@ -12,6 +12,7 @@ async function limitsPanelBody(a, onClose, box) {
   age.value = L.linkedinAge;
   const table = h('div');
   const statusOf = (r) => L.status.find((s) => s.key === r.key && s.hours === Number(r.hours));
+  const protectedRule = (r) => (L.protectedRules || []).find((p) => p.key === r.key && p.hours === Number(r.hours));
   const render = () => table.replaceChildren(
     h('table', { class: 'limits' },
       h('tr', {}, h('th', {}, 'Atividade'), h('th', {}, 'Variação'), h('th', {}, 'Máximo'), h('th', {}, 'Por'), h('th', {}, 'Uso agora'), h('th', {}, '')),
@@ -26,17 +27,28 @@ async function limitsPanelBody(a, onClose, box) {
         if (!HOURS.some(([v]) => v === Number(r.hours))) hours.prepend(h('option', { value: r.hours, selected: true }, `${r.hours} horas`));
         hours.addEventListener('change', () => { r.hours = Number(hours.value); });
         const st = statusOf(r);
+        const bound = protectedRule(r);
+        const lowered = bound && Number(r.max) > bound.max;
         return h('tr', {},
           h('td', {}, key), h('td', {}, vari, ' %'), h('td', {}, max), h('td', {}, hours),
-          h('td', { class: 'muted' }, st ? `${st.used} de ${st.limit}${st.nextFreeAt ? ` · libera às ${new Date(st.nextFreeAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}` : ''}` : '—'),
+          h('td', { class: 'muted' }, st ? `${st.used} de ${st.limit}${st.nextFreeAt ? ` · libera às ${new Date(st.nextFreeAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}` : ''}` : '—',
+            lowered && h('small', { class: 'limit-guard-warning' }, `Teto interno: ${bound.max} por ${bound.hours} h`)),
           h('td', {}, h('button', { class: 'link', onclick: () => { rules.splice(i, 1); render(); } }, 'remover')));
       })));
   render();
   box.replaceChildren(
     h('div', { class: 'row' }, h('strong', { style: 'flex:1' }, 'Limites desta conta'), h('button', { class: 'link', onclick: onClose }, 'fechar')),
     h('div', { class: 'muted' }, 'Cada regra vale para as últimas N horas (janela móvel, como no Linked Helper): uma vaga volta exatamente N horas depois de cada ação, não à meia-noite. ' +
-      'A variação reduz o máximo ao acaso (estável no dia) para o LinkedIn não ver sempre o mesmo número. Várias regras para a mesma atividade: vale a mais apertada (ex.: convites 100 por 7 dias e 20 por 24 horas). ' +
+      'A variação reduz o máximo de forma determinística por dia, mas não constitui garantia de segurança. Várias regras para a mesma atividade: vale a mais apertada (ex.: convites 100 por 7 dias e 20 por 24 horas). ' +
       'Perfis abertos pelo link têm limite próprio (40/24 h): acima disso o LinkedIn costuma desconectar. Por isso o app abre os perfis pela busca, digitando o nome, sempre que a pessoa tem nome.'),
+    h('div', { class: 'limit-guard-box' },
+      h('strong', {}, 'Proteções obrigatórias da conta'),
+      h('p', { class: 'muted' },
+        'Regras personalizadas podem ser mais restritivas, mas não podem remover ou elevar os tetos internos abaixo. A recomendação do Linked Helper não é um limite oficial nem impede bloqueios.'),
+      h('div', { class: 'limit-guard-grid' },
+        ...(L.protectedRules || []).map((r) => h('div', { class: 'limit-guard-item' },
+          h('strong', {}, L.labels[r.key] || r.key),
+          h('span', {}, r.max + ' por ' + r.hours + ' h'))))),
     h('div', { class: 'row' }, h('span', { class: 'muted' }, 'Idade da conta no LinkedIn'), age),
     table,
     h('div', { class: 'row' },

@@ -167,9 +167,18 @@ export class CampaignRunner {
       if (!verified) result = { ok: false, reason: 'NO_REAL_EFFECT' };
     }
 
-    if (result.ok || result.reason === 'NO_REAL_EFFECT') {
-      // conta no limite o efeito (convite, mensagem, curtida…) e a tentativa sem prova (evita repetir)
+    // A atividade geral inclui a interação externa, além das navegações já
+    // contabilizadas pelo navegador. Operações sem efeito real (já curtido,
+    // convite não pendente) não podem ser vendidas como novas ações.
+    // Resultado inconclusivo entra conservadoramente no orçamento para evitar
+    // repetição excessiva; não representa confirmação de sucesso.
+    const alreadyDone = result.ok && (
+      result.data?.alreadyLiked === true || result.data?.already === 'not_pending'
+    );
+    if ((result.ok && !alreadyDone) || (!result.ok && result.reason === 'NO_REAL_EFFECT')) {
       for (const key of def.consumes) store.recordUsage(account.id, key, this.now());
+      if (def.requiresVerification && !def.consumes.includes('activity'))
+        store.recordUsage(account.id, 'activity', this.now());
     }
 
     if (!result.ok && result.reason === 'RETRY_LATER') {
