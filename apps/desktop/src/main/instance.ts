@@ -85,6 +85,7 @@ export interface LiveState {
   state: 'idle' | 'working' | 'pausing' | 'inbox' | 'login';
   doing?: string;
   campaign?: string;
+  campaignId?: string;
   step?: number;
   total?: number;
   plan?: string[];
@@ -280,7 +281,7 @@ export class AccountInstance {
     if (e.type === 'start') {
       const name = personName(e.person);
       Object.assign(L, {
-        state: 'working', campaign: e.campaign.name, step: e.step, total: e.total, since: now().toISOString(), pauseUntil: undefined, nextPerson: undefined,
+        state: 'working', campaign: e.campaign.name, campaignId: e.campaign.id, step: e.step, total: e.total, since: now().toISOString(), pauseUntil: undefined, nextPerson: undefined,
         doing: `${DOING[e.action.type] ?? e.action.name + ' —'} ${name}`,
         // o que vem depois para esta pessoa (até a próxima espera)
         plan: e.campaign.actions.slice(e.step).reduce<{ out: string[]; stop: boolean }>((acc, a) => {
@@ -298,7 +299,7 @@ export class AccountInstance {
       this.remember(text, e.ok ? true : e.reason === 'AWAITING_APPROVAL' || e.reason === 'RETRY_LATER' || e.reason === 'NO_POST' ? null : false);
       this.log(`${e.ok ? '✓' : '•'} ${text}`);
     } else if (e.type === 'pause') {
-      Object.assign(L, { state: 'pausing', campaign: e.campaign.name, doing: undefined, plan: undefined, pauseUntil: e.until.toISOString(), nextPerson: personName(e.nextPerson) });
+      Object.assign(L, { state: 'pausing', campaign: e.campaign.name, campaignId: e.campaign.id, doing: undefined, plan: undefined, pauseUntil: e.until.toISOString(), nextPerson: personName(e.nextPerson) });
       this.log(`⏸ Pausa humana de ${Math.round(e.ms / 1000)} s; depois: ${personName(e.nextPerson)}`);
     } else if (e.type === 'scheduled') {
       L.upcoming.push({ at: e.at.toISOString(), text: `${e.action.name}: ${personName(e.person)}` });
@@ -504,7 +505,7 @@ export class AccountInstance {
       // vencidos saem da lista de "próximos"
       const t = now().toISOString();
       this.live.upcoming = this.live.upcoming.filter((u) => u.at > t);
-      Object.assign(this.live, { state: 'idle', doing: undefined, plan: undefined, pauseUntil: undefined, nextPerson: undefined, campaign: undefined });
+      Object.assign(this.live, { state: 'idle', doing: undefined, plan: undefined, pauseUntil: undefined, nextPerson: undefined, campaign: undefined, campaignId: undefined });
     }
   }
 

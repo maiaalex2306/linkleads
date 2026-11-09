@@ -476,7 +476,11 @@ ipcMain.handle('campaigns:summaries', (_e, id: string, includeArchived = false) 
     waiting: number; processing: number; successful: number; failed: number;
   }>;
   const byId = new Map(rows.map((r) => [r.campaign_id, r]));
-  const runnerEnabled = instances.get(id)?.schedulerRunning() ?? false;
+  const instance = instances.get(id);
+  const runnerEnabled = instance?.schedulerRunning() ?? false;
+  // Apenas a campanha associada à ação efetivamente em execução pode receber
+  // estado "running". Um timer ativo não é prova de execução.
+  const workingCampaignId = instance?.live.state === 'working' ? instance.live.campaignId : undefined;
   return crm.listCampaigns(id, !!includeArchived).map((c) => {
     const r = byId.get(c.id);
     const queued = r?.queued ?? 0;
@@ -487,6 +491,7 @@ ipcMain.handle('campaigns:summaries', (_e, id: string, includeArchived = false) 
     const failed = r?.failed ?? 0;
     const status = c.archived ? 'archived' : campaignDisplayStatus({
       active: c.active, actionCount: c.actions.length, paused: a.paused, runnerEnabled,
+      workingCampaignId, campaignId: c.id,
     }, { queued, ready, waiting, processing, successful, failed });
     return { id: c.id, name: c.name, active: c.active, archived: !!c.archived, status,
       actions: c.actions.length, contacts: r?.contacts ?? 0,
