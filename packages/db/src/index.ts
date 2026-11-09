@@ -129,6 +129,23 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
       ALTER TABLE action_log ADD COLUMN message TEXT;
     `,
   },
+  {
+    version: 9,
+    // preservar continuidade condicional ao fechar/reabrir uma campanha
+    sql: `
+      ALTER TABLE campaign_actions ADD COLUMN continue_on_fail_json TEXT NOT NULL DEFAULT '[]';
+      CREATE INDEX IF NOT EXISTS idx_cap_campaign_status ON campaign_action_people (campaign_id, status, action_id, seq);
+    `,
+  },
+  {
+    version: 10,
+    // arquivamento e descrição sem exclusão do histórico da campanha
+    sql: `
+      ALTER TABLE campaigns ADD COLUMN archived INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE campaigns ADD COLUMN description TEXT;
+      CREATE INDEX IF NOT EXISTS idx_campaigns_archived ON campaigns (archived, created_at);
+    `,
+  },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.version;
@@ -248,9 +265,8 @@ export class SqliteCampaignStore implements CampaignStore {
   }
 
   /**
-   * Devolve para a fila (na mesma etapa) quem falhou por motivos que podem mudar
-   * (perfil não carregou, erro, sem efeito confirmado…). Não mexe em quem respondeu,
-   * pediu para parar, foi excluído ou ficou fora do ICP.
+   * Reenvio manual conservador: o chamador fornece APENAS razões de ações
+   * comprovadamente não executadas. Falha de verificação não autoriza repetição.
    */
   retryFailed(campaignId: string, reasons: string[]): number {
     if (!reasons.length) return 0;
@@ -411,21 +427,24 @@ export class LocalCrm extends SqliteCampaignStore {
     try {
       this.db
         .prepare(
-          `INSERT INTO campaigns (id, name, active, exclusions_json) VALUES (?, ?, ?, ?)
-           ON CONFLICT(id) DO UPDATE SET name=excluded.name, active=excluded.active, exclusions_json=excluded.exclusions_json`,
+          `INSERT INTO campaigns (id, name, active, exclusions_json, description) VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET name=excluded.name, active=excluded.active, exclusions_json=excluded.exclusions_json,
+             description=excluded.description`,
         )
-        .run(c.id, c.name, c.active ? 1 : 0, JSON.stringify(c.exclusions ?? []));
+        .run(c.id, c.name, c.active ? 1 : 0, JSON.stringify(c.exclusions ?? []), c.description ?? null);
       const up = this.db.prepare(
-        `INSERT INTO campaign_actions (id, campaign_id, position, type, name, description, cool_down_ms, max_results, settings_json, exclusions_json, wait_hours)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO campaign_actions (id, campaign_id, position, type, name, description, cool_down_ms, max_results, settings_json, exclusions_json, wait_hours, continue_on_fail_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET position=excluded.position, type=excluded.type, name=excluded.name,
            description=excluded.description, cool_down_ms=excluded.cool_down_ms, max_results=excluded.max_results,
-           settings_json=excluded.settings_json, exclusions_json=excluded.exclusions_json, wait_hours=excluded.wait_hours`,
+           settings_json=excluded.settings_json, exclusions_json=excluded.exclusions_json, wait_hours=excluded.wait_hours,
+           continue_on_fail_json=excluded.continue_on_fail_json`,
       );
       // libera posições para reordenação
       this.db.prepare('UPDATE campaign_actions SET position = -1 - position WHERE campaign_id = ?').run(c.id);
       c.actions.forEach((a, i) =>
-        up.run(a.id, c.id, i, a.type, a.name, a.description ?? null, a.coolDown, a.maxResults, JSON.stringify(a.settings), JSON.stringify(a.exclusions ?? []), a.waitHours ?? null),
+        up.run(a.id, c.id, i, a.type, a.name, a.description ?? null, a.coolDown, a.maxResults,
+          JSON.stringify(a.settings), JSON.stringify(a.exclusions ?? []), a.waitHours ?? null, JSON.stringify(a.continueOnFail ?? [])),
       );
       this.db.prepare('DELETE FROM campaign_actions WHERE campaign_id = ? AND position < 0').run(c.id);
       this.db.exec('COMMIT');
@@ -449,19 +468,36 @@ export class LocalCrm extends SqliteCampaignStore {
         settings: JSON.parse(a.settings_json as string),
         exclusions: JSON.parse(a.exclusions_json as string),
         ...(a.wait_hours != null ? { waitHours: Number(a.wait_hours) } : {}),
+        ...(Array.isArray(JSON.parse((a.continue_on_fail_json as string) || '[]')) &&
+          JSON.parse((a.continue_on_fail_json as string) || '[]').length
+          ? { continueOnFail: JSON.parse((a.continue_on_fail_json as string) || '[]') as FailureReason[] }
+          : {}),
       }),
     );
-    return { id, accountId, name: c.name as string, active: Boolean(c.active), exclusions: JSON.parse(c.exclusions_json as string), actions };
+    return { id, accountId, name: c.name as string, active: Boolean(c.active),
+      archived: Boolean(c.archived), description: c.description as string | undefined,
+      exclusions: JSON.parse(c.exclusions_json as string), actions };
   }
 
-  listCampaigns(accountId: string): Campaign[] {
-    return (this.db.prepare('SELECT id FROM campaigns ORDER BY created_at DESC').all() as Row[])
+  listCampaigns(accountId: string, includeArchived = false): Campaign[] {
+    return (this.db.prepare('SELECT id FROM campaigns ' +
+      (includeArchived ? '' : 'WHERE archived=0 ') + 'ORDER BY created_at DESC').all() as Row[])
       .map((r) => this.loadCampaign(r.id as string, accountId)!)
       .filter(Boolean);
   }
 
   setCampaignActive(id: string, active: boolean): void {
+    const existing = this.db.prepare('SELECT archived FROM campaigns WHERE id=?').get(id) as {archived:number} | undefined;
+    if (!existing) throw new Error('Campanha não encontrada');
+    if (active && existing.archived) throw new Error('Restaure a campanha antes de ativá-la');
     this.db.prepare('UPDATE campaigns SET active = ? WHERE id = ?').run(active ? 1 : 0, id);
+  }
+
+  /** Arquivar não exclui ações, registros, histórico nem pessoas. */
+  setCampaignArchived(id: string, archived: boolean): void {
+    const row = this.db.prepare('UPDATE campaigns SET archived=?, active=0 WHERE id=?')
+      .run(archived ? 1 : 0, id);
+    if (!row.changes) throw new Error('Campanha não encontrada para arquivamento');
   }
 
   /** Coloca todas as pessoas da coleção na fila da primeira ação. */
@@ -506,6 +542,75 @@ export class LocalCrm extends SqliteCampaignStore {
       notBefore: r.not_before ? new Date(Number(r.not_before)).toISOString() : undefined,
       message: (r.message as string) ?? undefined,
     }));
+  }
+
+  /**
+   * Listas por ação/campanha: consulta paginada por SQLite, preservando todas
+   * as etapas (campaignPeople mostra apenas a última etapa por pessoa).
+   * Apenas filtros pré-definidos: nunca interpolar SQL vindo da interface.
+   */
+  campaignActionRows(
+    campaignId: string,
+    opts: { actionId?: string; filter?: string; search?: string; page?: number; pageSize?: number } = {},
+  ): {
+    total: number; page: number; pageSize: number;
+    rows: Array<{ personId: string; actionId: string; actionName: string; name: string;
+      company: string; status: string; reason: string | null; message: string | null;
+      updatedAt: string; notBefore: string | null }>;
+  } {
+    const page = Math.max(0, Math.min(100000, Math.trunc(Number(opts.page) || 0)));
+    const pageSize = Math.max(10, Math.min(100, Math.trunc(Number(opts.pageSize) || 50)));
+    const filter = opts.filter ?? 'all';
+    const now = Date.now();
+    const where = ['cap.campaign_id = ?'];
+    const params: Array<string | number> = [campaignId];
+    if (opts.actionId) {
+      where.push('cap.action_id = ?'); params.push(opts.actionId);
+    }
+    const reasons: Record<string, string> = {
+      replied: 'REPLIED', excluded: 'EXCLUDED',
+    };
+    if (filter === 'ready') {
+      where.push("cap.status='queued' AND (cap.not_before IS NULL OR cap.not_before <= ?)");
+      params.push(now);
+    } else if (filter === 'waiting') {
+      where.push("cap.status='queued' AND cap.not_before > ?"); params.push(now);
+    } else if (filter === 'ignored') {
+      where.push("cap.status='failed' AND cap.reason IN ('NO_POST','AI_SKIPPED','ICP_REJECTED')");
+    } else if (reasons[filter]) {
+      where.push("cap.reason = ?"); params.push(reasons[filter]);
+    } else if (['queued','processed','successful','failed'].includes(filter)) {
+      where.push('cap.status = ?'); params.push(filter);
+    } else if (filter !== 'all') throw new Error('Filtro de lista não reconhecido');
+    const search = String(opts.search || '').trim().slice(0, 120);
+    if (search) {
+      where.push("(instr(lower(COALESCE(p.first_name,'')),lower(?)) > 0 OR " +
+        "instr(lower(COALESCE(p.last_name,'')),lower(?)) > 0 OR " +
+        "instr(lower(COALESCE(p.company,'')),lower(?)) > 0 OR " +
+        "instr(lower(COALESCE(p.public_id,'')),lower(?)) > 0)");
+      params.push(search, search, search, search);
+    }
+    const join = ' FROM campaign_action_people cap JOIN people p ON p.id=cap.person_id ' +
+      ' JOIN campaign_actions ca ON ca.id=cap.action_id WHERE ' + where.join(' AND ');
+    const count = this.db.prepare('SELECT COUNT(*) AS n' + join).get(...params) as { n: number };
+    const records = this.db.prepare(
+      'SELECT cap.person_id, cap.action_id, ca.name AS action_name, p.first_name, p.last_name, ' +
+      'p.public_id, p.company, cap.status, cap.reason, cap.message, cap.updated_at, cap.not_before' +
+      join + " ORDER BY CASE WHEN cap.status='queued' THEN 0 ELSE 1 END, cap.seq, cap.updated_at DESC LIMIT ? OFFSET ?"
+    ).all(...params, pageSize, page * pageSize) as Row[];
+    return {
+      total: Number(count.n), page, pageSize,
+      rows: records.map((r) => ({
+        personId: String(r.person_id), actionId: String(r.action_id),
+        actionName: String(r.action_name),
+        name: [r.first_name, r.last_name].filter(Boolean).join(' ') || String(r.public_id || '—'),
+        company: String(r.company || '—'), status: String(r.status),
+        reason: r.reason == null ? null : String(r.reason),
+        message: r.message == null ? null : String(r.message),
+        updatedAt: String(r.updated_at),
+        notBefore: r.not_before == null ? null : new Date(Number(r.not_before)).toISOString(),
+      })),
+    };
   }
 
   // Posts e rascunhos ----------------------------------------------------

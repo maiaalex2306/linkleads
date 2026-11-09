@@ -127,6 +127,9 @@ export interface Campaign {
   /** exclusões no nível da campanha */
   exclusions?: string[];
   active: boolean;
+  /** Metadados de gestão, não exigidos por campanhas antigas. */
+  archived?: boolean;
+  description?: string;
 }
 
 export interface Person {

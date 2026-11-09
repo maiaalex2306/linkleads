@@ -263,3 +263,43 @@ button.workspace-sidebar-link .campaign-side-name { font-weight:650; max-width:1
 .workspace-error-detail { margin-top:4px; overflow-wrap:anywhere; max-width:440px; }
 @media(max-width:1000px){ .campaign-overview-controls { grid-template-columns:1fr 1fr; } .campaign-overview-stats { grid-template-columns:repeat(2,1fr); } }
 @media(max-width:640px){ .campaign-overview-controls { grid-template-columns:1fr; } .campaign-overview-stats { grid-template-columns:1fr 1fr; } }
+
+/* Fluxos: catálogo + canvas + inspetor, matriz roxo/laranja LINKLEADS. */
+.wb-root { min-width:0; }
+.wb-title { gap:16px; align-items:end; }
+.wb-title h3 { font-size:20px; margin:2px 0; color:var(--fg); }
+.wb-title label { min-width:210px; }
+.wb-layout { display:grid; grid-template-columns:minmax(215px,1fr) minmax(260px,1.6fr) minmax(240px,1.1fr); gap:14px; align-items:start; }
+.wb-palette,.wb-inspector { border:1px solid var(--line); border-radius:12px; padding:14px; background:var(--card); display:grid; gap:12px; min-width:0; }
+.wb-palette { max-height:75vh; overflow-y:auto; }
+.wb-inspector { max-height:75vh; overflow-y:auto; }
+.wb-canvas { border:1px dashed var(--line); border-radius:12px; padding:16px; background:var(--bg); display:grid; gap:10px; min-height:250px; min-width:0; }
+.wb-palette input,.wb-palette select,.wb-inspector input:not([type=checkbox]),.wb-inspector select,.wb-inspector textarea { width:100%; }
+.wb-action-list { display:grid; gap:8px; }
+.wb-action { background:var(--bg); border:1px solid var(--line); border-radius:9px; padding:9px 10px; display:grid; gap:6px; }
+.wb-action-label { display:grid; gap:2px; }
+.wb-action-label strong { font-size:12px; overflow-wrap:anywhere; }
+.wb-action button { justify-self:start; padding:4px 9px; font-size:11px; }
+.wb-action.is-unavailable { border-style:dashed; opacity:.72; }
+.wb-state { color:var(--muted); font-size:11px; border:1px solid var(--line); padding:2px 8px; border-radius:99px; white-space:nowrap; }
+.wb-step { background:var(--card); padding:13px; border:1px solid var(--line); border-left:4px solid var(--brand); border-radius:11px; display:grid; gap:10px; cursor:pointer; min-width:0; }
+.wb-step:hover,.wb-step.selected { box-shadow:var(--shadow); border-color:var(--brand); }
+.wb-step .row { flex-wrap:wrap; }
+.wb-step-name { flex:1; min-width:125px; }
+.wb-step-name strong { overflow-wrap:anywhere; }
+.wb-step-footer { font-size:11px; color:var(--muted); justify-content:space-between; gap:8px; }
+.wb-step-actions { display:flex; gap:5px; justify-content:end; }
+.wb-step-actions button { font-size:11px; padding:3px 9px; }
+.wb-arrow { color:var(--brand); text-align:center; font-size:20px; line-height:16px; }
+.wb-empty,.wb-drop { border:1px dashed var(--line); border-radius:10px; padding:20px 14px; color:var(--muted); text-align:center; }
+.wb-drop { padding:12px; font-size:12px; }
+.wb-field { display:grid; gap:4px; }
+.wb-check { display:flex; align-items:center; gap:8px; font-weight:400; }
+.wb-notice { border-left:3px solid var(--warn); background:var(--accent-soft); color:var(--soft-ink); border-radius:6px; padding:9px 12px; font-size:12px; }
+@media(max-width:1400px) { .wb-layout { grid-template-columns:minmax(190px,1fr) minmax(250px,1.8fr); } .wb-inspector { grid-column:1 / -1; max-height:none; } }
+@media(max-width:840px) { .wb-layout { grid-template-columns:minmax(0,1fr); } .wb-palette,.wb-inspector { max-height:none; } .wb-title label { min-width:150px; } }
+
+.workspace-list-tools { display:grid; grid-template-columns:minmax(170px,1fr) minmax(200px,1.3fr) minmax(180px,1.2fr); align-items:end; gap:12px; }
+.workspace-list-tools label { font-weight:600; }
+.workspace-list-tools input,.workspace-list-tools select { width:100%; font-weight:400; }
+@media(max-width:850px) { .workspace-list-tools { grid-template-columns:minmax(0,1fr); } }

@@ -20,6 +20,11 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      - name: Verificar sintaxe de todas as telas JavaScript
+        run: |
+          for file in apps/desktop/src/renderer/*.js; do
+            node --check "$file" || exit 1
+          done
 
   e2e:
     name: E2E — ${{ matrix.name }}

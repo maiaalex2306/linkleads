@@ -293,7 +293,7 @@ function campaignCard(a, c, cols) {
       h('button', { class: 'primary', onclick: () => openCampaignWorkspace(c.id) }, 'Abrir campanha'),
       addCol,
       exportButton(a, { campaignId: c.id, name: c.name }),
-      c.people.some((p) => p.status === 'failed') && h('button', { title: 'Devolve para a fila quem falhou por perfil que não carregou, erro, sem efeito confirmado ou sem post', onclick: async () => {
+      !a.paused && !a.runnerEnabled && c.people.some((p) => p.status === 'failed' && p.reason === 'LIMIT_REACHED') && h('button', { title: 'Reencaminha somente falhas por limite local, sem ações de efeito incerto', onclick: async () => {
         const n = await safe(() => api.retryFailed(a.id, c.id));
         if (n != null) { toast(n ? `${n} pessoa(s) voltaram para a fila` : 'Nenhuma falha que valha tentar de novo (ex.: respondeu, fora do ICP)'); renderView(); }
       } }, 'Tentar de novo as falhas'),
@@ -307,8 +307,10 @@ function campaignCard(a, c, cols) {
 
 async function campaignsView(a) {
   // Visão geral leve: NÃO carrega todas as pessoas das campanhas.
-  const summaries = await api.listCampaignSummaries(a.id);
-  const formOpen = Boolean(state.newCampaignOpen || !summaries.length);
+  const includeArchived = Boolean(state.showArchived);
+  const summaries = (await api.listCampaignSummaries(a.id, includeArchived))
+    .filter((c) => Boolean(c.archived) === includeArchived);
+  const formOpen = !includeArchived && Boolean(state.newCampaignOpen || !summaries.length);
   const filtered = summaries.filter((c) => state.campaignStatusFilter === 'all' || c.status === state.campaignStatusFilter);
   const sort = state.campaignSort || 'active';
   const ordered = [...filtered].sort((x, y) => sort === 'name'
@@ -335,13 +337,27 @@ async function campaignsView(a) {
         metricBox('Etapas com falha', c.failed)),
       h('div', { class: 'row campaign-overview-footer' },
         h('span', { class: 'muted', style: 'flex:1' }, c.actions + ' etapas · ' + c.successful + ' conclusões de etapa'),
-        h('button', {
+        !c.archived && h('button', {
           disabled: a.paused && !c.active,
           onclick: async () => {
             await safe(() => api.setCampaignActive(a.id, c.id, !c.active));
-            await renderView();
+            await refresh();
           },
-        }, c.active ? 'Parar campanha' : 'Ativar campanha')))));
+        }, c.active ? 'Parar campanha' : 'Ativar campanha'),
+        !c.archived && h('button', {
+          title:'Copia só as etapas, sem pessoas',
+          onclick: async () => {
+            const result=await safe(() => api.duplicateCampaign(a.id,c.id));
+            if(result?.campaignId) { toast('Fluxo duplicado, sem contatos ou histórico.'); await refresh(); }
+          },
+        }, 'Duplicar'),
+        h('button', { disabled:a.runnerEnabled,
+          onclick: async () => {
+            if (!c.archived && !window.confirm('Arquivar esta campanha? Ela ficará parada, mas os dados serão preservados.')) return;
+            const result=await safe(() => api.archiveCampaign(a.id,c.id,!c.archived));
+            if(result?.ok) { toast(c.archived ? 'Campanha restaurada' : 'Campanha arquivada'); await refresh(); }
+          },
+        }, c.archived ? 'Restaurar' : 'Arquivar')))));
   const searchInput = h('input', {
     type: 'search', placeholder: 'Pesquisar campanhas', value: state.campaignSearch || '',
     'aria-label': 'Pesquisar campanhas',
@@ -368,21 +384,28 @@ async function campaignsView(a) {
   const out = h('div', { class: 'stack' },
     h('div', { class: 'workspace-title' },
       h('div', {}, h('div', { class: 'kind' }, 'CAMPANHAS · ' + a.label),
-        h('h2', {}, 'Suas campanhas (' + summaries.filter((x) => x.active).length + ' ativa(s) de ' + summaries.length + ')')),
-      summaries.length > 0 && h('button', {
-        class: formOpen ? '' : 'primary',
-        onclick: () => { state.newCampaignOpen = !formOpen; renderView(); },
-      }, formOpen ? 'Fechar "Nova campanha"' : '+ Criar nova campanha')),
-    summaries.length > 0 && h('div', { class: 'muted' },
+        h('h2', {}, includeArchived ? 'Campanhas arquivadas (' + summaries.length + ')' :
+          'Suas campanhas (' + summaries.filter((x) => x.active).length + ' ativa(s) de ' + summaries.length + ')')),
+      h('div', { class:'row' },
+        h('button', { onclick: () => {
+          state.showArchived = !includeArchived;
+          state.campaignStatusFilter='all'; state.newCampaignOpen=false; renderView();
+        } }, includeArchived ? '← Ver campanhas ativas' : 'Ver arquivadas'),
+        !includeArchived && summaries.length > 0 && h('button', {
+          class: formOpen ? '' : 'primary',
+          onclick: () => { state.newCampaignOpen = !formOpen; renderView(); },
+        }, formOpen ? 'Fechar "Nova campanha"' : '+ Criar nova campanha'))),
+    !includeArchived && summaries.length > 0 && h('div', { class: 'muted' },
       'As campanhas ativas só executam ações quando o executor da conta estiver ligado. Abrir esta tela não inicia campanhas.'),
     controls,
     list,
+    !summaries.length && includeArchived && h('div', { class:'card muted' }, 'Nenhuma campanha arquivada.'),
     summaries.length > 0 && !filtered.length && h('div', { class: 'card muted' }, 'Nenhuma campanha nesta situação.'));
   if (formOpen) {
     const [cols, settings, integ] = await Promise.all([
       api.listCollections(a.id), api.getSettings(), api.getIntegrations(),
     ]);
-    const kinds = [['sequence', 'Sequência de prospecção'], ['engagement', 'Só engajamento (curtir + comentar)']];
+    const kinds = [['sequence', 'Sequência de prospecção'], ['engagement', 'Só engajamento (curtir + comentar)'], ['blank', 'Fluxo vazio · editor visual']];
     const formBox = h('div');
     const tabs = h('div', { class: 'tabs', style: 'margin:0 0 8px' });
     const renderForm = () => {
@@ -391,7 +414,17 @@ async function campaignsView(a) {
         onclick: () => { newCampaignKind = kind; renderForm(); },
       }, label)));
       formBox.replaceChildren(newCampaignKind === 'sequence'
-        ? sequenceForm(a, cols, settings, integ) : engagementForm(a, cols));
+        ? sequenceForm(a, cols, settings, integ)
+        : newCampaignKind === 'engagement' ? engagementForm(a, cols)
+        : h('form', { class: 'stack', onsubmit: async (ev) => {
+          ev.preventDefault();
+          const name = ev.target.elements.namedItem('campaignName')?.value?.trim();
+          const created = await safe(() => api.createBlankCampaign(a.id, name));
+          if (created?.campaignId) { state.newCampaignOpen = false; await openCampaignWorkspace(created.campaignId); state.campaignTab = 'workflow'; state.editCampaign = true; await renderView(); }
+        } },
+          h('div', { class: 'muted' }, 'Cria um rascunho vazio. Adicione ações pelo catálogo visual. Não executa nada ao criar.'),
+          h('label', {}, 'Nome do fluxo', h('input', { name: 'campaignName', value: 'Nova campanha', required: true, maxLength: 150 })),
+          h('button', { class: 'primary' }, 'Criar fluxo vazio')));
     };
     renderForm();
     out.append(h('div', { class: 'card stack' },

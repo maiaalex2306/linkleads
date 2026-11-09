@@ -45,6 +45,8 @@ import { InstanceManager } from './instance-manager.js';
 import { Settings } from './settings.js';
 import { trace } from './trace.js';
 import { campaignDisplayStatus } from './campaign-status.js';
+import { SAFE_RETRY_REASONS, isSafeManualRetry } from './retry-policy.js';
+import { actionCatalogForEditor, validateCampaignWorkflow } from './workflow-model.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 trace.configure(join(app.getPath('userData'), 'traces'));
@@ -272,12 +274,19 @@ ipcMain.handle('instance:open', (_e, id: string) => void instances.open(account(
 ipcMain.handle('instance:startRunner', (_e, id: string) => void instances.startRunner(account(id)));
 ipcMain.handle('instance:stopRunner', (_e, id: string) => void instances.stopRunner(id));
 ipcMain.handle('instance:stop', (_e, id: string) => instances.stop(id));
-/** Falhas que podem mudar numa nova tentativa (página não carregou, erro, sem efeito, bloqueio, sem post). */
-const RETRYABLE = ['NOT_FOUND', 'ERROR', 'NO_REAL_EFFECT', 'THROTTLED', 'NO_POST', 'LIMIT_REACHED'];
+/** Só reexecutar automaticamente uma falha comprovadamente pré-execução. */
+const RETRYABLE = SAFE_RETRY_REASONS;
 
 ipcMain.handle('campaigns:retryFailed', (_e, id: string, campaignId: string) => {
-  const crm = crms.get(account(id));
+  const a = account(id);
+  if (a.paused) throw new Error('Conta pausada: primeiro resolva a verificação de segurança.');
+  const crm = crms.get(a);
+  const campaign = crm.loadCampaign(campaignId, id);
+  if (!campaign) throw new Error('Campanha inexistente nesta conta.');
+  if (campaign.active && instances.get(id)?.schedulerRunning())
+    throw new Error('Pare o executor antes de reorganizar falhas.');
   const n = crm.retryFailed(campaignId, RETRYABLE);
+  trace.record('campaign', 'safe_retry_requested', { count: n }, { accountId: id, campaignId });
   return n;
 });
 
@@ -301,7 +310,7 @@ ipcMain.handle('instance:live', (_e, id: string) => {
     const failedRows = rows.filter((r) => r.status === 'failed');
     const reasons: Record<string, number> = {};
     for (const r of failedRows) reasons[r.reason ?? 'ERROR'] = (reasons[r.reason ?? 'ERROR'] ?? 0) + 1;
-    const retryable = failedRows.filter((r) => RETRYABLE.includes(r.reason ?? 'ERROR')).length;
+    const retryable = acc.paused ? 0 : failedRows.filter((r) => isSafeManualRetry(r.reason)).length;
     const approval = rows.filter((r) => r.reason === 'AWAITING_APPROVAL').length;
     const done = rows.filter((r) => r.status === 'successful').length;
     let explain: string;
@@ -376,19 +385,80 @@ ipcMain.handle('campaigns:list', (_e, id: string) => {
   const crm = crms.get(account(id));
   return crm.listCampaigns(id).map((c) => ({ ...c, people: crm.campaignPeople(c) }));
 });
+/** Catálogo completo, com indicação dos executores efetivamente disponíveis. */
+ipcMain.handle('campaigns:catalog', () => actionCatalogForEditor());
+
+/** Cria rascunho de fluxo vazio, sem abrir navegador nem enfileirar contatos. */
+ipcMain.handle('campaigns:createBlank', (_e, id: string, name: string) => {
+  account(id);
+  const title = String(name || '').trim();
+  if (!title || title.length > 150) throw new Error('Informe um nome de 1 a 150 caracteres.');
+  const crm = crms.get(account(id));
+  const campaign: Campaign = {
+    id: randomUUID(), accountId: id, name: title, active: false, actions: [],
+  };
+  crm.saveCampaign(campaign);
+  trace.record('campaign', 'draft_created', { count: 0 }, { accountId: id, campaignId: campaign.id });
+  return { campaignId: campaign.id };
+});
+
 /** Carrega apenas a campanha selecionada e suas pessoas. */
 ipcMain.handle('campaigns:detail', (_e, id: string, campaignId: string) => {
   const crm = crms.get(account(id));
   const campaign = crm.loadCampaign(campaignId, id);
   if (!campaign) throw new Error('Campanha não encontrada nesta conta');
-  return { ...campaign, people: crm.campaignPeople(campaign) };
+  const saved = crm.db.prepare('SELECT COUNT(*) AS n FROM campaign_action_people WHERE campaign_id=?').get(campaignId) as { n: number };
+  const logged = crm.db.prepare('SELECT COUNT(*) AS n FROM action_log WHERE campaign_id=?').get(campaignId) as { n: number };
+  return { ...campaign, people: crm.campaignPeople(campaign), hasHistory: saved.n + logged.n > 0 };
+});
+
+/** Detalhe leve da campanha: consulta agregações, nunca a carteira inteira. */
+ipcMain.handle('campaigns:workspaceDetail', (_e, id: string, campaignId: string) => {
+  const crm = crms.get(account(id));
+  const campaign = crm.loadCampaign(campaignId, id);
+  if (!campaign) throw new Error('Campanha não encontrada nesta conta.');
+  const grouped = crm.db.prepare(
+    'SELECT action_id, status, COALESCE(reason, \'\') AS reason, COUNT(*) AS n ' +
+    'FROM campaign_action_people WHERE campaign_id=? GROUP BY action_id,status,reason'
+  ).all(campaignId) as Array<{ action_id:string; status:string; reason:string; n:number }>;
+  const actionStats: Record<string, Record<string, number>> = {};
+  const stats: Record<string, number> = {
+    queued: 0, processed: 0, successful: 0, failed: 0, replied: 0, ignored: 0,
+  };
+  for (const row of grouped) {
+    const a = actionStats[row.action_id] ??= { queued:0,processed:0,successful:0,failed:0 };
+    a[row.status] = (a[row.status] ?? 0) + Number(row.n);
+    stats[row.status] = (stats[row.status] ?? 0) + Number(row.n);
+    if (row.reason === 'REPLIED') stats.replied += Number(row.n);
+    if (['NO_POST','AI_SKIPPED','ICP_REJECTED'].includes(row.reason))
+      stats.ignored += Number(row.n);
+  }
+  const people = crm.db.prepare(
+    'SELECT COUNT(DISTINCT person_id) AS n FROM campaign_action_people WHERE campaign_id=?'
+  ).get(campaignId) as { n: number };
+  const logged = crm.db.prepare(
+    'SELECT COUNT(*) AS n FROM action_log WHERE campaign_id=?'
+  ).get(campaignId) as { n: number };
+  return { ...campaign, people: [], actionStats, stats: { ...stats, contacts: people.n },
+    hasHistory: (stats.queued + stats.processed + stats.successful + stats.failed + logged.n)>0 };
+});
+
+/** Listas reais por ação: pesquisa e paginação feitas pelo SQLite. */
+ipcMain.handle('campaigns:queue', (_e, id: string, campaignId: string,
+  options?: { actionId?: string; filter?: string; search?: string; page?: number; pageSize?: number }) => {
+  const crm = crms.get(account(id));
+  const campaign = crm.loadCampaign(campaignId, id);
+  if (!campaign) throw new Error('Campanha não encontrada nesta conta.');
+  if (options?.actionId && !campaign.actions.some((a) => a.id === options.actionId))
+    throw new Error('Ação não pertence à campanha selecionada.');
+  return crm.campaignActionRows(campaignId, options);
 });
 
 /**
  * Resumo leve por campanha: uma única agregação SQL, sem enviar milhares
  * de pessoas para o renderizador apenas para montar o menu lateral.
  */
-ipcMain.handle('campaigns:summaries', (_e, id: string) => {
+ipcMain.handle('campaigns:summaries', (_e, id: string, includeArchived = false) => {
   const a = account(id);
   const crm = crms.get(a);
   const nowMs = Date.now();
@@ -407,7 +477,7 @@ ipcMain.handle('campaigns:summaries', (_e, id: string) => {
   }>;
   const byId = new Map(rows.map((r) => [r.campaign_id, r]));
   const runnerEnabled = instances.get(id)?.schedulerRunning() ?? false;
-  return crm.listCampaigns(id).map((c) => {
+  return crm.listCampaigns(id, !!includeArchived).map((c) => {
     const r = byId.get(c.id);
     const queued = r?.queued ?? 0;
     const ready = r?.ready ?? 0;
@@ -415,10 +485,10 @@ ipcMain.handle('campaigns:summaries', (_e, id: string) => {
     const processing = r?.processing ?? 0;
     const successful = r?.successful ?? 0;
     const failed = r?.failed ?? 0;
-    const status = campaignDisplayStatus({
+    const status = c.archived ? 'archived' : campaignDisplayStatus({
       active: c.active, actionCount: c.actions.length, paused: a.paused, runnerEnabled,
     }, { queued, ready, waiting, processing, successful, failed });
-    return { id: c.id, name: c.name, active: c.active, status,
+    return { id: c.id, name: c.name, active: c.active, archived: !!c.archived, status,
       actions: c.actions.length, contacts: r?.contacts ?? 0,
       queued, ready, waiting, processing, successful, failed };
   });
@@ -466,18 +536,21 @@ ipcMain.handle(
   },
 );
 
-/** Salva alterações das etapas (editor). O tipo e a ordem das etapas existentes são preservados. */
+/** Editor seguro: não reorganiza histórico nem altera fluxo com executor ligado. */
 ipcMain.handle('campaigns:update', (_e, id: string, updated: Campaign) => {
   const crm = crms.get(account(id));
   const current = crm.loadCampaign(updated.id, id);
   if (!current) throw new Error('Campanha não encontrada');
-  const known = new Map(current.actions.map((a) => [a.id, a]));
-  for (const a of updated.actions) {
-    const prev = known.get(a.id);
-    if (prev && prev.type !== a.type) throw new Error('Não é possível trocar o tipo de uma etapa existente');
-    if (a.waitHours != null && (a.waitHours < 0 || a.waitHours > 24 * 90)) throw new Error('Espera deve ficar entre 0 e 90 dias');
-  }
-  crm.saveCampaign({ ...current, name: updated.name, actions: updated.actions, exclusions: updated.exclusions ?? current.exclusions });
+  const history = crm.db.prepare(
+    'SELECT (SELECT COUNT(*) FROM campaign_action_people WHERE campaign_id=?) AS people, ' +
+    '(SELECT COUNT(*) FROM action_log WHERE campaign_id=?) AS logs'
+  ).get(updated.id, updated.id) as { people: number; logs: number };
+  const inst = instances.get(id);
+  const runnerEnabled = Boolean(inst?.schedulerRunning()) || Boolean(inst && inst.live.state === 'working');
+  validateCampaignWorkflow(current, updated, history.people + history.logs, runnerEnabled);
+  crm.saveCampaign({ ...current, name: updated.name.trim(), actions: updated.actions, exclusions: updated.exclusions ?? current.exclusions });
+  trace.record('campaign', 'workflow_updated', { count: updated.actions.length }, { accountId: id, campaignId: current.id });
+  return { ok: true };
 });
 
 ipcMain.handle('campaigns:addCollection', (_e, id: string, campaignId: string, collectionId: string) => {
@@ -489,6 +562,39 @@ ipcMain.handle('campaigns:addCollection', (_e, id: string, campaignId: string, c
 
 ipcMain.handle('campaigns:setActive', (_e, id: string, campaignId: string, active: boolean) => {
   crms.get(account(id)).setCampaignActive(campaignId, active);
+});
+
+/** Arquivamento reversível com bloqueio de execução no momento da mudança. */
+ipcMain.handle('campaigns:archive', (_e, id: string, campaignId: string, archived: boolean) => {
+  account(id);
+  if (instances.get(id)?.schedulerRunning())
+    throw new Error('Pare o executor da conta para arquivar ou restaurar campanhas.');
+  const crm = crms.get(account(id));
+  crm.setCampaignArchived(campaignId, !!archived);
+  trace.record('campaign', archived ? 'archived' : 'restored', {}, { accountId:id, campaignId });
+  return {ok:true};
+});
+
+/** Duplicação apenas do fluxo: novas IDs, sem contatos ou ações históricas. */
+ipcMain.handle('campaigns:duplicate', (_e, id: string, campaignId: string) => {
+  const crm = crms.get(account(id));
+  const original = crm.loadCampaign(campaignId, id);
+  if (!original) throw new Error('Campanha não encontrada nesta conta.');
+  const cloned: Campaign = {
+    ...original,
+    id: randomUUID(), name: (original.name + ' — Cópia').slice(0, 150),
+    active:false, archived:false,
+    actions: original.actions.map((action) => ({
+      ...action, id:randomUUID(),
+      settings: structuredClone(action.settings),
+      continueOnFail: [...(action.continueOnFail || [])],
+      exclusions: [...(action.exclusions || [])],
+    })),
+  };
+  crm.saveCampaign(cloned);
+  trace.record('campaign', 'duplicated', { count: cloned.actions.length },
+    { accountId:id, campaignId: cloned.id });
+  return { campaignId: cloned.id };
 });
 
 // Empresas-alvo e comitê ------------------------------------------------------
@@ -629,6 +735,21 @@ ipcMain.handle('accounts:stats', (_e, id: string) => {
 
 // Inbox ------------------------------------------------------------------------
 ipcMain.handle('inbox:list', (_e, id: string, onlyUnhandled?: boolean) => crms.get(account(id)).inbox(!!onlyUnhandled));
+/** Conversas de pessoas da campanha (atribuição do envio ainda não persistida). */
+ipcMain.handle('campaigns:inbox', (_e, id: string, campaignId: string) => {
+  const crm = crms.get(account(id));
+  const camp = crm.loadCampaign(campaignId, id);
+  if (!camp) throw new Error('Campanha não encontrada nesta conta.');
+  const people = crm.db.prepare(
+    'SELECT DISTINCT person_id FROM campaign_action_people WHERE campaign_id=?'
+  ).all(campaignId) as Array<{ person_id: string }>;
+  const members = new Set(people.map((r) => r.person_id));
+  return {
+    replies: crm.inbox(false).filter((entry) => members.has(entry.personId)),
+    drafts: crm.listDrafts('pending').filter((d) => d.campaignId === campaignId),
+    attribution: 'Vínculo por participante, sem prova de que cada mensagem foi enviada por esta campanha.',
+  };
+});
 ipcMain.handle('inbox:thread', (_e, id: string, personId: string) => crms.get(account(id)).thread(personId));
 ipcMain.handle('inbox:markHandled', (_e, id: string, personId: string) => crms.get(account(id)).markHandled(personId));
 ipcMain.handle('instance:checkInbox', (_e, id: string) => instances.require(id).checkInbox(true));

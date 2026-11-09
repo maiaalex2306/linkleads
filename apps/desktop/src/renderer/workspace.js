@@ -3,7 +3,7 @@
  * Não abre o navegador nem inicia a automação ao selecionar uma conta.
  */
 const WORK_STATUS = {
-  draft: 'Rascunho', running: 'Executor ativo', queued: 'Em fila',
+  draft: 'Rascunho', archived: 'Arquivada', running: 'Executor ativo', queued: 'Em fila',
   stopped: 'Parada', completed: 'Concluída', blocked: 'Conta pausada',
   waiting: 'Em espera', attention: 'Revisar falhas'
 };
@@ -49,6 +49,8 @@ async function openCampaignWorkspace(campaignId) {
   state.campaignTab = 'info';
   state.campaignPage = 0;
   state.campaignFilter = 'all';
+  state.campaignActionFilter = '';
+  state.queueSearch = '';
   state.editCampaign = false;
   await renderView();
   await renderAccounts();
@@ -138,9 +140,15 @@ function rowStatus(p) {
   return p.status;
 }
 function campaignCount(c, status) {
+  if (c.stats) return c.stats[status] || 0;
   return c.people.filter((p) => rowStatus(p) === status).length;
 }
 function campaignActionStats(c, action) {
+  if (c.actionStats) {
+    const r = c.actionStats[action.id] || {};
+    return { queued:r.queued || 0, processed:r.processed || 0,
+      success:r.successful || 0, fail:r.failed || 0 };
+  }
   const rows = c.people.filter((p) => p.actionId === action.id || p.actionName === action.name);
   return { queued: rows.filter((p) => p.status === 'queued').length,
     processed: rows.filter((p) => p.status === 'processed').length,
@@ -150,7 +158,7 @@ function campaignActionStats(c, action) {
 function detailInfo(a, c) {
   return h('div', { class: 'stack' },
     h('div', { class: 'workspace-metrics' },
-      metricBox('Contatos cadastrados na campanha', new Set(c.people.map((p) => p.personId || p.id || p.name)).size),
+      metricBox('Contatos cadastrados na campanha', c.stats?.contacts ?? new Set(c.people.map((p) => p.personId || p.id || p.name)).size),
       metricBox('Etapas na fila', campaignCount(c, 'queued')),
       metricBox('Etapas bem-sucedidas', campaignCount(c, 'successful')),
       metricBox('Falhas registradas', campaignCount(c, 'failed'))),
@@ -158,7 +166,7 @@ function detailInfo(a, c) {
       h('strong', {}, 'Informações da campanha'),
       h('div', {}, h('b', {}, 'Nome: '), c.name),
       h('div', {}, h('b', {}, 'Conta: '), a.label),
-      h('div', {}, h('b', {}, 'Situação: '), c.active ? 'Ativa na fila do executor' : 'Parada'),
+      h('div', {}, h('b', {}, 'Situação: '), c.archived ? 'Arquivada' : c.active ? 'Ativa na fila do executor' : 'Parada'),
       h('div', {}, h('b', {}, 'Etapas: '), c.actions.length),
       h('div', { class: 'muted' }, 'Ativar a campanha não inicia automaticamente o navegador. A execução depende do comando separado "Iniciar campanhas".')),
     h('div', { class: 'card stack' },
@@ -169,11 +177,9 @@ function detailInfo(a, c) {
         h('button', { onclick: () => { state.campaignTab = 'statistics'; renderView(); } }, 'Ver estatísticas'))));
 }
 
-function detailWorkflow(a, c) {
+async function detailWorkflow(a, c) {
   if (state.editCampaign) {
-    return h('div', { class: 'card stack' },
-      h('div', { class: 'row' }, h('strong', {}, 'Editar etapas da campanha')),
-      campaignEditor(a, c, () => { state.editCampaign = false; renderView(); }));
+    return advancedWorkflowEditor(a, c, () => { state.editCampaign = false; renderView(); });
   }
   return h('div', { class: 'stack' },
     h('div', { class: 'row' },
@@ -197,36 +203,97 @@ function detailWorkflow(a, c) {
       })));
 }
 
-function detailLists(c) {
+async function detailLists(a, c) {
+  const filters = [
+    ['all','Todas'], ['ready','Fila pronta'], ['waiting','Em espera'],
+    ['processed','Em processamento'], ['successful','Sucesso'], ['failed','Falhas'],
+    ['ignored','Ignoradas'], ['excluded','Excluídas'], ['replied','Responderam'],
+  ];
   const filter = state.campaignFilter || 'all';
-  const rows = c.people.filter((p) => filter === 'all' || rowStatus(p) === filter);
-  const page = Math.min(Math.max(0, state.campaignPage || 0), Math.max(0, Math.ceil(rows.length / 50) - 1));
-  return h('div', { class: 'stack' },
-    h('div', { class: 'workspace-filter' },
-      ...WORK_FILTERS.map(([id, label]) => h('button', {
-        class: filter === id ? 'selected' : '',
-        onclick: () => { state.campaignFilter = id; state.campaignPage = 0; renderView(); },
-      }, label + ' (' + (id === 'all' ? c.people.length : campaignCount(c, id)) + ')'))),
-    h('div', { class: 'card stack' },
-      h('div', { class: 'row' },
-        h('strong', { style: 'flex:1' }, 'Perfis da campanha'),
-        h('span', { class: 'muted' }, 'Mostrando ' + Math.min(rows.length, page * 50 + 1) + '–' + Math.min(rows.length, (page + 1) * 50) + ' de ' + rows.length + ' registros de etapas')),
-      h('div', { class: 'workspace-table-scroll' },
-        h('table', {},
-          h('thead', {}, h('tr', {},
-            ...['Pessoa', 'Empresa', 'Ação', 'Situação', 'Motivo'].map((name) => h('th', {}, name)))),
-          h('tbody', {},
-            ...rows.slice(page * 50, (page + 1) * 50).map((p) => h('tr', {},
-              h('td', {}, p.name || '—'), h('td', {}, p.company || '—'),
-              h('td', {}, p.actionName || '—'),
-              h('td', {}, STATUS[p.status] || p.status),
-              h('td', {},
-                REASONS[p.reason] || p.reason || '—',
-                p.message && p.status === 'failed' && h('div', { class: 'muted workspace-error-detail' }, p.message))))))),
-      h('div', { class: 'row' },
-        h('button', { disabled: page <= 0, onclick: () => { state.campaignPage = page - 1; renderView(); } }, '← Anterior'),
-        h('span', { class: 'muted' }, 'Página ' + (page + 1) + ' de ' + Math.max(1, Math.ceil(rows.length / 50))),
-        h('button', { disabled: (page + 1) * 50 >= rows.length, onclick: () => { state.campaignPage = page + 1; renderView(); } }, 'Próxima →'))));
+  const page = Math.max(0, state.campaignPage || 0);
+  const actionId = state.campaignActionFilter || '';
+  const search = state.queueSearch || '';
+  const data = await api.campaignQueue(a.id, c.id, { filter, page, pageSize:50,
+    actionId: actionId || undefined, search });
+  const maxPages = Math.max(1, Math.ceil(data.total / data.pageSize));
+  const actionChoice = h('select', {
+    value: actionId, 'aria-label':'Filtrar etapa',
+    onchange: (ev) => { state.campaignActionFilter=ev.target.value; state.campaignPage=0; renderView(); },
+  }, h('option', { value:'' }, 'Todas as etapas'),
+    ...c.actions.map((step) => h('option', { value:step.id }, step.name)));
+  const searchBox = h('input', { type:'search', 'aria-label':'Buscar pessoa na lista',
+    placeholder:'Nome, empresa ou perfil', value:search,
+    onchange: (ev) => { state.queueSearch=ev.target.value; state.campaignPage=0; renderView(); } });
+  return h('div', { class:'stack' },
+    h('div', { class:'workspace-list-tools card' },
+      h('label', {}, 'Etapa', actionChoice),
+      h('label', {}, 'Buscar', searchBox),
+      h('div', { class:'muted' }, 'As listas mostram registros por etapa, sem reenviar ações ao LinkedIn.')),
+    h('div', { class:'workspace-filter' },
+      ...filters.map(([id,label])=>h('button', {
+        class:filter===id?'selected':'',
+        onclick:()=>{state.campaignFilter=id;state.campaignPage=0;renderView();},
+      },label))),
+    h('div', { class:'card stack' },
+      h('div', { class:'row' },
+        h('strong', { style:'flex:1' }, 'Perfis da campanha'),
+        h('span', { class:'muted' },data.total+' registro(s) · '+data.pageSize+' por página')),
+      h('div', { class:'workspace-table-scroll' },h('table', {},
+        h('thead',{},h('tr',{},...['Pessoa','Empresa','Ação','Situação','Motivo','Quando'].map((v)=>h('th',{},v)))),
+        h('tbody',{},...data.rows.map((p)=>h('tr',{},
+          h('td',{},p.name),h('td',{},p.company),h('td',{},p.actionName),
+          h('td',{},STATUS[p.status] || p.status),
+          h('td',{},REASONS[p.reason]||p.reason||'—',
+            p.message && h('div',{class:'muted workspace-error-detail'},p.message)),
+          h('td',{},p.notBefore ? new Date(p.notBefore).toLocaleString('pt-BR') : (p.updatedAt || '—'))))))),
+      !data.rows.length && h('p', { class:'muted' }, 'Nenhum registro atende aos filtros.'),
+      h('div', { class:'row' },
+        h('button', { disabled:page<=0,
+          onclick:()=>{state.campaignPage=page-1;renderView();} }, '← Anterior'),
+        h('span', { class:'muted' },'Página '+(page+1)+' de '+maxPages),
+        h('button', { disabled:page+1>=maxPages,
+          onclick:()=>{state.campaignPage=page+1;renderView();} }, 'Próxima →'))));
+}
+
+async function detailInbox(a, c) {
+  const data = await api.campaignInbox(a.id, c.id);
+  return h('div', { class:'stack' },
+    h('div', { class:'workspace-metrics' },
+      metricBox('Contatos com resposta', data.replies.length),
+      metricBox('Rascunhos pendentes', data.drafts.length)),
+    h('div', { class:'wb-notice' }, data.attribution),
+    h('div', { class:'card stack' },
+      h('div', { class:'row' },
+        h('strong', { style:'flex:1' }, 'Respostas dos contatos desta campanha'),
+        h('button', { onclick:()=>{ state.tab='inbox';state.campaignId=null;renderView(); } },
+          'Abrir Inbox da conta')),
+      !data.replies.length && h('p',{class:'muted'},'Nenhuma resposta vinculada aos contatos desta campanha.'),
+      ...data.replies.map((it)=>{
+        const thread=h('div',{class:'thread'});
+        return h('div',{class:'workspace-inbox-row'},
+          h('div',{class:'row'},
+            h('strong',{style:'flex:1'},it.name),
+            h('span',{class:'muted'},it.unhandled+' não tratada(s)')),
+          h('p',{class:'muted'},it.lastInbound?.body?.slice(0,400) || ''),
+          h('button',{onclick:async()=>{
+            if(thread.childElementCount) {thread.replaceChildren();return;}
+            const msgs=await api.inboxThread(a.id,it.personId);
+            thread.replaceChildren(...msgs.map((x)=>h('div',{class:'bubble '+x.direction},x.body)));
+          }},'Ver conversa'),
+          thread);
+      })),
+    h('div',{class:'card stack'},
+      h('div',{class:'row'},
+        h('strong',{style:'flex:1'},'Textos aguardando aprovação'),
+        h('button',{onclick:()=>{state.tab='approvals';state.campaignId=null;renderView();}},
+          'Revisar aprovações')),
+      !data.drafts.length && h('p',{class:'muted'},'Nenhum rascunho pendente nesta campanha.'),
+      ...data.drafts.map((draft)=>h('div',{class:'workspace-inbox-row'},
+        h('strong',{},draft.personName || 'Contato'),
+        h('span',{class:'muted'},draft.kind),
+        h('div',{class:'muted'},'Texto preparado: revisão necessária na aba Aprovações.')))),
+    h('p',{class:'muted'},
+      'Mensagens agendadas, sem agendamento, falhas de envio e enviadas com atribuição exclusiva por campanha exigem um ledger de mensagens próprio; ainda não estão disponíveis nesta aba.'));
 }
 
 function detailDashboard(c) {
@@ -270,7 +337,7 @@ async function campaignDetailView(a) {
   const requested = state.campaignId;
   let c;
   try {
-    c = await api.campaignDetail(a.id, requested);
+    c = await api.campaignWorkspaceDetail(a.id, requested);
   } catch (error) {
     return h('div', { class: 'card stack' },
       h('strong', {}, 'Não foi possível abrir a campanha'),
@@ -279,16 +346,16 @@ async function campaignDetailView(a) {
   }
   if (state.campaignId !== requested || state.accountId !== a.id) return h('div');
   const sections = [['info','Informações'], ['workflow','Fluxo de trabalho'],
-    ['lists','Listas'], ['dashboard','Painel'], ['statistics','Estatísticas']];
+    ['lists','Listas'], ['inbox','Inbox da campanha'], ['dashboard','Painel'], ['statistics','Estatísticas']];
   const selected = sections.some(([id]) => id === state.campaignTab) ? state.campaignTab : 'info';
   return h('div', { class: 'stack workspace-campaign' },
     h('div', { class: 'row' },
       h('button', { class: 'link', onclick: () => { state.campaignId = null; state.editCampaign = false; renderView(); } }, '← Todas as campanhas'),
-      h('span', { class: 'workspace-state ' + (c.active ? 'on' : '') }, c.active ? 'Ativa' : 'Parada')),
+      h('span', { class: 'workspace-state ' + (c.active ? 'on' : '') }, c.archived ? 'Arquivada' : c.active ? 'Ativa' : 'Parada')),
     h('div', { class: 'workspace-title' },
       h('div', {}, h('div', { class: 'kind' }, 'CAMPANHA · ' + a.label), h('h2', {}, c.name)),
       h('div', { class: 'row' },
-        h('button', { onclick: async () => {
+        !c.archived && h('button', { onclick: async () => {
           await safe(() => api.setCampaignActive(a.id, c.id, !c.active));
           await refresh();
         } }, c.active ? 'Pausar campanha' : 'Ativar campanha'),
@@ -299,8 +366,9 @@ async function campaignDetailView(a) {
         onclick: () => { state.campaignTab = id; state.editCampaign = false; renderView(); },
       }, label))),
     selected === 'info' ? detailInfo(a, c)
-      : selected === 'workflow' ? detailWorkflow(a, c)
-      : selected === 'lists' ? detailLists(c)
+      : selected === 'workflow' ? await detailWorkflow(a, c)
+      : selected === 'lists' ? await detailLists(a, c)
+      : selected === 'inbox' ? await detailInbox(a, c)
       : selected === 'dashboard' ? detailDashboard(c)
       : detailStatistics(c));
 }

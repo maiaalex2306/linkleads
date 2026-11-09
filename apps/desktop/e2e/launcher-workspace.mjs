@@ -111,6 +111,44 @@ try {
   check(betaCampaigns.length === 0, 'campanhas isoladas por conta');
   check(await ui.locator('#work-nav').getByText('Monitoramento industrial').count() === 0, 'menu não mostra campanhas de outra conta');
 
+  const draft = await call('createBlankCampaign', b.id, 'Fluxo editável');
+  check(!!draft.campaignId, 'cria campanha vazia, sem executar');
+  await ui.reload();
+  await ui.locator('.launcher-account', { hasText: 'Conta Beta' })
+    .getByRole('button', { name: 'Abrir campanhas' }).click();
+  await ui.locator('#work-nav').getByRole('button', { name: /Fluxo editável/ }).click();
+  await ui.getByRole('button', { name:'Fluxo de trabalho', exact:true }).click();
+  await ui.getByRole('button', { name:'Editar etapas' }).click();
+  await ui.locator('.wb-root').waitFor();
+  check(await ui.locator('.wb-action.is-unavailable').count() > 0,
+    'catálogo mostra ações sem executor como indisponíveis');
+  await ui.locator('.wb-action', { hasText:'Visitar e extrair perfil' })
+    .getByRole('button', { name:'+ Adicionar' }).click();
+  check(await ui.locator('.wb-canvas .wb-step').count() === 1,
+    'editor visual adiciona uma etapa disponível');
+  await ui.getByRole('button', { name:'Salvar fluxo' }).click();
+  await ui.locator('.wb-root').waitFor({ state:'detached' });
+  const persisted = await call('campaignDetail', b.id, draft.campaignId);
+  check(persisted.actions.length === 1 && persisted.actions[0].type === 'VisitAndExtract',
+    'fluxo persistido sem modificar outra conta');
+  await ui.screenshot({ path: join(shots,'editor-fluxo.png'), fullPage:true });
+
+  const copy = await call('duplicateCampaign', b.id, draft.campaignId);
+  check(!!copy.campaignId && copy.campaignId !== draft.campaignId,
+    'duplicação tem ID próprio');
+  const copyDetail = await call('campaignDetail', b.id, copy.campaignId);
+  check(copyDetail.actions.length === 1 &&
+    copyDetail.actions[0].id !== persisted.actions[0].id && copyDetail.people.length === 0,
+    'cópia preserva fluxo sem repetir pessoas ou IDs de ações');
+  await call('archiveCampaign', b.id, draft.campaignId, true);
+  check(!(await call('listCampaignSummaries', b.id)).some((x) => x.id === draft.campaignId),
+    'arquivar oculta da visão ativa sem exclusão');
+  check((await call('listCampaignSummaries', b.id, true)).some((x) => x.id === draft.campaignId && x.archived),
+    'arquivo mantém dados e permite consultar campanha');
+  await call('archiveCampaign', b.id, draft.campaignId, false);
+  check((await call('campaignDetail', b.id, draft.campaignId)).actions.length === 1,
+    'restauração conserva ação original');
+
   const effects = ['liked', 'comments', 'invites', 'messages', 'withdrawals']
     .map((key) => site.state[key]).filter((x) => Array.isArray(x) ? x.length : Number(x));
   check(effects.length === 0, 'navegação não enviou interações externas');
