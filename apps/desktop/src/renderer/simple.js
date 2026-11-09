@@ -123,7 +123,7 @@ async function listsPage(a, cols, camps) {
               disabled: !cols.some((c) => c.id === (state.selectedCollectionId || state.wiz?.colId)),
               onclick: () => {
                 const id = state.selectedCollectionId || state.wiz?.colId;
-                state.wiz = { step: 2, colId: id };
+                state.wiz = { ...(state.wiz || {}), step: 2, colId: id };
                 state.g = 'campaign'; state.creating = true; renderView();
               } }, 'Continuar para criar campanha →')))
       : h('div', { class: 'card muted' }, 'Nenhuma lista ainda. Comece importando sua planilha.'));
