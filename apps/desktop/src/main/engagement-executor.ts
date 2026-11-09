@@ -41,6 +41,7 @@ export function likeAndComment(d: ExecutorDeps): ActionExecutor {
           settings: {
             maxPostAgeDays: settings.maxPostAgeDays ?? 30,
             includeReshares: settings.includeReshares === true,
+            allowAlreadyLiked: true,
           } },
       };
       const liked = await like.execute(likeCtx);
@@ -49,9 +50,11 @@ export function likeAndComment(d: ExecutorDeps): ActionExecutor {
       const wasAlreadyLiked = liked.data?.alreadyLiked === true;
       const usageKeys: BudgetKey[] = wasAlreadyLiked ? [] : ['likes'];
       if (!wasAlreadyLiked && !(await like.verify?.(likeCtx, liked))) {
+        // O clique pode ter ocorrido mesmo que a confirmação tenha falhado:
+        // reservar quota conservadoramente, mas não declarar curtida efetivada.
         return { ok: false, reason: 'NO_REAL_EFFECT',
           message: 'Curtida não confirmada: comentário bloqueado, sem repetição automática',
-          data: { usageKeys } };
+          data: { usageKeys, uncertainLike: true } };
       }
       if (!shouldComment) return { ok: true, data: { ...liked.data, usageKeys } };
 
