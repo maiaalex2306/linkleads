@@ -57,6 +57,8 @@ contextBridge.exposeInMainWorld('linkleads', {
   importCsv: invoke('collections:importCsv'),
   listCampaigns: invoke('campaigns:list'),
   campaignDetail: invoke('campaigns:detail'),
+  campaignWorkspaceDetail: invoke('campaigns:workspaceDetail'),
+  campaignQueue: invoke('campaigns:queue'),
   listCampaignSummaries: invoke('campaigns:summaries'),
   actionCatalog: invoke('campaigns:catalog'),
   createBlankCampaign: invoke('campaigns:createBlank'),

@@ -412,6 +412,48 @@ ipcMain.handle('campaigns:detail', (_e, id: string, campaignId: string) => {
   return { ...campaign, people: crm.campaignPeople(campaign), hasHistory: saved.n + logged.n > 0 };
 });
 
+/** Detalhe leve da campanha: consulta agregações, nunca a carteira inteira. */
+ipcMain.handle('campaigns:workspaceDetail', (_e, id: string, campaignId: string) => {
+  const crm = crms.get(account(id));
+  const campaign = crm.loadCampaign(campaignId, id);
+  if (!campaign) throw new Error('Campanha não encontrada nesta conta.');
+  const grouped = crm.db.prepare(
+    'SELECT action_id, status, COALESCE(reason, \'\') AS reason, COUNT(*) AS n ' +
+    'FROM campaign_action_people WHERE campaign_id=? GROUP BY action_id,status,reason'
+  ).all(campaignId) as Array<{ action_id:string; status:string; reason:string; n:number }>;
+  const actionStats: Record<string, Record<string, number>> = {};
+  const stats: Record<string, number> = {
+    queued: 0, processed: 0, successful: 0, failed: 0, replied: 0, ignored: 0,
+  };
+  for (const row of grouped) {
+    const a = actionStats[row.action_id] ??= { queued:0,processed:0,successful:0,failed:0 };
+    a[row.status] = (a[row.status] ?? 0) + Number(row.n);
+    stats[row.status] = (stats[row.status] ?? 0) + Number(row.n);
+    if (row.reason === 'REPLIED') stats.replied += Number(row.n);
+    if (['NO_POST','AI_SKIPPED','ICP_REJECTED'].includes(row.reason))
+      stats.ignored += Number(row.n);
+  }
+  const people = crm.db.prepare(
+    'SELECT COUNT(DISTINCT person_id) AS n FROM campaign_action_people WHERE campaign_id=?'
+  ).get(campaignId) as { n: number };
+  const logged = crm.db.prepare(
+    'SELECT COUNT(*) AS n FROM action_log WHERE campaign_id=?'
+  ).get(campaignId) as { n: number };
+  return { ...campaign, people: [], actionStats, stats: { ...stats, contacts: people.n },
+    hasHistory: (stats.queued + stats.processed + stats.successful + stats.failed + logged.n)>0 };
+});
+
+/** Listas reais por ação: pesquisa e paginação feitas pelo SQLite. */
+ipcMain.handle('campaigns:queue', (_e, id: string, campaignId: string,
+  options?: { actionId?: string; filter?: string; search?: string; page?: number; pageSize?: number }) => {
+  const crm = crms.get(account(id));
+  const campaign = crm.loadCampaign(campaignId, id);
+  if (!campaign) throw new Error('Campanha não encontrada nesta conta.');
+  if (options?.actionId && !campaign.actions.some((a) => a.id === options.actionId))
+    throw new Error('Ação não pertence à campanha selecionada.');
+  return crm.campaignActionRows(campaignId, options);
+});
+
 /**
  * Resumo leve por campanha: uma única agregação SQL, sem enviar milhares
  * de pessoas para o renderizador apenas para montar o menu lateral.
