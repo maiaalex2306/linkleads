@@ -207,7 +207,7 @@ não prova sozinha clareza/estética; revisão visual humana é necessária.
 
 ## Estado da entrega
 
-PR #14: tetos internos, UI de limites e campos realmente ligados à IA.
+PR #14: tetos internos para todas as 12 categorias atuais de BudgetKey (incluindo janelas de convite de 24 e 168 h), UI de limites e campos realmente ligados à IA.
 PR #13: identidade canônica e confirmação de comentário por novo efeito.
 PR #12: registro unificado e contratos dos 13 executores, já integrado no main
 conforme auditoria anterior, mas CI novo do main precisa ser consultado.
