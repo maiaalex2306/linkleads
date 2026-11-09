@@ -23,6 +23,20 @@ describe('escolha de publicação com confirmação do estado', () => {
     expect(selection.post).toBeUndefined();
     expect(selection.why).toMatch(/já foram curtidas/);
   });
+  it('ação composta pode comentar post já curtido sem repetir a curtida', () => {
+    const posts = [one('urn:li:activity:111111111111', true)];
+    const chosen = choosePost(posts, 'ana-silva',
+      { maxPostAgeDays: 30, allowAlreadyLiked: true }, 'Ana Silva');
+    expect(chosen.post?.urn).toBe('urn:li:activity:111111111111');
+    expect(chosen.post?.liked).toBe(true);
+  });
+  it('prioriza um post ainda não curtido mesmo se permitir um já curtido', () => {
+    const posts = [one('urn:li:activity:111111111111', true),
+      one('urn:li:activity:222222222222', false)];
+    expect(choosePost(posts, 'ana-silva',
+      { maxPostAgeDays: 30, allowAlreadyLiked: true }, 'Ana Silva').post?.urn)
+      .toBe('urn:li:activity:222222222222');
+  });
   it('não confunde homônimos nem usa apenas o sobrenome', () => {
     const posts = [{ ...one('urn:li:activity:444444444444', false),
       actorHref: 'https://www.linkedin.com/in/maria-silva/',
