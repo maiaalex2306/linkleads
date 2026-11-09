@@ -44,6 +44,10 @@ export const PROTECTED_LIMIT_RULES: readonly LimitRule[] = [
   { key: 'messages', max: 100, hours: 24 },
   { key: 'likes', max: 30, hours: 24 },
   { key: 'comments', max: 20, hours: 24 },
+  { key: 'search_pages', max: 100, hours: 24 },
+  { key: 'inmails', max: 30, hours: 24 },
+  { key: 'withdrawals', max: 50, hours: 24 },
+  { key: 'extractions', max: 100, hours: 24 },
 ];
 
 export const LIMIT_LABELS: Record<BudgetKey, string> = {
