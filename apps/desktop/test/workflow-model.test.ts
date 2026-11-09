@@ -37,7 +37,7 @@ describe('Catálogo e validador visual', () => {
     expect(() => validateCampaignWorkflow(base,next,4,false)).not.toThrow();
   });
   it('não permite reorder/remove de ações com histórico', () => {
-    const next = copy();next.actions.push({ id: 'b', type: 'LikePosts',name:'Curtir', coolDown:0,maxResults:10,settings:{} });
+    const next = copy();next.actions.push({ id: 'b', type: 'LikeAndComment', name:'Curtir e comentar', coolDown:0,maxResults:10,settings:{likesPerProfile:1,likeArticlesCount:0} });
     expect(() => validateCampaignWorkflow(base,next,4,false)).toThrow(/histórico/);
     expect(() => validateCampaignWorkflow(base,next,0,false)).not.toThrow();
   });
