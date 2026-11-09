@@ -24,8 +24,8 @@ export function likeAndComment(d: ExecutorDeps): ActionExecutor {
         return { ok: false, reason: 'ERROR', message: 'Esta versão executa somente 1 curtida por perfil' };
       if (settings.likeArticlesCount !== undefined && settings.likeArticlesCount !== 0)
         return { ok: false, reason: 'ERROR', message: 'Curtidas em artigos ainda não homologadas' };
-      if (settings.commentMethod === 'template')
-        return { ok: false, reason: 'ERROR', message: 'Modelos de comentários ainda não homologados nesta ação' };
+      if (settings.commentMethod !== undefined && settings.commentMethod !== 'ai')
+        return { ok: false, reason: 'ERROR', message: 'Somente comentário com IA está homologado nesta ação' };
 
       const shouldComment = settings.commentEnabled === true;
       if (shouldComment && d.limits && d.limits.left('comments') < 1) {
@@ -68,7 +68,9 @@ export function likeAndComment(d: ExecutorDeps): ActionExecutor {
             length: settings.length ?? 'medium',
             tone: settings.tone ?? 'profissional',
             maxChars: settings.maxChars ?? 400,
+            aboutMe: settings.aboutMe ?? '',
             extraInstructions: settings.extraInstructions ?? '',
+            targetPostUrn: liked.data?.post,
           } },
       };
       const posted = await comment.execute(commentCtx);
