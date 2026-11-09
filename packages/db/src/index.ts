@@ -649,10 +649,14 @@ export class LocalCrm extends SqliteCampaignStore {
   }
 
   /** Último post curtido da pessoa (alvo do comentário). */
-  lastLikedPost(personId: string): (PostSnapshot & { commented: boolean }) | undefined {
-    const r = this.db
-      .prepare('SELECT * FROM posts WHERE person_id = ? AND liked_at IS NOT NULL ORDER BY liked_at DESC LIMIT 1')
-      .get(personId) as Row | undefined;
+  lastLikedPost(personId: string, exactUrn?: string): (PostSnapshot & { commented: boolean }) | undefined {
+    // Ação composta vincula o comentário ao URN exato da curtida.
+    // Sem URN, preservar o comportamento das campanhas históricas.
+    const r = exactUrn
+      ? this.db.prepare('SELECT * FROM posts WHERE person_id = ? AND url = ? AND liked_at IS NOT NULL LIMIT 1')
+        .get(personId, exactUrn) as Row | undefined
+      : this.db.prepare('SELECT * FROM posts WHERE person_id = ? AND liked_at IS NOT NULL ORDER BY liked_at DESC, url DESC LIMIT 1')
+        .get(personId) as Row | undefined;
     if (!r) return undefined;
     return {
       url: r.url as string,
