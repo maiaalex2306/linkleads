@@ -3,7 +3,7 @@
  * Não abre o navegador nem inicia a automação ao selecionar uma conta.
  */
 const WORK_STATUS = {
-  draft: 'Rascunho', archived: 'Arquivada', running: 'Executor ativo', queued: 'Em fila',
+  draft: 'Rascunho', archived: 'Arquivada', running: 'Executando agora', queued: 'Em fila',
   stopped: 'Parada', completed: 'Concluída', blocked: 'Conta pausada',
   waiting: 'Em espera', attention: 'Revisar falhas'
 };

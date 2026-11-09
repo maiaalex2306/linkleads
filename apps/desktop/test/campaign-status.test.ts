@@ -1,14 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { campaignDisplayStatus, type CampaignCounts } from '../src/main/campaign-status.js';
 const none: CampaignCounts = { queued: 0, ready: 0, waiting: 0, processing: 0, successful: 0, failed: 0 };
-const status = (data: Partial<CampaignCounts>, overrides: Partial<{ active: boolean; actionCount: number; paused: boolean; runnerEnabled: boolean }> = {}) =>
+const status = (data: Partial<CampaignCounts>, overrides: Partial<{ active: boolean; actionCount: number; paused: boolean; runnerEnabled: boolean; campaignId: string; workingCampaignId: string }> = {}) =>
   campaignDisplayStatus({ active: true, actionCount: 3, paused: false, runnerEnabled: false, ...overrides }, { ...none, ...data });
 
 describe('estados de campanhas em visualização', () => {
   it('diferencia pronta e em espera', () => {
     expect(status({ queued: 3, waiting: 3 })).toBe('waiting');
     expect(status({ queued: 3, ready: 1, waiting: 2 })).toBe('queued');
-    expect(status({ queued: 2, ready: 1 }, { runnerEnabled: true })).toBe('running');
+    expect(status({ queued: 2, ready: 1 }, { runnerEnabled: true })).toBe('queued');
+    expect(status({ queued: 2, ready: 1 }, { runnerEnabled: true, campaignId: 'c-1', workingCampaignId: 'c-1' })).toBe('running');
+    expect(status({ queued: 2, ready: 1 }, { runnerEnabled: true, campaignId: 'c-1', workingCampaignId: 'c-2' })).toBe('queued');
+    expect(status({ queued: 2, ready: 1 }, { runnerEnabled: false, campaignId: 'c-1', workingCampaignId: 'c-1' })).toBe('queued');
   });
   it('não diz concluída se só tem falhas', () => {
     expect(status({ failed: 2 })).toBe('attention');
