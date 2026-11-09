@@ -67,7 +67,10 @@ try {
 
   const note = 'Olá Ana, vi seu trabalho com telemetria na Águas do Vale e gostaria de me conectar.';
   // A aprovação manual não pode ignorar o orçamento geral (activity).
-  await call('updateAccount', { ...acc, limitRules: [{ key: 'activity', max: 0, hours: 24, variation: 0 }] });
+  // Usar o estado atual da conta: o snapshot criado antes da edição dos horários
+  // contém janelas antigas e poderia sobrescrevê-las ao alterar somente limites.
+  const beforeLimitChange = (await call('listAccounts')).find((a) => a.id === acc.id);
+  await call('updateAccount', { ...beforeLimitChange, limitRules: [{ key: 'activity', max: 0, hours: 24, variation: 0 }] });
   let budgetBlocked = false;
   try { await call('approveDraft', acc.id, drafts[0].id, note); }
   catch (err) { budgetBlocked = /Limite geral de atividades/.test(String(err)); }
@@ -75,7 +78,11 @@ try {
     'aprovação manual respeita limite geral sem enviar convite');
   check((await call('listDrafts', acc.id)).some((d) => d.id === drafts[0].id),
     'bloqueio conserva rascunho pendente');
-  await call('updateAccount', { ...acc, limitRules: undefined });
+  const withLimit = (await call('listAccounts')).find((a) => a.id === acc.id);
+  await call('updateAccount', { ...withLimit, limitRules: undefined });
+  const restored = (await call('listAccounts')).find((a) => a.id === acc.id);
+  check(restored.workingHours.start === '00:00' && restored.workingHours.end === '23:59',
+    'mudança de limites não restaura horário antigo da conta');
   const ap = await call('approveDraft', acc.id, drafts[0].id, note);
   check(ap.ok && site.state.connection === 'pending' && site.state.inviteNote === note, 'convite enviado com a nota aprovada e "Pendente" confirmado');
 
