@@ -146,6 +146,15 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
       CREATE INDEX IF NOT EXISTS idx_campaigns_archived ON campaigns (archived, created_at);
     `,
   },
+  {
+    version: 11,
+    // MAX(seq) aparece em cada enfileiramento. Os índices anteriores começam
+    // por action_id/campaign_id e não aceleram MAX(seq) global.
+    // Migração aditiva: não toca nos registros nem altera a sequência existente.
+    sql: `
+      CREATE INDEX IF NOT EXISTS idx_cap_seq ON campaign_action_people (seq);
+    `,
+  },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.version;

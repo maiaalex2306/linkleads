@@ -44,3 +44,30 @@ describe('SqliteCampaignStore', () => {
     expect(store.lastRunAt('c1', 'a2')).toBe(NOW.getTime());
   });
 });
+
+describe('migração aditiva e desempenho da fila global', () => {
+  it('indexa MAX(seq) e preserva ordem/identidade das pessoas', () => {
+    const db = openAccountDb(':memory:');
+    const version = db.prepare('SELECT version FROM schema_version').get() as { version: number };
+    expect(version.version).toBeGreaterThanOrEqual(11);
+    const indexes = db.prepare("PRAGMA index_list('campaign_action_people')").all() as Array<{ name: string }>;
+    expect(indexes.some((r) => r.name === 'idx_cap_seq')).toBe(true);
+    const plan = db.prepare('EXPLAIN QUERY PLAN SELECT COALESCE(MAX(seq), 0) + 1 FROM campaign_action_people')
+      .all() as Array<{ detail: string }>;
+    expect(plan.map((r) => r.detail).join(' ')).toContain('idx_cap_seq');
+    db.exec(`INSERT INTO campaigns(id, name, active) VALUES ('c1', 'Fila', 1);
+      INSERT INTO campaign_actions(id, campaign_id, position, type, name, cool_down_ms)
+      VALUES('a1','c1',0,'VisitAndExtract','Visitar',0);`);
+    const store = new SqliteCampaignStore(db, 'America/Sao_Paulo');
+    for (let i = 0; i < 25; i++) {
+      const id = 'p' + i;
+      store.upsertPerson({ id, firstName: id });
+      store.enqueue('c1', 'a1', id);
+    }
+    const rows = db.prepare('SELECT seq, person_id FROM campaign_action_people ORDER BY seq')
+      .all() as Array<{ seq: number; person_id: string }>;
+    expect(rows.map((r) => r.seq)).toEqual(Array.from({ length: 25 }, (_, i) => i + 1));
+    expect(rows.map((r) => r.person_id)).toEqual(Array.from({ length: 25 }, (_, i) => 'p' + i));
+    db.close();
+  });
+});
