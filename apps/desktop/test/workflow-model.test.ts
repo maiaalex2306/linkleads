@@ -13,6 +13,23 @@ describe('Catálogo e validador visual', () => {
     expect(list.find((x) => x.type === 'LikePosts')?.available).toBe(true);
     expect(list.find((x) => x.type === 'SendInMail')?.available).toBe(false);
   });
+  it('oferece curtir + comentar em uma única ação com parâmetros efetivos', () => {
+    const def = actionCatalogForEditor().find((x) => x.type === 'LikeAndComment');
+    expect(def?.available).toBe(true);
+    expect(def?.fields.map((f) => f.key)).toContain('commentEnabled');
+    expect(def?.fields.map((f) => f.key)).toContain('likeArticlesCount');
+    const next = copy();
+    next.actions = [{ id: 'unificada', type: 'LikeAndComment',
+      name: 'Curtir e comentar publicações e artigos', coolDown: 0, maxResults: 1,
+      settings: { likesPerProfile: 1, likeArticlesCount: 0,
+        commentEnabled: true, commentMethod: 'ai', mode: 'manual', tone: 'profissional' } }];
+    expect(() => validateCampaignWorkflow(base, next, 0, false)).not.toThrow();
+    (next.actions[0]!.settings as Record<string, unknown>).likeArticlesCount = 2;
+    expect(() => validateCampaignWorkflow(base, next, 0, false)).toThrow(/Artigos/);
+    (next.actions[0]!.settings as Record<string, unknown>).likeArticlesCount = 0;
+    (next.actions[0]!.settings as Record<string, unknown>).likesPerProfile = 3;
+    expect(() => validateCampaignWorkflow(base, next, 0, false)).toThrow(/Fora do intervalo|somente 1/);
+  });
   it('permite editar parâmetros sem perder identidade', () => {
     const next = copy(); next.actions[0]!.waitHours = 48;
     expect(() => validateCampaignWorkflow(base,next,4,false)).not.toThrow();
