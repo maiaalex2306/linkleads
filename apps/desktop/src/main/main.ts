@@ -402,6 +402,49 @@ ipcMain.handle('campaigns:createBlank', (_e, id: string, name: string) => {
   return { campaignId: campaign.id };
 });
 
+/** Nome é metadado: pode ser alterado sem regravar etapas nem histórico. */
+ipcMain.handle('campaigns:rename', (_e, id: string, campaignId: string, name: string) => {
+  const title = String(name ?? '').trim().replace(/\s+/g, ' ');
+  if (!title || title.length > 150) throw new Error('Informe um nome de 1 a 150 caracteres.');
+  const crm = crms.get(account(id));
+  const campaign = crm.loadCampaign(campaignId, id);
+  if (!campaign) throw new Error('Campanha não encontrada nesta conta.');
+  if (campaign.archived) throw new Error('Restaure a campanha antes de renomear.');
+  const collision = crm.db.prepare(
+    'SELECT id FROM campaigns WHERE id <> ? AND archived = 0 AND LOWER(TRIM(name)) = LOWER(?) LIMIT 1'
+  ).get(campaignId, title);
+  if (collision) throw new Error('Já existe uma campanha com este nome. Escolha outro nome.');
+  crm.db.prepare('UPDATE campaigns SET name=? WHERE id=?').run(title, campaignId);
+  trace.record('campaign', 'renamed', { length:title.length }, { accountId:id, campaignId });
+  return { ok: true, name:title };
+});
+
+/** Cria campanha preparada, sem depender de coleção pré-cadastrada.
+ * Os leads serão importados DENTRO da campanha na etapa seguinte.
+ */
+ipcMain.handle('campaigns:createStarter', (_e, id: string, input: { name:string; template:string }) => {
+  const title = String(input?.name ?? '').trim().replace(/\s+/g, ' ');
+  if (!title || title.length > 150) throw new Error('Informe um nome de 1 a 150 caracteres.');
+  const template = String(input?.template ?? 'blank');
+  if (!['blank','engagement','outreach'].includes(template)) throw new Error('Modelo de campanha inválido.');
+  const crm = crms.get(account(id));
+  if (crm.listCampaigns(id).some((c) => !c.archived && c.name.trim().toLocaleLowerCase('pt-BR') === title.toLocaleLowerCase('pt-BR')))
+    throw new Error('Já existe uma campanha com este nome.');
+  const campaignId = randomUUID();
+  const campaign: Campaign = template === 'engagement'
+    ? engagementCampaign({ id:campaignId, accountId:id, name:title, commentMode:'manual', tone:'profissional', maxPostAgeDays:30 })
+    : template === 'outreach'
+    ? outreachSequence({ id:campaignId, accountId:id, name:title,
+        invite:{ ai:true, approval:'manual' },
+        messages:[{ waitDays:0, ai:true, approval:'manual' }],
+      })
+    : { id:campaignId, accountId:id, name:title, active:false, actions:[] };
+  crm.saveCampaign(campaign);
+  trace.record('campaign', 'created_from_template', { template, steps:campaign.actions.length },
+    { accountId:id, campaignId });
+  return { campaignId };
+});
+
 /** Carrega apenas a campanha selecionada e suas pessoas. */
 ipcMain.handle('campaigns:detail', (_e, id: string, campaignId: string) => {
   const crm = crms.get(account(id));

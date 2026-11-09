@@ -30,6 +30,7 @@ async function openAccountWorkspace(id) {
   state.campaignStatusFilter = 'all';
   state.campaignSearch = '';
   state.editCampaign = false;
+  state.renamingCampaignId = null;
   await refresh();
 }
 
@@ -54,6 +55,56 @@ async function openCampaignWorkspace(campaignId) {
   state.editCampaign = false;
   await renderView();
   await renderAccounts();
+}
+
+/** Um estado visível ao usuário; 'ativa' é apenas a habilitação interna no banco. */
+function campaignUserStatus(a, c) {
+  if (c.archived) return { text:'Arquivada', reason:'Campanha preservada, fora da programação.', kind:'neutral' };
+  if (!c.actions) c.actions = []; // compatibilidade com resumo leve
+  if (a.paused) return { text:'Conta pausada', reason:'A conta está protegida. Nenhuma campanha pode executar.', kind:'warning' };
+  if (c.status === 'running') return { text:'Executando agora', reason:'Uma ação desta campanha está em andamento.', kind:'success' };
+  if (!c.active) return { text:'Parada', reason:'Esta campanha não participa da programação.', kind:'neutral' };
+  if (!a.runnerEnabled) return { text:'Pronta', reason:'Habilitada, aguardando você iniciar o executor.', kind:'neutral' };
+  if (c.status === 'waiting') return { text:'Aguardando', reason:'Há intervalos programados para os próximos contatos.', kind:'neutral' };
+  if (c.status === 'completed') return { text:'Concluída', reason:'Não restam contatos na fila.', kind:'success' };
+  return { text:'Na fila', reason:'Aguardando seu próximo ciclo de execução.', kind:'neutral' };
+}
+
+/** Uma consulta agregada por conta, reutilizada no menu lateral e no panorama. */
+const campaignSummaryCache = new Map();
+function invalidateCampaignSummaries(accountId) {
+  if (accountId) {
+    for (const key of campaignSummaryCache.keys()) if (key.startsWith(accountId + ':')) campaignSummaryCache.delete(key);
+  } else campaignSummaryCache.clear();
+}
+function cachedCampaignSummaries(accountId, archived = false) {
+  const key = accountId + ':' + Boolean(archived);
+  const existing = campaignSummaryCache.get(key);
+  if (existing && Date.now() - existing.at < 15000) return existing.promise;
+  const promise = api.listCampaignSummaries(accountId, archived);
+  campaignSummaryCache.set(key, { at:Date.now(), promise });
+  promise.catch(() => {
+    if (campaignSummaryCache.get(key)?.promise === promise) campaignSummaryCache.delete(key);
+  });
+  return promise;
+}
+
+function campaignNameControl(a, c) {
+  if (state.renamingCampaignId !== c.id) return h('div', { class:'campaign-name-row' },
+    h('h2', {}, c.name),
+    h('button', { class:'link', 'aria-label':'Renomear campanha',
+      onclick: () => { state.renamingCampaignId = c.id; renderView(); } }, 'Renomear'));
+  const field = h('input', { name:'campaignName', value:c.name, required:true,
+    maxLength:150, 'aria-label':'Novo nome da campanha' });
+  const cancel = () => { state.renamingCampaignId = null; renderView(); };
+  return h('form', { class:'campaign-name-form', onsubmit:async (event) => {
+    event.preventDefault();
+    const name = field.value.trim();
+    const changed = await safe(() => api.renameCampaign(a.id,c.id,name));
+    if (changed?.ok) { state.renamingCampaignId=null; invalidateCampaignSummaries(a.id);
+      toast('Campanha renomeada.'); await refresh(); }
+  } }, field, h('button', { class:'primary', type:'submit' }, 'Salvar nome'),
+  h('button', { type:'button', onclick:cancel }, 'Cancelar'));
 }
 
 function metricBox(title, value, detail) {
@@ -110,7 +161,7 @@ async function launcherView(accounts) {
 async function renderWorkspaceSidebar(a) {
   const side = document.getElementById('work-nav');
   if (!side || state.screen !== 'workspace') return;
-  const summaries = await api.listCampaignSummaries(a.id);
+  const summaries = await cachedCampaignSummaries(a.id);
   if (!side.isConnected || state.accountId !== a.id) return;
   side.replaceChildren(
     h('div', { class: 'sidebar-divider' }),
