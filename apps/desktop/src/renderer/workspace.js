@@ -59,14 +59,18 @@ async function openCampaignWorkspace(campaignId) {
 
 /** Um estado visível ao usuário; 'ativa' é apenas a habilitação interna no banco. */
 function campaignUserStatus(a, c) {
+  const steps=Array.isArray(c.actions)?c.actions.length:Number(c.actions||0);
+  const contacts=Number(c.contacts??c.stats?.contacts??0);
   if (c.archived) return { text:'Arquivada', reason:'Campanha preservada, fora da programação.', kind:'neutral' };
+  if (!steps) return { text:'Em preparação', reason:'Defina as ações desta campanha.', kind:'neutral' };
+  if (!contacts) return { text:'Aguardando leads', reason:'Importe um CSV para começar.', kind:'neutral' };
   if (a.paused) return { text:'Conta pausada', reason:'A conta está protegida. Nenhuma campanha pode executar.', kind:'warning' };
   if (c.status === 'running') return { text:'Executando agora', reason:'Uma ação desta campanha está em andamento.', kind:'success' };
-  if (!c.active) return { text:'Parada', reason:'Esta campanha não participa da programação.', kind:'neutral' };
-  if (!a.runnerEnabled) return { text:'Pronta', reason:'Habilitada, aguardando você iniciar o executor.', kind:'neutral' };
-  if (c.status === 'waiting') return { text:'Aguardando', reason:'Há intervalos programados para os próximos contatos.', kind:'neutral' };
+  if (!c.active) return { text:'Pronta para iniciar', reason:'A campanha tem etapas e leads; o executor ainda não está ligado.', kind:'neutral' };
+  if (!a.runnerEnabled) return { text:'Na programação', reason:'Aguardando você iniciar o executor da conta.', kind:'neutral' };
+  if (c.status === 'waiting') return { text:'Aguardando prazo', reason:'Há intervalos programados entre ações.', kind:'neutral' };
   if (c.status === 'completed') return { text:'Concluída', reason:'Não restam contatos na fila.', kind:'success' };
-  return { text:'Na fila', reason:'Aguardando seu próximo ciclo de execução.', kind:'neutral' };
+  return { text:'Na fila', reason:'Aguardando o próximo ciclo desta campanha.', kind:'neutral' };
 }
 
 /** Uma consulta agregada por conta, reutilizada no menu lateral e no panorama. */
