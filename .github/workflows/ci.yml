@@ -84,3 +84,18 @@ jobs:
       - run: npm run bundle -w @linkleads/desktop
       - name: Testar aplicativo empacotado
         run: LINKLEADS_E2E_APP=$PWD/apps/desktop/app-dist xvfb-run -a node apps/desktop/e2e/run.mjs
+
+  windows-homologator:
+    name: Windows PowerShell 5.1 — homologação local
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Instalar, tipar, testar e compilar via homologador Windows
+        shell: powershell
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\homologar-linkleads.ps1 -SkipE2E -SkipBundle

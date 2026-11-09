@@ -25,14 +25,22 @@ function Run-Step([string]$name, [string]$exe, [string[]]$arguments) {
   Write-Host ("[QA] " + $name) -ForegroundColor Cyan
   $timer = [Diagnostics.Stopwatch]::StartNew()
   $code = 1
+  $previousPreference = $ErrorActionPreference
   try {
-    # Não coloca credenciais em logs; os E2Es usam somente contas sintéticas.
-    & $exe @arguments *> $path
-    $code = $LASTEXITCODE
-    if ($null -eq $code) { $code = 1 }
+    # PowerShell 5.1 pode tratar stderr de processos nativos como erro terminante
+    # com ErrorActionPreference=Stop. Avisos do npm NÃO são exit code.
+    # Capturar stdout/stderr em arquivo e confiar EXCLUSIVAMENTE no exit code.
+    $null = Get-Command $exe -ErrorAction Stop
+    $global:LASTEXITCODE = $null
+    $ErrorActionPreference = 'Continue'
+    & $exe @arguments 2>&1 | Out-File -FilePath $path -Encoding utf8
+    if ($null -ne $LASTEXITCODE) { $code = [int]$LASTEXITCODE }
+    else { $code = 1 }
   } catch {
+    $code = 1
     ("ERRO: " + $_.Exception.Message) | Out-File -FilePath $path -Append -Encoding utf8
   } finally {
+    $ErrorActionPreference = $previousPreference
     $timer.Stop()
     $status = if ($code -eq 0) { 'PASSOU' } else { 'FALHOU' }
     $results.Add([pscustomobject]@{
@@ -83,16 +91,26 @@ try {
 } finally {
   Pop-Location
   $finished = Get-Date
+  # Evita erro de conversão no PowerShell 5.1 ao usar @($results | ...)
+  # sobre System.Collections.Generic.List[object] dentro do hashtable.
+  $pendingCount = 0
+  foreach ($item in $results) {
+    if ($item.status -eq 'PENDENTE') { $pendingCount++ }
+  }
+  if ($hasFailure) { $finalStatus = 'REPROVADO' }
+  elseif ($pendingCount -gt 0) { $finalStatus = 'PARCIAL' }
+  else { $finalStatus = 'APROVADO_LOCALMENTE' }
+
   $summary = [ordered]@{
     product='LINKLEADS'; started=$started.ToString('o'); finished=$finished.ToString('o');
     machine=$env:COMPUTERNAME; operatingSystem=[Environment]::OSVersion.VersionString;
-    root=$root; status=if($hasFailure){'REPROVADO'}elseif(@($results | Where-Object {$_.status -eq 'PENDENTE'}).Count){'PARCIAL'}else{'APROVADO_LOCALMENTE'};
-    results=@($results)
+    root=$root; status=$finalStatus;
+    results=$results.ToArray()
   }
   $output = Join-Path $report 'resultado.json'
   $summary | ConvertTo-Json -Depth 6 | Set-Content -Path $output -Encoding UTF8
   Write-Host ("Relatório: " + $output) -ForegroundColor Yellow
 }
 if ($hasFailure) { exit 1 }
-if (@($results | Where-Object { $_.status -eq 'PENDENTE' }).Count) { exit 2 }
+if ($pendingCount -gt 0) { exit 2 }
 exit 0
