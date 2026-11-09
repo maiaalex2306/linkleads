@@ -39,7 +39,7 @@ describe('IntegrationCrm', () => {
     const c = engagementCampaign({ id: 'c', accountId: 'a', name: 'E', commentMode: 'manual' });
     crm.saveCampaign(c);
     crm.enqueueCollection(c, 'col');
-    expect(crm.exportRows({ campaign: c })[0]).toMatchObject({ etapa: 'Visitar e extrair perfil', situacao: 'queued' });
+    expect(crm.exportRows({ campaign: c })[0]).toMatchObject({ etapa: 'Curtir e comentar publicações e artigos', situacao: 'queued' });
     expect(crm.exportRows({ companyId: 'acme' })).toHaveLength(1);
   });
 });
