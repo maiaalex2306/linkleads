@@ -129,6 +129,11 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
       ALTER TABLE action_log ADD COLUMN message TEXT;
     `,
   },
+  {
+    version: 9,
+    // preservar continuidade condicional ao fechar/reabrir uma campanha
+    sql: `ALTER TABLE campaign_actions ADD COLUMN continue_on_fail_json TEXT NOT NULL DEFAULT '[]';`,
+  },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.version;
@@ -415,16 +420,18 @@ export class LocalCrm extends SqliteCampaignStore {
         )
         .run(c.id, c.name, c.active ? 1 : 0, JSON.stringify(c.exclusions ?? []));
       const up = this.db.prepare(
-        `INSERT INTO campaign_actions (id, campaign_id, position, type, name, description, cool_down_ms, max_results, settings_json, exclusions_json, wait_hours)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO campaign_actions (id, campaign_id, position, type, name, description, cool_down_ms, max_results, settings_json, exclusions_json, wait_hours, continue_on_fail_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET position=excluded.position, type=excluded.type, name=excluded.name,
            description=excluded.description, cool_down_ms=excluded.cool_down_ms, max_results=excluded.max_results,
-           settings_json=excluded.settings_json, exclusions_json=excluded.exclusions_json, wait_hours=excluded.wait_hours`,
+           settings_json=excluded.settings_json, exclusions_json=excluded.exclusions_json, wait_hours=excluded.wait_hours,
+           continue_on_fail_json=excluded.continue_on_fail_json`,
       );
       // libera posições para reordenação
       this.db.prepare('UPDATE campaign_actions SET position = -1 - position WHERE campaign_id = ?').run(c.id);
       c.actions.forEach((a, i) =>
-        up.run(a.id, c.id, i, a.type, a.name, a.description ?? null, a.coolDown, a.maxResults, JSON.stringify(a.settings), JSON.stringify(a.exclusions ?? []), a.waitHours ?? null),
+        up.run(a.id, c.id, i, a.type, a.name, a.description ?? null, a.coolDown, a.maxResults,
+          JSON.stringify(a.settings), JSON.stringify(a.exclusions ?? []), a.waitHours ?? null, JSON.stringify(a.continueOnFail ?? [])),
       );
       this.db.prepare('DELETE FROM campaign_actions WHERE campaign_id = ? AND position < 0').run(c.id);
       this.db.exec('COMMIT');
@@ -448,6 +455,10 @@ export class LocalCrm extends SqliteCampaignStore {
         settings: JSON.parse(a.settings_json as string),
         exclusions: JSON.parse(a.exclusions_json as string),
         ...(a.wait_hours != null ? { waitHours: Number(a.wait_hours) } : {}),
+        ...(Array.isArray(JSON.parse((a.continue_on_fail_json as string) || '[]')) &&
+          JSON.parse((a.continue_on_fail_json as string) || '[]').length
+          ? { continueOnFail: JSON.parse((a.continue_on_fail_json as string) || '[]') as FailureReason[] }
+          : {}),
       }),
     );
     return { id, accountId, name: c.name as string, active: Boolean(c.active), exclusions: JSON.parse(c.exclusions_json as string), actions };

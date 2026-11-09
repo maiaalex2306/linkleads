@@ -21,6 +21,17 @@ describe('LocalCrm', () => {
     expect(crm.campaignPeople(campaign).map((r) => r.status)).toEqual(['queued', 'queued']);
   });
 
+  it('preserva continueOnFail após salvar, reordenar e reabrir sem perder dados', () => {
+    const crm = new LocalCrm(openAccountDb(':memory:'), 'America/Sao_Paulo');
+    const original = engagementCampaign({ id: 'condition', accountId: 'acc', name: 'Com condições', commentMode: 'manual' });
+    original.actions[0]!.continueOnFail = ['NO_POST', 'AI_SKIPPED'];
+    crm.saveCampaign(original);
+    expect(crm.loadCampaign('condition', 'acc')!.actions[0]!.continueOnFail).toEqual(['NO_POST', 'AI_SKIPPED']);
+    const loaded = crm.loadCampaign('condition', 'acc')!;
+    crm.saveCampaign(loaded);
+    expect(crm.loadCampaign('condition', 'acc')!.actions[0]!.continueOnFail).toEqual(['NO_POST', 'AI_SKIPPED']);
+  });
+
   it('posts e rascunhos de comentário', () => {
     const crm = new LocalCrm(openAccountDb(':memory:'), 'America/Sao_Paulo');
     crm.upsertPerson({ id: 'p1', publicId: 'p1', firstName: 'Ana' });
