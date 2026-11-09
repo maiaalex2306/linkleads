@@ -46,6 +46,7 @@ import { Settings } from './settings.js';
 import { trace } from './trace.js';
 import { campaignDisplayStatus } from './campaign-status.js';
 import { SAFE_RETRY_REASONS, isSafeManualRetry } from './retry-policy.js';
+import { actionCatalogForEditor, validateCampaignWorkflow } from './workflow-model.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 trace.configure(join(app.getPath('userData'), 'traces'));
@@ -384,6 +385,23 @@ ipcMain.handle('campaigns:list', (_e, id: string) => {
   const crm = crms.get(account(id));
   return crm.listCampaigns(id).map((c) => ({ ...c, people: crm.campaignPeople(c) }));
 });
+/** Catálogo completo, com indicação dos executores efetivamente disponíveis. */
+ipcMain.handle('campaigns:catalog', () => actionCatalogForEditor());
+
+/** Cria rascunho de fluxo vazio, sem abrir navegador nem enfileirar contatos. */
+ipcMain.handle('campaigns:createBlank', (_e, id: string, name: string) => {
+  account(id);
+  const title = String(name || '').trim();
+  if (!title || title.length > 150) throw new Error('Informe um nome de 1 a 150 caracteres.');
+  const crm = crms.get(account(id));
+  const campaign: Campaign = {
+    id: randomUUID(), accountId: id, name: title, active: false, actions: [],
+  };
+  crm.saveCampaign(campaign);
+  trace.record('campaign', 'draft_created', { count: 0 }, { accountId: id, campaignId: campaign.id });
+  return { campaignId: campaign.id };
+});
+
 /** Carrega apenas a campanha selecionada e suas pessoas. */
 ipcMain.handle('campaigns:detail', (_e, id: string, campaignId: string) => {
   const crm = crms.get(account(id));
@@ -474,18 +492,21 @@ ipcMain.handle(
   },
 );
 
-/** Salva alterações das etapas (editor). O tipo e a ordem das etapas existentes são preservados. */
+/** Editor seguro: não reorganiza histórico nem altera fluxo com executor ligado. */
 ipcMain.handle('campaigns:update', (_e, id: string, updated: Campaign) => {
   const crm = crms.get(account(id));
   const current = crm.loadCampaign(updated.id, id);
   if (!current) throw new Error('Campanha não encontrada');
-  const known = new Map(current.actions.map((a) => [a.id, a]));
-  for (const a of updated.actions) {
-    const prev = known.get(a.id);
-    if (prev && prev.type !== a.type) throw new Error('Não é possível trocar o tipo de uma etapa existente');
-    if (a.waitHours != null && (a.waitHours < 0 || a.waitHours > 24 * 90)) throw new Error('Espera deve ficar entre 0 e 90 dias');
-  }
-  crm.saveCampaign({ ...current, name: updated.name, actions: updated.actions, exclusions: updated.exclusions ?? current.exclusions });
+  const history = crm.db.prepare(
+    'SELECT (SELECT COUNT(*) FROM campaign_action_people WHERE campaign_id=?) AS people, ' +
+    '(SELECT COUNT(*) FROM action_log WHERE campaign_id=?) AS logs'
+  ).get(updated.id, updated.id) as { people: number; logs: number };
+  const inst = instances.get(id);
+  const runnerEnabled = Boolean(inst?.schedulerRunning()) || Boolean(inst && inst.live.state === 'working');
+  validateCampaignWorkflow(current, updated, history.people + history.logs, runnerEnabled);
+  crm.saveCampaign({ ...current, name: updated.name.trim(), actions: updated.actions, exclusions: updated.exclusions ?? current.exclusions });
+  trace.record('campaign', 'workflow_updated', { count: updated.actions.length }, { accountId: id, campaignId: current.id });
+  return { ok: true };
 });
 
 ipcMain.handle('campaigns:addCollection', (_e, id: string, campaignId: string, collectionId: string) => {

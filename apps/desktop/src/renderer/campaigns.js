@@ -382,7 +382,7 @@ async function campaignsView(a) {
     const [cols, settings, integ] = await Promise.all([
       api.listCollections(a.id), api.getSettings(), api.getIntegrations(),
     ]);
-    const kinds = [['sequence', 'Sequência de prospecção'], ['engagement', 'Só engajamento (curtir + comentar)']];
+    const kinds = [['sequence', 'Sequência de prospecção'], ['engagement', 'Só engajamento (curtir + comentar)'], ['blank', 'Fluxo vazio · editor visual']];
     const formBox = h('div');
     const tabs = h('div', { class: 'tabs', style: 'margin:0 0 8px' });
     const renderForm = () => {
@@ -391,7 +391,17 @@ async function campaignsView(a) {
         onclick: () => { newCampaignKind = kind; renderForm(); },
       }, label)));
       formBox.replaceChildren(newCampaignKind === 'sequence'
-        ? sequenceForm(a, cols, settings, integ) : engagementForm(a, cols));
+        ? sequenceForm(a, cols, settings, integ)
+        : newCampaignKind === 'engagement' ? engagementForm(a, cols)
+        : h('form', { class: 'stack', onsubmit: async (ev) => {
+          ev.preventDefault();
+          const name = ev.target.elements.namedItem('campaignName')?.value?.trim();
+          const created = await safe(() => api.createBlankCampaign(a.id, name));
+          if (created?.campaignId) { state.newCampaignOpen = false; await openCampaignWorkspace(created.campaignId); state.campaignTab = 'workflow'; state.editCampaign = true; await renderView(); }
+        } },
+          h('div', { class: 'muted' }, 'Cria um rascunho vazio. Adicione ações pelo catálogo visual. Não executa nada ao criar.'),
+          h('label', {}, 'Nome do fluxo', h('input', { name: 'campaignName', value: 'Nova campanha', required: true, maxLength: 150 })),
+          h('button', { class: 'primary' }, 'Criar fluxo vazio')));
     };
     renderForm();
     out.append(h('div', { class: 'card stack' },

@@ -58,6 +58,8 @@ contextBridge.exposeInMainWorld('linkleads', {
   listCampaigns: invoke('campaigns:list'),
   campaignDetail: invoke('campaigns:detail'),
   listCampaignSummaries: invoke('campaigns:summaries'),
+  actionCatalog: invoke('campaigns:catalog'),
+  createBlankCampaign: invoke('campaigns:createBlank'),
   createEngagementCampaign: invoke('campaigns:createEngagement'),
   setCampaignActive: invoke('campaigns:setActive'),
   createSequenceCampaign: invoke('campaigns:createSequence'),
