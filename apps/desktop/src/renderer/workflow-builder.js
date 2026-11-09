@@ -114,12 +114,12 @@ async function advancedWorkflowEditor(a, campaign, onDone) {
       value: query, 'aria-label': 'Pesquisar ações',
       oninput: (ev) => { query = ev.target.value; renderPalette(); } });
     const entries = catalog.filter((action) =>
-      (category === 'all' || action.category === category) &&
+      !action.legacy && (category === 'all' || action.category === category) &&
       (action.label + ' ' + action.type).toLowerCase().includes(query.toLowerCase()));
     palette.replaceChildren(
       h('strong', {}, 'Catálogo de ações'),
       h('div', { class: 'muted' }, catalog.length + ' tipos documentados · ' +
-        catalog.filter((x) => x.available).length + ' executores disponíveis'),
+        catalog.filter((x) => x.available).length + ' ações disponíveis para novas campanhas'),
       cat, search,
       h('div', { class: 'wb-action-list' },
         ...entries.map((def) => h('div', {
@@ -176,7 +176,7 @@ async function advancedWorkflowEditor(a, campaign, onDone) {
           h('div', { class: 'wb-step-name' },
             h('strong', {}, step.name),
             h('div', { class: 'muted' }, def?.label || step.type)),
-          h('span', { class: 'wb-state' }, def?.available ? 'Configurável' : 'Sem executor')),
+          h('span', { class: 'wb-state' }, def?.legacy ? 'Legado' : def?.available ? 'Configurável' : 'Sem executor')),
         h('div', { class: 'row wb-step-footer' },
           step.waitHours ? h('span', {}, 'Espera: ' + step.waitHours + ' h') : h('span', {}, 'Sem espera adicional'),
           h('span', {}, 'Máx. por ciclo: ' + (step.maxResults === -1 ? 'Sem limite interno' : step.maxResults)),
