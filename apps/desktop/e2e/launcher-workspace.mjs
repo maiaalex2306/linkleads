@@ -144,11 +144,15 @@ try {
     .getByRole('button', { name:'+ Adicionar' }).click();
   check(await ui.locator('.wb-canvas .wb-step').count() === 1,
     'editor visual adiciona uma etapa disponível');
+  await ui.getByLabel('Aguardar antes da etapa (horas)').fill('2');
+  await ui.getByLabel('Máximo de pessoas por ciclo (-1 = sem limite interno)').fill('3');
   await ui.getByRole('button', { name:'Salvar fluxo' }).click();
   await ui.locator('.wb-root').waitFor({ state:'detached' });
   const persisted = await call('campaignDetail', b.id, draft.campaignId);
   check(persisted.actions.length === 1 && persisted.actions[0].type === 'VisitAndExtract',
     'fluxo persistido sem modificar outra conta');
+  check(persisted.actions[0].waitHours === 2 && persisted.actions[0].maxResults === 3,
+    'parâmetros do editor visual salvos e recuperados integralmente', persisted.actions[0]);
   await ui.screenshot({ path: join(shots,'editor-fluxo.png'), fullPage:true });
 
   const copy = await call('duplicateCampaign', b.id, draft.campaignId);
