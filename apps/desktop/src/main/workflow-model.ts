@@ -159,8 +159,6 @@ export function validateCampaignWorkflow(
         throw new Error('Artigos ainda não possuem executor validado.');
       if (s.commentMethod !== undefined && s.commentMethod !== 'ai')
         throw new Error('Comentários por modelo ainda não homologados nesta etapa.');
-      if (s.commentEnabled && s.likesPerProfile === 0)
-        throw new Error('Só é possível comentar após curtir.');
     }
     if (a.type === 'SendInvite' && typeof (settings as Record<string, unknown>).template === 'string' &&
       ((settings as Record<string, unknown>).template as string).length > 300)
