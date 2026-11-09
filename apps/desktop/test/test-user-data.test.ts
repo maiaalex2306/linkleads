@@ -19,9 +19,12 @@ describe('isolamento de dados dos testes Electron em Windows e Linux', () => {
       .toBe(normalize(root));
   });
   it('recusa caminhos Windows sem unidade completa e caminhos relativos', () => {
+    const slash = String.fromCharCode(92);
     expect(isFullyQualifiedTestRoot('/tmp/e2e-data', 'win32')).toBe(false);
-    expect(isFullyQualifiedTestRoot('\\\\tmp\\\\e2e-data', 'win32')).toBe(false);
-    expect(isFullyQualifiedTestRoot('C:\\\\Temp\\\\linkleads-test', 'win32')).toBe(true);
+    expect(isFullyQualifiedTestRoot(slash + 'tmp' + slash + 'e2e-data', 'win32')).toBe(false);
+    expect(isFullyQualifiedTestRoot('C:' + slash + 'Temp' + slash + 'linkleads-test', 'win32')).toBe(true);
+    expect(isFullyQualifiedTestRoot(slash + slash + 'server' + slash + 'share' + slash + 'linkleads-test', 'win32')).toBe(true);
+    expect(isFullyQualifiedTestRoot('C:relative', 'win32')).toBe(false);
     expect(isFullyQualifiedTestRoot('/tmp/e2e-data', 'posix')).toBe(true);
     expect(isFullyQualifiedTestRoot('data/testes', 'posix')).toBe(false);
     if (process.platform === 'win32') {

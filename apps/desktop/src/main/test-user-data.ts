@@ -14,9 +14,14 @@ export function isFullyQualifiedTestRoot(
 ): boolean {
   if (platform === 'posix') return posix.isAbsolute(root);
   if (!win32.isAbsolute(root)) return false;
-  // Aceita unidade completa (C:\\\\...) ou UNC com servidor e compartilhamento.
-  return /^[A-Za-z]:[\\\\/]/.test(root) ||
-    /^\\\\\\\\[^\\\\/]+[\\\\/][^\\\\/]+[\\\\/]/.test(root);
+  // No Windows, caminhos como \tmp são ancorados no volume atual e não
+  // identificam uma pasta completa. Unidades e UNC com share são permitidos.
+  const rootPrefix = win32.parse(root).root;
+  const driveQualified = /^[A-Za-z]:[\\/]/.test(root);
+  const uncShare = rootPrefix.startsWith('\\\\') &&
+    !rootPrefix.startsWith('\\\\?\\') && !rootPrefix.startsWith('\\\\.\\') &&
+    rootPrefix.split('\\').filter(Boolean).length >= 2;
+  return driveQualified || uncShare;
 }
 
 export function resolveTestUserData(
