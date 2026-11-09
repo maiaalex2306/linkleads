@@ -1,0 +1,72 @@
+name: Windows — instalador privado de avaliação
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/windows-preview.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-preview-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  installer:
+    name: Gerar instalador Windows isolado para teste
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run typecheck
+      - run: npm run build
+      - name: Auditar dependências de runtime
+        run: npm audit --omit=dev --audit-level=high
+      - name: Criar bundle de avaliação com dados isolados
+        shell: pwsh
+        env:
+          LINKLEADS_PREVIEW_BUILD: '1'
+        run: |
+          npm run bundle -w @linkleads/desktop
+          if ($LASTEXITCODE -ne 0) { throw 'Falha no bundle de avaliação' }
+          $info = Get-Content apps/desktop/app-dist/build-info.json -Raw | ConvertFrom-Json
+          if ($info.channel -ne 'evaluation') { throw 'Bundle sem identificação de avaliação' }
+          $main = Get-Content apps/desktop/app-dist/main/main.mjs -Raw
+          if ($main -notmatch 'LinkLeads-Preview') { throw 'Isolamento de userData não identificado' }
+          if ($main -notmatch 'atualização automática desativada') { throw 'Atualizações não estão bloqueadas no bundle' }
+          Write-Host "Canal=$($info.channel), commit=$($info.commit), dados isolados verificados"
+      - name: Gerar instalador NSIS de avaliação
+        shell: pwsh
+        working-directory: apps/desktop
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: |
+          npx electron-builder --win nsis --x64 --publish never -c electron-builder.preview.yml
+          if ($LASTEXITCODE -ne 0) { throw 'Falha no instalador Windows' }
+      - name: Comprovar integridade do instalador
+        id: verify
+        shell: pwsh
+        run: |
+          $files = @(Get-ChildItem apps/desktop/preview-release/LinkLeads-Avaliacao-Setup-*.exe -File)
+          if ($files.Count -ne 1) { throw "Esperava um instalador; obtidos $($files.Count)" }
+          if ($files[0].Length -lt 1000000) { throw 'Instalador incompleto' }
+          $hash = Get-FileHash $files[0].FullName -Algorithm SHA256
+          "$($files[0].Name) SHA256: $($hash.Hash)" | Tee-Object -FilePath apps/desktop/preview-release/SHA256.txt
+          Write-Host 'Instalador para avaliação privada; não assinado nem homologado para publicação comercial.'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LinkLeads-Avaliacao-Windows-${{ github.sha }}
+          path: |
+            apps/desktop/preview-release/LinkLeads-Avaliacao-Setup-*.exe
+            apps/desktop/preview-release/SHA256.txt
+          if-no-files-found: error
+          retention-days: 14
