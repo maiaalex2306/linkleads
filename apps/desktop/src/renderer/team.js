@@ -42,7 +42,8 @@ function loginPanel(a, onClose) {
   const pass = password.input;
   return h('div', { class: 'card stack' },
     h('div', { class: 'row' }, h('strong', { style: 'flex:1' }, 'Login do LinkedIn'), h('button', { class: 'link', onclick: onClose }, 'fechar')),
-    h('div', { class: 'muted' }, 'Ao abrir o navegador (ou se a sessão cair), o app entra sozinho no LinkedIn com este e-mail e senha, digitando como uma pessoa. A senha fica criptografada no cofre do sistema e nunca sai deste computador. Se o LinkedIn pedir um código de verificação, conclua na janela da conta.'),
+    h('div', { class: 'muted' }, 'O LINKLEADS usa o e-mail e a senha salvos somente quando o LinkedIn apresenta o formulário de senha. A senha fica criptografada no cofre do Windows.'),
+    h('div', { class: 'auth-guidance' }, 'Se o Windows mostrar “Escolher uma chave de acesso”, clique em Cancelar na janela do Windows e selecione “Entrar com senha” na página do LinkedIn, quando essa opção estiver disponível. Não desativamos nem contornamos os métodos de segurança do LinkedIn. Conclua qualquer verificação exigida.'),
     h('div', { class: 'row credential-row' }, email, password.element),
     h('div', { class: 'row' },
       h('button', { class: 'primary', onclick: async () => {
