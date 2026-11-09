@@ -40,6 +40,10 @@ try {
   await ui.locator('.gsteps').waitFor();
   check(await ui.getByRole('heading', { name: 'O que você quer fazer hoje?' }).isVisible(), 'entrada começa pela escolha de campanha');
   check(await ui.locator('.tabs').count() === 0, 'tela guiada: 4 etapas numeradas, sem a barra de abas');
+  await ui.getByRole('button', { name: 'Curtir e comentar posts' }).click();
+  await ui.getByRole('heading', { name: '1. Escolha a lista de leads' }).waitFor();
+  check(true, 'assistente de objetivo abre campanha de engajamento em etapa única');
+  await ui.getByRole('button', { name: 'Importar lista' }).click();
   await ui.screenshot({ path: join(shots, 'guiada-1-listas.png') });
 
   // ① Listas
