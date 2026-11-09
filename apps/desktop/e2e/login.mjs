@@ -55,6 +55,18 @@ try {
   check(site.state.logins[0]?.email === site.state.loginEmail && site.state.logins[0]?.password === site.state.loginPassword, 'digitou o e-mail e a senha certos');
   check(await waitFor(async () => logs.some((l) => /Login no LinkedIn feito automaticamente/.test(l)), 30_000), 'log em português do login', logs);
 
+  // 2b. Com a conta pausada, um login válido não retira a pausa nem aciona o executor.
+  await call('setPaused', acc.id, true);
+  site.state.loggedOut = true;
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()
+    .find((x) => x.getTitle().startsWith('LinkLeads —')).webContents.reload());
+  const relogged = await waitFor(async () =>
+    !site.state.loggedOut && (await accountUrl()).endsWith('/feed/'), 60_000);
+  const stillPaused = (await call('listAccounts')).find((a) => a.id === acc.id);
+  check(relogged && stillPaused?.paused === true && stillPaused?.runnerEnabled === false,
+    'novo login NÃO retira pausa nem inicia campanhas', stillPaused);
+  await call('setPaused', acc.id, false); // comando explícito do teste, não efeito do login
+
   // 3. senha errada: não insiste, avisa
   await call('setLogin', acc.id, { email: site.state.loginEmail, password: 'senha-errada' });
   site.state.loggedOut = true;
