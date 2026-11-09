@@ -86,11 +86,12 @@ try {
   check(d.company.summary?.includes('Agendar reunião com o decisor'), 'resumo da conta gerado e salvo', d.company.summary);
 
   await ui.reload();
+  await ui.locator('.account-list .acc').first().click();
   await ui.getByRole('button', { name: 'Empresas' }).click();
   await ui.getByText('ACME Saneamento').click();
   await ui.getByText('Papéis críticos alcançados').waitFor();
   await ui.screenshot({ path: join(shots, 'fase3-empresa.png'), fullPage: true });
-  await ui.getByRole('button', { name: /^Sinais/ }).click();
+  await ui.locator('.tabs').getByRole('button', { name: /^Sinais/ }).click();
   await ui.getByText('Só não vistos').waitFor();
   await ui.screenshot({ path: join(shots, 'fase3-sinais.png') });
 } catch (e) {

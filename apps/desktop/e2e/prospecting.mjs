@@ -47,6 +47,7 @@ try {
 
   // tela: o formulário já vem com curtir/comentar, convite, 1 dia, 5 mensagens e o webhook
   await ui.reload();
+  await ui.locator('.account-list .acc').first().click();
   await ui.locator('.account-list').getByText('Conta teste').click();
   await ui.getByRole('button', { name: 'Campanhas', exact: true }).click();
   await ui.getByText('Curtir e comentar o post mais recente').waitFor();
@@ -89,6 +90,7 @@ try {
   check(L1.recent.slice(0, 3).map((r) => r.text.split(':')[0]).reverse().join() === 'Curtir post mais recente,Comentar com IA,Enviar convite', 'histórico: curtir → comentar → convite, nesta ordem', L1.recent);
   check(L1.upcoming.some((u) => /Conferir aceite.*Ana/.test(u.text)) && L1.queues[0].waiting === 1, 'painel mostra a conferência do aceite agendada para amanhã', { up: L1.upcoming, q: L1.queues });
   await ui.reload();
+  await ui.locator('.account-list .acc').first().click();
   await ui.locator('.account-list').getByText('Conta teste').click();
   await ui.locator('#live-box').getByText('O que acabou de fazer').waitFor();
   await ui.waitForTimeout(1500);

@@ -290,6 +290,7 @@ function campaignCard(a, c, cols) {
       h('span', { class: 'badge ' + (c.active ? 'successful' : '') }, c.active ? 'ATIVA' : 'PAUSADA'),
       h('strong', { style: 'flex:1' }, c.name),
       countsEl,
+      h('button', { class: 'primary', onclick: () => openCampaignWorkspace(c.id) }, 'Abrir campanha'),
       addCol,
       exportButton(a, { campaignId: c.id, name: c.name }),
       c.people.some((p) => p.status === 'failed') && h('button', { title: 'Devolve para a fila quem falhou por perfil que não carregou, erro, sem efeito confirmado ou sem post', onclick: async () => {

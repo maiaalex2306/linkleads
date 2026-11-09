@@ -66,6 +66,7 @@ try {
 
   // 4. corrigir pela tela: entra na hora
   await ui.reload();
+  await ui.locator('.account-list .acc').first().click();
   await ui.evaluate(() => window.linkleads.onLog((e) => window.__log(e.line)));
   await ui.locator('.account-list').getByText('Alexandre').click();
   await ui.getByRole('button', { name: /Login do LinkedIn/ }).click();

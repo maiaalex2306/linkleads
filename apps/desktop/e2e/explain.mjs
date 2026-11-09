@@ -52,6 +52,7 @@ try {
   check(people.every((p) => /página não encontrada/.test(p.message || '')), 'cada falha guarda o detalhe (qual página não carregou)', people);
 
   await ui.reload();
+  await ui.locator('.account-list .acc').first().click();
   await ui.locator('.account-list').getByText('Conta teste').click();
   await ui.locator('#live-box').getByText(/Parado: as campanhas ativas não têm mais nada a fazer/).waitFor();
   await ui.locator('#live-box').getByText('Motivos das falhas: perfil não encontrado (2)').waitFor();

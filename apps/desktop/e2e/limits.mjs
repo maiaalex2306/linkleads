@@ -83,6 +83,7 @@ try {
 
   // painel de limites na tela
   await ui.reload();
+  await ui.locator('.account-list .acc').first().click();
   await ui.locator('.account-list').getByText('Conta teste').click();
   await ui.getByRole('button', { name: 'Limites', exact: true }).click();
   await ui.getByText('Limites desta conta').waitFor();

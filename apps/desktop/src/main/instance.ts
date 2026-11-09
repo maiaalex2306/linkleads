@@ -134,8 +134,10 @@ export class AccountInstance {
   readonly executors = new ExecutorRegistry();
   private deps: ExecutorDeps;
   private loop?: NodeJS.Timeout;
+  private initialCycle?: NodeJS.Timeout;
   private busy: Promise<unknown> = Promise.resolve();
   private currentTick?: Promise<TickReport[]>;
+  private activeRun?: AbortController;
   private lastInboxScan = 0;
   private llmCache?: { key: string; llm: LlmClient };
   private loginAttempts: number[] = [];
@@ -480,7 +482,9 @@ export class AccountInstance {
     trace.record('campaign', 'cycle_start', {
       activeCampaigns: this.crm.listCampaigns(this.account.id).filter((c) => c.active).length,
     }, { accountId: this.account.id });
-    this.currentTick = this.runTick(opts);
+    const control = new AbortController();
+    this.activeRun = control;
+    this.currentTick = this.runTick(opts, control.signal);
     this.live.lastCycleAt = new Date().toISOString();
     try {
       const result = await this.currentTick;
@@ -496,6 +500,7 @@ export class AccountInstance {
       throw error;
     } finally {
       this.currentTick = undefined;
+      this.activeRun = undefined;
       // vencidos saem da lista de "próximos"
       const t = now().toISOString();
       this.live.upcoming = this.live.upcoming.filter((u) => u.at > t);
@@ -503,12 +508,12 @@ export class AccountInstance {
     }
   }
 
-  private async runTick(opts: { forceInbox?: boolean; ignoreHours?: boolean }): Promise<TickReport[]> {
+  private async runTick(opts: { forceInbox?: boolean; ignoreHours?: boolean }, signal?: AbortSignal): Promise<TickReport[]> {
     {
       // sessão caiu? entra de novo com o login salvo antes de qualquer ação
       const login = await this.withBrowser(() => this.ensureLoggedIn()).catch(() => 'not_needed');
-      if (this.account.paused) {
-        this.log('Conta pausada: nada a fazer.');
+      if (signal?.aborted || this.account.paused) {
+        this.log('Conta pausada ou ciclo interrompido: nada a fazer.');
         return [];
       }
       if (login !== 'not_needed' && login !== 'ok') {
@@ -516,6 +521,7 @@ export class AccountInstance {
         return [];
       }
       await this.checkInbox(opts.forceInbox);
+      if (signal?.aborted) return [];
 
       const { matured, accepted } = this.crm.inviteAcceptance(14, 60, now());
       if (shouldAutoBrake(matured, accepted)) {
@@ -528,11 +534,12 @@ export class AccountInstance {
       if (!active.length) this.log('Nenhuma campanha ativa: nada a executar. Ative uma campanha em Campanhas.');
       if (opts.ignoreHours) this.log('Rodando uma vez FORA do horário de trabalho, a pedido (limites diários continuam valendo).');
       for (const c of active) {
+        if (signal?.aborted || this.account.paused) break;
         // tetos da equipe (se houver) valem por cima dos limites locais
         let effective = withTeamCaps(this.account, this.settings.teamCaps());
         if (opts.ignoreHours)
           effective = { ...effective, workingHours: { ...effective.workingHours, days: [0, 1, 2, 3, 4, 5, 6], start: '00:00', end: '23:59' } };
-        const r = await this.runner.tick(this.campaignWithAboutMe(c), effective);
+        const r = await this.runner.tick(this.campaignWithAboutMe(c), effective, signal);
         if (effective !== this.account && effective.paused) this.account.paused = true;
         reports.push(r);
         if (r.skipped) {
@@ -564,20 +571,35 @@ export class AccountInstance {
     }
   }
 
+  /** Abrir o navegador nunca implica iniciar o executor. */
+  schedulerRunning(): boolean { return Boolean(this.loop); }
+
   startScheduler(intervalMs = 5 * 60_000): void {
     this.stopScheduler();
+    if (this.account.paused) {
+      trace.record('campaign', 'runner_start_blocked_paused', {}, { accountId: this.account.id }, 'warn');
+      return;
+    }
     const run = () => {
+      if (this.window.isDestroyed() || this.account.paused) return;
       this.live.nextCycleAt = new Date(Date.now() + intervalMs).toISOString();
       void this.tickAll().catch((e) => this.log(`Erro no ciclo: ${String(e)}`));
     };
     this.live.nextCycleAt = new Date(Date.now() + 15_000).toISOString();
-    setTimeout(run, 15_000); // dá tempo de a página inicial carregar
+    this.initialCycle = setTimeout(run, 15_000);
     this.loop = setInterval(run, intervalMs);
+    trace.record('campaign', 'runner_started', {}, { accountId: this.account.id });
   }
 
   stopScheduler(): void {
+    const active = Boolean(this.loop || this.initialCycle);
     if (this.loop) clearInterval(this.loop);
+    if (this.initialCycle) clearTimeout(this.initialCycle);
     this.loop = undefined;
+    this.initialCycle = undefined;
+    this.live.nextCycleAt = undefined;
+    this.activeRun?.abort(); // impede iniciar próxima pessoa/etapa após a ação atual
+    if (active) trace.record('campaign', 'runner_stopped', {}, { accountId: this.account.id });
   }
 
   /** Mapeia o comitê da empresa (busca de pessoas + vagas) e pede à IA os papéis. */

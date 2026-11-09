@@ -85,6 +85,7 @@ try {
 
   const shots = process.env.SHOT_DIR ?? tmp;
   await ui.reload();
+  await ui.locator('.account-list .acc').first().click();
   await ui.getByRole('button', { name: /Aprovações/ }).click();
   await ui.getByText('Aprovar e publicar').waitFor();
   await ui.screenshot({ path: join(shots, 'aprovacoes.png') });
@@ -109,7 +110,7 @@ try {
   if (!traceEvents.some((e) => e.event === 'execute_result' && e.area === 'approval')) fail('TRACE não registrou aprovação');
   if (traceData.includes('Podemos conversar?') || traceData.includes('Águas do Vale')) fail('TRACE vazou conteúdo do CRM');
   console.log('TRACE E2E:', traceEvents.length, 'eventos em', traceFiles.length, 'arquivo(s)');
-  await ui.getByRole('button', { name: 'Campanhas' }).click();
+  await ui.getByRole('button', { name: 'Campanhas', exact: true }).click();
   await ui.getByText(/Suas campanhas/).waitFor();
   await ui.screenshot({ path: join(shots, 'campanhas.png'), fullPage: true });
   await call('setProvider', 'openai');
@@ -118,7 +119,7 @@ try {
   await ui.screenshot({ path: join(shots, 'configuracoes.png'), fullPage: true });
   await ui.emulateMedia({ colorScheme: 'dark' });
   await ui.getByRole('button', { name: '← Voltar' }).click();
-  await ui.getByRole('button', { name: 'Campanhas' }).click();
+  await ui.getByRole('button', { name: 'Campanhas', exact: true }).click();
   await ui.getByText(/Suas campanhas/).waitFor();
   await ui.screenshot({ path: join(shots, 'campanhas-escuro.png') });
 } catch (e) {

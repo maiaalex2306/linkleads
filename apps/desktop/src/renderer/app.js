@@ -1,5 +1,8 @@
 /* global window, document, h, toast, safe */
-const state = { accountId: null, tab: 'collections', logs: [], mode: 'simple' };
+const state = {
+  screen: 'launcher', accountId: null, tab: 'campaigns', logs: [], mode: 'advanced',
+  campaignId: null, campaignTab: 'info', campaignFilter: 'all', campaignPage: 0,
+};
 let storedMode = null;
 try {
   // tela inicial: modo simples (3 passos + painel); o avançado fica a um clique
@@ -40,7 +43,7 @@ async function renderAccounts() {
         const linkedinPassword = String(f.get('linkedinPassword') || '');
         if (linkedinEmail && !linkedinPassword) return toast('Digite a senha do LinkedIn (ou deixe o e-mail em branco para entrar manualmente)');
         const a = await safe(() => api.createAccount({ label, tier: f.get('tier'), linkedinEmail, linkedinPassword, linkedinAge: f.get('linkedinAge') }));
-        if (a) { state.accountId = a.id; state.newAccountOpen = false; e.target.reset(); refresh(); }
+        if (a) { state.accountId = a.id; state.newAccountOpen = false; e.target.reset(); await openAccountWorkspace(a.id); }
       },
     },
       h('input', { name: 'label', placeholder: 'Nova conta (nome)', required: true, autocomplete: 'off' }),
@@ -65,18 +68,36 @@ async function renderAccounts() {
   addBtn.textContent = state.newAccountOpen ? 'Fechar' : '+ Adicionar conta';
   listBox.replaceChildren(
     ...list.map((a) =>
-      h('div', { class: 'acc' + (a.id === state.accountId ? ' sel' : ''), onclick: () => { state.accountId = a.id; refresh(); } },
+      h('button', { class: 'acc' + (a.id === state.accountId && state.screen === 'workspace' ? ' sel' : ''), onclick: () => openAccountWorkspace(a.id) },
         h('span', { class: 'dot' + (a.paused ? ' paused' : a.running ? ' on' : '') }),
         h('div', { class: 'grow' }, a.label, h('div', { class: 'muted' }, a.paused ? 'pausada' : a.running ? 'em execução' : 'parada')),
       )),
   );
+  const previousBack = box.querySelector('.workspace-back');
+  const previousNav = box.querySelector('#work-nav');
+  if (state.screen === 'workspace') {
+    form.hidden = true;
+    addBtn.hidden = true;
+    if (!previousBack) box.prepend(h('button', { class: 'link workspace-back', onclick: returnToLauncher }, '← Todas as contas'));
+    if (!previousNav) box.append(h('div', { id: 'work-nav', class: 'work-nav' }));
+    const selected = list.find((a) => a.id === state.accountId);
+    if (selected) await renderWorkspaceSidebar(selected);
+  } else {
+    previousBack?.remove();
+    previousNav?.remove();
+  }
   return list;
 }
 
 function topNav() {
   const ver = h('span', { class: 'build-tag', title: 'Versão do código que está rodando agora' }, '');
   document.getElementById('topnav').replaceChildren(
-    h('button', { class: 'link', onclick: () => { state.tab = 'settings'; renderView(); } }, 'Configurações'),
+    h('button', { class: 'link', onclick: () => {
+      state.backScreen = state.screen;
+      state.screen = 'settings';
+      state.tab = 'settings';
+      renderView();
+    } }, 'Configurações'),
     h('button', { class: 'link', onclick: async () => {
       const result = await safe(() => api.exportTrace(state.accountId || undefined));
       if (result && !result.canceled) toast('TRACE exportado: ' + result.file + ' (' + result.files + ' arquivo(s))', 6500);
@@ -92,6 +113,10 @@ function topNav() {
 // Visão da conta -------------------------------------------------------------------
 async function renderView() {
   const view = document.getElementById('view');
+  document.getElementById('layout').classList.toggle('is-launcher', state.screen === 'launcher');
+  if (state.screen === 'launcher') {
+    return view.replaceChildren(await launcherView(await api.listAccounts()));
+  }
   if (state.tab === 'settings') return view.replaceChildren(await settingsView());
   const accounts = await api.listAccounts();
   const a = accounts.find((x) => x.id === state.accountId);
@@ -100,7 +125,7 @@ async function renderView() {
   if (state.mode === 'simple') return view.replaceChildren(await simpleView(a));
   const stats = await api.accountStats(a.id);
   const tabs = [
-    ['collections', 'Coleções'], ['campaigns', 'Campanhas'],
+    ['campaigns', 'Campanhas'], ['collections', 'Coleções'],
     ['approvals', `Aprovações${stats.pendingApprovals ? ` (${stats.pendingApprovals})` : ''}`],
     ['inbox', `Inbox${stats.unhandledReplies ? ` (${stats.unhandledReplies})` : ''}`],
     ['companies', 'Empresas'],
@@ -111,19 +136,33 @@ async function renderView() {
   ];
   const header = h('div', {},
     h('div', { class: 'row' },
-      h('button', { class: 'link', onclick: () => { state.mode = 'simple'; try { localStorage.setItem('ll-mode-v2', 'simple'); } catch {} renderView(); } }, '← Tela guiada'),
+      h('button', { class: 'link', onclick: returnToLauncher }, '← Contas'),
+      h('button', { class: 'link', onclick: () => { state.mode = 'simple'; renderView(); } }, 'Tela guiada'),
       h('h2', { style: 'margin:0;flex:1' }, a.label),
       a.running
         ? [
+            h('button', { onclick: () => safe(() => api.openBrowser(a.id)).then(refresh) }, 'Mostrar LinkedIn'),
             h('button', { onclick: () => safe(() => api.saveCurrentProfile(a.id)).then((r) => r && toast(r.ok ? 'Perfil salvo no CRM' : r.message)) }, 'Salvar perfil aberto'),
-            h('button', { onclick: () => runNowExplained(a) }, 'Rodar agora'),
-            h('button', { onclick: () => safe(() => api.stopInstance(a.id)).then(refresh) }, 'Parar'),
+            a.runnerEnabled
+              ? h('button', { onclick: () => safe(() => api.stopRunner(a.id)).then(refresh) }, 'Parar campanhas')
+              : h('button', { class: 'primary', disabled: a.paused, title: a.paused ? 'Resolva a pausa antes de executar' : '',
+                onclick: () => safe(() => api.startRunner(a.id)).then(refresh) }, 'Iniciar campanhas'),
+            a.runnerEnabled && h('button', { disabled: a.paused, onclick: () => runNowExplained(a) }, 'Rodar agora'),
+            h('button', { onclick: () => safe(() => api.stopInstance(a.id)).then(refresh) }, 'Fechar navegador'),
           ]
-        : h('button', { class: 'primary', onclick: () => safe(() => api.startInstance(a.id)).then(refresh) }, 'Iniciar (abre o navegador)'),
+        : [
+            h('button', { onclick: () => safe(() => api.openBrowser(a.id)).then(refresh) }, 'Abrir LinkedIn'),
+            h('button', { class: 'primary', disabled: a.paused,
+              title: a.paused ? 'Resolva a pausa antes de executar' : '',
+              onclick: () => safe(() => api.startRunner(a.id)).then(refresh) }, 'Iniciar campanhas'),
+          ],
       h('button', { onclick: () => { state.loginOpen = !state.loginOpen; renderView(); } }, a.hasLinkedinPassword ? 'Login do LinkedIn ✓' : 'Login do LinkedIn'),
       h('button', { onclick: () => { state.limitsOpen = !state.limitsOpen; renderView(); } }, 'Limites'),
       h('button', { onclick: () => { state.proxyOpen = !state.proxyOpen; renderView(); } }, a.proxy ? `Proxy: ${a.proxy.host}` : 'Proxy'),
-      h('button', { onclick: () => safe(() => api.setPaused(a.id, !a.paused)).then(refresh) }, a.paused ? 'Retomar automação' : 'Pausar automação'),
+      h('button', { onclick: () => {
+        if (a.paused && !window.confirm('Confirma que a verificação de segurança do LinkedIn já foi resolvida? Isso retira a pausa da conta, mas não inicia o executor automaticamente.')) return;
+        safe(() => api.setPaused(a.id, !a.paused)).then(refresh);
+      } }, a.paused ? 'Retirar pausa' : 'Pausar automação'),
       h('button', { onclick: () => window.confirm(`Remover a conta "${a.label}" e seus dados locais?`) && safe(() => api.removeAccount(a.id)).then(() => { state.accountId = null; refresh(); }) }, 'Remover'),
     ),
     h('div', { class: 'muted' }, `${a.tier} · ${a.linkedinAge === 'new' ? 'conta nova (aquecendo)' : 'conta estabelecida'} · ${a.workingHours.start}–${a.workingHours.end} (${a.workingHours.timezone}) · ${a.proxy ? 'proxy ' + a.proxy.host : 'sem proxy'} · ${a.hasLinkedinPassword ? `entra sozinho como ${a.linkedinEmail}` : 'login manual na janela'}`),
@@ -136,7 +175,9 @@ async function renderView() {
     state.proxyOpen && proxyPanel(a, () => { state.proxyOpen = false; renderView(); }),
     h('div', { class: 'tabs' }, ...tabs.map(([k, l]) => h('button', { class: state.tab === k ? 'sel' : '', onclick: () => { state.tab = k; renderView(); } }, l))),
   );
-  const body = await ({ collections: collectionsView, campaigns: campaignsView, approvals: approvalsView, inbox: inboxView, companies: companiesView, signals: signalsView, deliveries: deliveriesView, diagnostics: diagnosticsView, activity: activityView }[state.tab] || collectionsView)(a);
+  const body = state.tab === 'campaigns' && state.campaignId
+    ? await campaignDetailView(a)
+    : await ({ collections: collectionsView, campaigns: campaignsView, approvals: approvalsView, inbox: inboxView, companies: companiesView, signals: signalsView, deliveries: deliveriesView, diagnostics: diagnosticsView, activity: activityView }[state.tab] || campaignsView)(a);
   view.replaceChildren(header, body);
 }
 
@@ -197,7 +238,7 @@ async function activityView(a) {
 
 async function refresh() {
   await renderAccounts();
-  if (state.tab === 'settings') state.tab = 'collections';
+  if (state.tab === 'settings') state.tab = 'campaigns';
   await renderView();
 }
 

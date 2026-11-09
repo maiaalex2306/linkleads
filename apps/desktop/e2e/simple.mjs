@@ -36,6 +36,8 @@ try {
   await call('updateAccount', { ...acc, workingHours: { ...acc.workingHours, start: '00:00', end: '23:59' } });
   await app.evaluate(({ dialog }, f) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [f] }); }, csv);
   await ui.reload();
+  await ui.locator('.account-list .acc').first().click();
+  await ui.getByRole('button', { name: 'Tela guiada' }).click();
   await ui.locator('.gsteps').waitFor();
   check(await ui.locator('.tabs').count() === 0, 'tela guiada: 4 etapas numeradas, sem a barra de abas');
   await ui.screenshot({ path: join(shots, 'guiada-1-listas.png') });
@@ -73,7 +75,7 @@ try {
 
   await ui.getByRole('button', { name: 'Tela completa' }).click();
   await ui.locator('.tabs').waitFor();
-  await ui.getByRole('button', { name: '← Tela guiada' }).click();
+  await ui.getByRole('button', { name: 'Tela guiada' }).click();
   await ui.locator('.gsteps').waitFor();
   check(true, 'alterna entre a tela guiada e a tela completa');
 } catch (e) {

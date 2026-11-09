@@ -160,7 +160,7 @@ ipcMain.handle('trace:export', async (_event, id?: string) => {
 });
 
 // Contas e instâncias ---------------------------------------------------------
-ipcMain.handle('accounts:list', () => accounts.list().map((a) => ({ ...publicAccount(a), ...accounts.loginInfo(a.id), running: instances.isRunning(a.id) })));
+ipcMain.handle('accounts:list', () => accounts.list().map((a) => ({ ...publicAccount(a), ...accounts.loginInfo(a.id), running: instances.isRunning(a.id), runnerEnabled: instances.get(a.id)?.schedulerRunning() ?? false })));
 
 /** Salva o login do LinkedIn (senha vazia mantém a salva; e-mail vazio apaga). */
 ipcMain.handle('accounts:setLogin', (_e, id: string, input: { email: string; password?: string }) => {
@@ -262,6 +262,9 @@ ipcMain.handle('accounts:remove', async (_e, id: string) => {
 });
 
 ipcMain.handle('instance:start', (_e, id: string) => void instances.start(account(id)));
+ipcMain.handle('instance:open', (_e, id: string) => void instances.open(account(id)));
+ipcMain.handle('instance:startRunner', (_e, id: string) => void instances.startRunner(account(id)));
+ipcMain.handle('instance:stopRunner', (_e, id: string) => void instances.stopRunner(id));
 ipcMain.handle('instance:stop', (_e, id: string) => instances.stop(id));
 /** Falhas que podem mudar numa nova tentativa (página não carregou, erro, sem efeito, bloqueio, sem post). */
 const RETRYABLE = ['NOT_FOUND', 'ERROR', 'NO_REAL_EFFECT', 'THROTTLED', 'NO_POST', 'LIMIT_REACHED'];
@@ -366,6 +369,41 @@ ipcMain.handle('collections:importCsv', async (_e, id: string) => {
 ipcMain.handle('campaigns:list', (_e, id: string) => {
   const crm = crms.get(account(id));
   return crm.listCampaigns(id).map((c) => ({ ...c, people: crm.campaignPeople(c) }));
+});
+
+/**
+ * Resumo leve por campanha: uma única agregação SQL, sem enviar milhares
+ * de pessoas para o renderizador apenas para montar o menu lateral.
+ */
+ipcMain.handle('campaigns:summaries', (_e, id: string) => {
+  const a = account(id);
+  const crm = crms.get(a);
+  const rows = crm.db.prepare(`
+    SELECT campaign_id, COUNT(DISTINCT person_id) AS contacts,
+      SUM(CASE WHEN status = 'queued' THEN 1 ELSE 0 END) AS queued,
+      SUM(CASE WHEN status = 'processed' THEN 1 ELSE 0 END) AS processing,
+      SUM(CASE WHEN status = 'successful' THEN 1 ELSE 0 END) AS successful,
+      SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed
+    FROM campaign_action_people GROUP BY campaign_id
+  `).all() as Array<{ campaign_id: string; contacts: number; queued: number; processing: number; successful: number; failed: number }>;
+  const byId = new Map(rows.map((r) => [r.campaign_id, r]));
+  const runnerEnabled = instances.get(id)?.schedulerRunning() ?? false;
+  return crm.listCampaigns(id).map((c) => {
+    const r = byId.get(c.id);
+    const queued = r?.queued ?? 0;
+    const processing = r?.processing ?? 0;
+    const successful = r?.successful ?? 0;
+    const failed = r?.failed ?? 0;
+    const status = !c.actions.length ? 'draft'
+      : !c.active ? 'stopped'
+      : a.paused ? 'blocked'
+      : runnerEnabled && (queued > 0 || processing > 0) ? 'running'
+      : queued > 0 || processing > 0 ? 'queued'
+      : 'completed';
+    return { id: c.id, name: c.name, active: c.active, status,
+      actions: c.actions.length, contacts: r?.contacts ?? 0,
+      queued, processing, successful, failed };
+  });
 });
 
 ipcMain.handle(
