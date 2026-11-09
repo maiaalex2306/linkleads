@@ -59,9 +59,9 @@ jobs:
           - name: Login e limites
             suite: "login limits"
           - name: Launcher e workspace por conta
-            suite: "launcher-workspace"
+            suite: "launcher-workspace session-persistence"
           - name: Interface guiada e falhas
-            suite: "simple explain"
+            suite: "onboarding-guided simple explain"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -131,7 +131,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          foreach ($suite in @('unified-engagement', 'login', 'limits', 'decision')) {
+          foreach ($suite in @('onboarding-guided', 'session-persistence', 'unified-engagement', 'login', 'limits', 'decision')) {
             Write-Host "E2E Windows: $suite"
             & node "apps/desktop/e2e/$suite.mjs"
             if ($LASTEXITCODE -ne 0) { throw "E2E Windows reprovado: $suite (exit $LASTEXITCODE)" }

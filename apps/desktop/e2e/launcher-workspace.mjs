@@ -28,7 +28,8 @@ try {
   const call = (name, ...args) => ui.evaluate(([n, a]) => window.linkleads[n](...a), [name, args]);
   await ui.locator('.launcher-page').waitFor();
   check(await ui.getByRole('heading', { name: 'Contas do LinkedIn' }).isVisible(), 'inicia no Launcher de contas');
-  await ui.getByRole('button', { name: 'Configurações', exact: true }).click();
+  await ui.locator('.top-menu > summary').click();
+  await ui.getByRole('button', { name: 'Configurações gerais' }).click();
   await ui.getByText('Sobre mim').first().waitFor();
   await ui.getByRole('button', { name: '← Voltar' }).click();
   await ui.locator('.launcher-page').waitFor();
@@ -64,6 +65,8 @@ try {
 
   await ui.locator('.launcher-account', { hasText: 'Conta Alfa' }).getByRole('button', { name: 'Abrir campanhas' }).click();
   await ui.locator('#work-nav').getByText('Monitoramento industrial').waitFor();
+  check(await ui.getByRole('heading', { name: 'O que você quer fazer hoje?' }).isVisible(), 'conta abre no assistente de campanhas');
+  await ui.getByRole('button', { name: 'Tela completa' }).click();
   const before = (await call('listAccounts')).find((x) => x.id === a.id);
   check(!before.running && !before.runnerEnabled, 'selecionar conta não abre navegador nem inicia campanhas');
   await ui.getByRole('button', { name: 'Campanhas', exact: true }).waitFor();
@@ -116,6 +119,7 @@ try {
   check(denied, 'conta pausada impede início explícito do executor');
   await ui.reload();
   await ui.locator('.account-list .acc', { hasText: 'Conta Alfa' }).click();
+  await ui.getByRole('button', { name: 'Tela completa' }).click();
   check(await ui.getByRole('button', { name: 'Iniciar campanhas' }).isDisabled(), 'botão de início bloqueado com conta pausada');
 
   await ui.getByRole('button', { name: '← Contas' }).click();
@@ -140,11 +144,15 @@ try {
     .getByRole('button', { name:'+ Adicionar' }).click();
   check(await ui.locator('.wb-canvas .wb-step').count() === 1,
     'editor visual adiciona uma etapa disponível');
+  await ui.getByLabel('Aguardar antes da etapa (horas)').fill('2');
+  await ui.getByLabel('Máximo de pessoas por ciclo (-1 = sem limite interno)').fill('3');
   await ui.getByRole('button', { name:'Salvar fluxo' }).click();
   await ui.locator('.wb-root').waitFor({ state:'detached' });
   const persisted = await call('campaignDetail', b.id, draft.campaignId);
   check(persisted.actions.length === 1 && persisted.actions[0].type === 'VisitAndExtract',
     'fluxo persistido sem modificar outra conta');
+  check(persisted.actions[0].waitHours === 2 && persisted.actions[0].maxResults === 3,
+    'parâmetros do editor visual salvos e recuperados integralmente', persisted.actions[0]);
   await ui.screenshot({ path: join(shots,'editor-fluxo.png'), fullPage:true });
 
   const copy = await call('duplicateCampaign', b.id, draft.campaignId);

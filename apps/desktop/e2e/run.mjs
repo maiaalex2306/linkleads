@@ -91,7 +91,9 @@ try {
   const shots = process.env.SHOT_DIR ?? tmp;
   await ui.reload();
   await ui.locator('.account-list .acc').first().click();
-  await ui.getByRole('button', { name: /Aprovações/ }).click();
+  await ui.getByRole('button', { name: 'Tela completa' }).click();
+  await ui.locator('.tabs:visible').first().waitFor();
+  await ui.locator('.tabs:visible').first().getByRole('button', { name: /Aprovações/ }).click();
   await ui.getByText('Aprovar e publicar').waitFor();
   await ui.screenshot({ path: join(shots, 'aprovacoes.png') });
 
@@ -119,7 +121,8 @@ try {
   await ui.getByText(/Suas campanhas/).waitFor();
   await ui.screenshot({ path: join(shots, 'campanhas.png'), fullPage: true });
   await call('setProvider', 'openai');
-  await ui.getByRole('button', { name: 'Configurações', exact: true }).click();
+  await ui.locator('.top-menu > summary').click();
+  await ui.getByRole('button', { name: 'Configurações gerais' }).click();
   await ui.getByText('Sobre mim').first().waitFor();
   await ui.screenshot({ path: join(shots, 'configuracoes.png'), fullPage: true });
   await ui.emulateMedia({ colorScheme: 'dark' });

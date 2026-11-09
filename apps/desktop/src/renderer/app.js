@@ -49,7 +49,7 @@ async function renderAccounts() {
     },
       h('input', { name: 'label', placeholder: 'Nova conta (nome)', required: true, autocomplete: 'off' }),
       h('input', { name: 'linkedinEmail', type: 'email', placeholder: 'E-mail do LinkedIn', autocomplete: 'off' }),
-      h('input', { name: 'linkedinPassword', type: 'password', placeholder: 'Senha do LinkedIn', autocomplete: 'new-password' }),
+      passwordInput({ name: 'linkedinPassword', placeholder: 'Senha do LinkedIn', autocomplete: 'new-password' }).element,
       h('div', { class: 'muted', style: 'font-size:12px' }, 'A senha fica criptografada neste computador e serve só para entrar sozinho no LinkedIn.'),
       h('select', { name: 'linkedinAge', title: 'Conta nova no LinkedIn começa devagar e sobe em ~6 semanas' },
         h('option', { value: 'established' }, 'Conta do LinkedIn com mais de 1 ano'),
@@ -92,19 +92,24 @@ async function renderAccounts() {
 
 function topNav() {
   const ver = h('span', { class: 'build-tag', title: 'Versão do código que está rodando agora' }, '');
+  const menu = h('details', { class: 'top-menu' },
+    h('summary', { 'aria-label': 'Abrir configurações e ferramentas' }, 'Configurações'),
+    h('div', { class: 'top-menu-content' },
+      h('button', { onclick: () => {
+        menu.open = false;
+        state.backScreen = state.screen;
+        state.screen = 'settings';
+        state.tab = 'settings';
+        renderView();
+      } }, 'Configurações gerais'),
+      h('button', { onclick: async () => {
+        menu.open = false;
+        const result = await safe(() => api.exportTrace(state.accountId || undefined));
+        if (result && !result.canceled) toast('Diagnóstico exportado: ' + result.file, 6500);
+      } }, 'Exportar diagnóstico')));
   document.getElementById('topnav').replaceChildren(
-    h('button', { class: 'link', onclick: () => {
-      state.backScreen = state.screen;
-      state.screen = 'settings';
-      state.tab = 'settings';
-      renderView();
-    } }, 'Configurações'),
-    h('button', { class: 'link', onclick: async () => {
-      const result = await safe(() => api.exportTrace(state.accountId || undefined));
-      if (result && !result.canceled) toast('TRACE exportado: ' + result.file + ' (' + result.files + ' arquivo(s))', 6500);
-    } }, 'Exportar TRACE'),
-    ver,
-  );
+    h('button', { class: 'link top-home', onclick: returnToLauncher }, 'Minhas contas'),
+    menu, ver);
   api.appInfo().then((i) => {
     const when = i.builtAt ? new Date(i.builtAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
     ver.textContent = `versão ${i.version} · ${i.commit}${when ? ` · compilada ${when}` : ''}`;
@@ -112,18 +117,25 @@ function topNav() {
 }
 
 // Visão da conta -------------------------------------------------------------------
+// Uma resposta IPC antiga jamais pode sobrescrever uma tela mais recente.
+let latestViewRender = 0;
 async function renderView() {
+  const renderId = ++latestViewRender;
   const view = document.getElementById('view');
+  const commitView = (...nodes) => {
+    if (renderId !== latestViewRender) return;
+    view.replaceChildren(...nodes);
+  };
   document.getElementById('layout').classList.toggle('is-launcher', state.screen === 'launcher');
   if (state.screen === 'launcher') {
-    return view.replaceChildren(await launcherView(await api.listAccounts()));
+    return commitView(await launcherView(await api.listAccounts()));
   }
-  if (state.tab === 'settings') return view.replaceChildren(await settingsView());
+  if (state.tab === 'settings') return commitView(await settingsView());
   const accounts = await api.listAccounts();
   const a = accounts.find((x) => x.id === state.accountId);
-  if (!a) return view.replaceChildren(h('p', { class: 'muted' }, 'Adicione uma conta para começar.'));
+  if (!a) return commitView(h('p', { class: 'muted' }, 'Adicione uma conta para começar.'));
 
-  if (state.mode === 'simple') return view.replaceChildren(await simpleView(a));
+  if (state.mode === 'simple') return commitView(await simpleView(a));
   const stats = await api.accountStats(a.id);
   const tabs = [
     ['campaigns', 'Campanhas'], ['collections', 'Coleções'],
@@ -179,7 +191,7 @@ async function renderView() {
   const body = state.tab === 'campaigns' && state.campaignId
     ? await campaignDetailView(a)
     : await ({ collections: collectionsView, campaigns: campaignsView, approvals: approvalsView, inbox: inboxView, companies: companiesView, signals: signalsView, deliveries: deliveriesView, diagnostics: diagnosticsView, activity: activityView }[state.tab] || campaignsView)(a);
-  view.replaceChildren(header, body);
+  commitView(header, body);
 }
 
 async function collectionsView(a) {

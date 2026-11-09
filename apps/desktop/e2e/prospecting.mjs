@@ -49,7 +49,9 @@ try {
   await ui.reload();
   await ui.locator('.account-list .acc').first().click();
   await ui.locator('.account-list').getByText('Conta teste').click();
-  await ui.getByRole('button', { name: 'Campanhas', exact: true }).click();
+  await ui.getByRole('button', { name: 'Tela completa' }).click();
+  await ui.locator('.tabs:visible').first().waitFor();
+  await ui.locator('.tabs:visible').first().getByRole('button', { name: 'Campanhas', exact: true }).click();
   await ui.getByText('Curtir e comentar o post mais recente').waitFor();
   check(await ui.getByText('Espera 1 dia e confere se aceitou').isVisible(), 'formulário mostra a espera de 1 dia e a conferência do aceite');
   check((await ui.locator('.step .head strong', { hasText: /^Mensagem \d/ }).count()) === 5, 'formulário já vem com 5 mensagens');
@@ -92,6 +94,8 @@ try {
   await ui.reload();
   await ui.locator('.account-list .acc').first().click();
   await ui.locator('.account-list').getByText('Conta teste').click();
+  await ui.getByRole('button', { name: 'Tela completa' }).click();
+  await ui.locator('.tabs:visible').first().waitFor();
   await ui.locator('#live-box').getByText('O que acabou de fazer').waitFor();
   await ui.waitForTimeout(1500);
   await ui.locator('#live-box').screenshot({ path: join(shots, 'painel-agora.png') });

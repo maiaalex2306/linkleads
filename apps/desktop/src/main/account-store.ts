@@ -73,7 +73,10 @@ export class AccountStore {
     const e = (email || '').trim();
     if (!e) delete a.login;
     else {
-      const passwordEnc = password ? encrypt(password) : a.login?.passwordEnc;
+      // Alterar o e-mail sem uma nova senha não pode reaproveitar o segredo
+      // da identidade anterior. Se apenas a caixa/capitalização mudou, preserva.
+      const sameIdentity = a.login?.email.trim().toLowerCase() === e.toLowerCase();
+      const passwordEnc = password ? encrypt(password) : (sameIdentity ? a.login?.passwordEnc : undefined);
       a.login = { email: e, ...(passwordEnc ? { passwordEnc } : {}) };
     }
     this.writeRaw(raw);

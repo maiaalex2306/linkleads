@@ -54,6 +54,7 @@ try {
   await ui.reload();
   await ui.locator('.account-list .acc').first().click();
   await ui.locator('.account-list').getByText('Conta teste').click();
+  await ui.getByRole('button', { name: 'Tela completa' }).click();
   await ui.locator('#live-box').getByText(/Parado: as campanhas ativas não têm mais nada a fazer/).waitFor();
   await ui.locator('#live-box').getByText('Motivos das falhas: perfil não encontrado (2)').waitFor();
   await ui.waitForTimeout(1200);

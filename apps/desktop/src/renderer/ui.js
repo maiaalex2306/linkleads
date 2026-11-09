@@ -37,3 +37,19 @@ async function safe(fn, okMsg) {
     return undefined;
   }
 }
+
+/** Campo de senha com exibição explícita, sem enviar ou registrar seu conteúdo. */
+function passwordInput(props = {}) {
+  const input = h('input', { ...props, type: 'password', 'aria-label': props['aria-label'] || 'Senha' });
+  const toggle = h('button', { type: 'button', class: 'password-eye',
+    'aria-label': 'Mostrar senha', 'aria-pressed': 'false',
+    onclick: () => {
+      const visible = input.type === 'password';
+      input.type = visible ? 'text' : 'password';
+      toggle.textContent = visible ? 'Ocultar' : 'Mostrar';
+      toggle.setAttribute('aria-label', visible ? 'Ocultar senha' : 'Mostrar senha');
+      toggle.setAttribute('aria-pressed', String(visible));
+    },
+  }, 'Mostrar');
+  return { input, element: h('div', { class: 'password-field' }, input, toggle) };
+}

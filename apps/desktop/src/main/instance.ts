@@ -316,16 +316,16 @@ export class AccountInstance {
       this.log('Login automático suspenso por 1 hora (3 tentativas). Entre manualmente na janela da conta.');
       return 'rate_limited';
     }
+    // Nunca forçar uma navegação para /login sobre uma tela de passkey,
+    // checkpoint ou desafio. A escolha do método de autenticação é do usuário
+    // e do LinkedIn, não do executor.
+    if (!(await d.exists('loginPassword'))) {
+      this.log('Login por senha ainda não está disponível. Se aparecer a janela de chave de acesso, cancele-a e escolha a opção de entrar com senha no LinkedIn. Conclua verificações de segurança manualmente.');
+      return 'no_credentials';
+    }
     this.loginAttempts.push(Date.now());
     Object.assign(this.live, { state: 'login', doing: 'Entrando no LinkedIn com o login salvo', plan: undefined, since: now().toISOString() });
     this.log('Entrando no LinkedIn com o login salvo…');
-    if (!(await d.exists('loginPassword'))) {
-      await wc.loadURL(`${BASE}/login`);
-      if (!(await d.waitFor('loginPassword', 15_000))) {
-        this.log('Não achei o formulário de login. Entre manualmente na janela da conta.');
-        return 'failed';
-      }
-    }
     await d.input.think(600, 1500);
     // o LinkedIn às vezes já traz o e-mail preenchido ("bem-vindo de volta")
     if (await d.exists('loginEmail')) {

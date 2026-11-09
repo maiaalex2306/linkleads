@@ -59,7 +59,9 @@ try {
 
   await ui.reload();
   await ui.locator('.account-list .acc').first().click();
-  await ui.getByRole('button', { name: /Aprovações/ }).click();
+  await ui.getByRole('button', { name: 'Tela completa' }).click();
+  await ui.locator('.tabs:visible').first().waitFor();
+  await ui.locator('.tabs:visible').first().getByRole('button', { name: /Aprovações/ }).click();
   await ui.getByText('Aprovar e enviar').waitFor();
   await ui.screenshot({ path: join(shots, 'fase2-aprovacao-convite.png') });
 
@@ -107,7 +109,9 @@ try {
 
   await ui.reload();
   await ui.locator('.account-list .acc').first().click();
-  await ui.getByRole('button', { name: /Inbox/ }).click();
+  await ui.getByRole('button', { name: 'Tela completa' }).click();
+  await ui.locator('.tabs:visible').first().waitFor();
+  await ui.locator('.tabs:visible').first().getByRole('button', { name: /Inbox/ }).click();
   await ui.getByText('Marcar como tratado').waitFor();
   await ui.getByText('ver conversa').click();
   await ui.screenshot({ path: join(shots, 'fase2-inbox.png') });
@@ -115,7 +119,8 @@ try {
   await ui.getByRole('button', { name: '+ Criar nova campanha' }).click();
   await ui.getByText('Criar sequência').waitFor();
   await ui.screenshot({ path: join(shots, 'fase2-campanhas.png'), fullPage: true });
-  await ui.getByRole('button', { name: 'Configurações', exact: true }).click();
+  await ui.locator('.top-menu > summary').click();
+  await ui.getByRole('button', { name: 'Configurações gerais' }).click();
   await ui.getByText('Interruptor geral').waitFor();
   await ui.screenshot({ path: join(shots, 'fase2-configuracoes.png'), fullPage: true });
 } catch (e) {

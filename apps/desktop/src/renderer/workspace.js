@@ -22,7 +22,10 @@ function workspaceStatus(a) {
 async function openAccountWorkspace(id) {
   state.accountId = id;
   state.screen = 'workspace';
-  state.mode = 'advanced';
+  // Jornada padrão: conta → escolha de campanha → lista → parâmetros.
+  // Ferramentas avançadas continuam disponíveis quando solicitadas.
+  state.mode = 'simple';
+  state.g = 'campaign';
   state.tab = 'campaigns';
   state.campaignId = null;
   state.campaignTab = 'info';

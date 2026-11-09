@@ -95,26 +95,152 @@ async function listsPage(a, cols, camps) {
         const r = await safe(() => api.importCsv(a.id));
         if (!r) return;
         state.importReport = { ...r, accountId: a.id };
+        state.selectedCollectionId = r.collectionId;
         state.wiz = { ...(state.wiz || {}), colId: r.collectionId };
         renderView();
       } }, '⬆ Importar planilha')),
     state.importReport && state.importReport.accountId === a.id && importReportCard(state.importReport, () => { state.importReport = null; renderView(); }),
     cols.length
-      ? h('div', { class: 'glist' }, ...cols.map((c) => h('div', { class: 'card gcard' },
-          h('div', { class: 'gcard-ico' }, '📋'),
-          h('div', { style: 'flex:1;min-width:0' }, h('b', {}, c.name), h('div', { class: 'muted' }, `${c.size} pessoa(s)${usedBy(c.id).length ? ` · usada em ${usedBy(c.id).join(', ')}` : ''}`)),
-          h('button', { class: 'primary', onclick: () => { state.wiz = { step: 2, colId: c.id }; state.g = 'campaign'; state.creating = true; renderView(); } }, 'Criar campanha com esta lista →'))))
+      ? h('div', { class: 'stack' },
+          h('div', { class: 'muted' }, 'Marque a planilha que deseja utilizar. As colunas adicionais permanecem disponíveis sem ocupar esta página.'),
+          h('div', { class: 'collection-picker' },
+            ...cols.map((c) => {
+              const chosen = (state.selectedCollectionId || state.wiz?.colId) === c.id;
+              return h('label', { class: 'collection-row' + (chosen ? ' selected' : '') },
+                h('input', { type: 'checkbox', checked: chosen, 'aria-label': 'Selecionar lista ' + c.name,
+                  onchange: (ev) => {
+                    state.selectedCollectionId = ev.target.checked ? c.id : null;
+                    state.wiz = { ...(state.wiz || {}), colId: state.selectedCollectionId };
+                    renderView();
+                  } }),
+                h('span', { class: 'collection-info' },
+                  h('strong', { title: c.name }, c.name),
+                  h('small', { class: 'muted' }, c.size + ' leads' +
+                    (usedBy(c.id).length ? ' · ' + usedBy(c.id).length + ' campanha(s)' : ''))));
+            })),
+          h('div', { class: 'row' },
+            h('button', { class: 'primary big',
+              disabled: !cols.some((c) => c.id === (state.selectedCollectionId || state.wiz?.colId)),
+              onclick: () => {
+                const id = state.selectedCollectionId || state.wiz?.colId;
+                state.wiz = { ...(state.wiz || {}), step: 2, colId: id };
+                state.g = 'campaign'; state.creating = true; renderView();
+              } }, 'Continuar para criar campanha →')))
       : h('div', { class: 'card muted' }, 'Nenhuma lista ainda. Comece importando sua planilha.'));
+}
+
+// Assistente de intenção: perguntas guiadas, sem alegar IA generativa
+// quando ainda não existe uma chamada de modelo autorizada.
+function intentionPicker() {
+  const text = h('textarea', { rows: 2,
+    placeholder: 'Ex.: Quero criar uma campanha para curtir e comentar posts dos meus leads' });
+  const start = (kind) => {
+    state.creating = true;
+    state.chooseCampaignType = false;
+    state.wiz = { step: 1, campaignType: kind, approve: true, maxPostAgeDays: 30 };
+    state.g = 'campaign';
+    renderView();
+  };
+  const interpret = () => {
+    const normalized = text.value.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+    if (/curtir|comentar|comentario|publicac|engaj/.test(normalized)) return start('engagement');
+    if (/convite|conexao|mensagem|prospect/.test(normalized)) return start('sequence');
+    toast('Escolha Curtir e comentar ou Prospecção. O assistente ainda não interpreta todos os pedidos com IA.');
+  };
+  return h('section', { class: 'card intent-card stack' },
+    h('div', { class: 'kind' }, 'ASSISTENTE DE CAMPANHAS'),
+    h('h2', {}, 'O que você quer fazer hoje?'),
+    h('p', { class: 'muted' }, 'Descreva seu objetivo ou selecione uma ação. Depois escolheremos os leads, os parâmetros e a ativação.'),
+    text,
+    h('div', { class: 'row intent-actions' },
+      h('button', { class: 'primary', onclick: () => start('engagement') }, 'Curtir e comentar posts'),
+      h('button', { onclick: () => start('sequence') }, 'Prospecção e mensagens'),
+      h('button', { onclick: interpret }, 'Continuar com meu objetivo')));
+}
+
+async function engagementWizard(a, cols, w) {
+  if (!w.colId && cols[0]) w.colId = cols[0].id;
+  const col = cols.find((c) => c.id === w.colId);
+  const next = (step) => { w.step = step; renderView(); };
+  let body;
+  if (w.step === 1) {
+    body = h('div', { class: 'stack' },
+      h('h3', {}, '1. Escolha a lista de leads'),
+      ...cols.map((c) => h('label', { class: 'collection-row' + (w.colId === c.id ? ' selected' : '') },
+        h('input', { type: 'radio', name: 'engagementList', checked: w.colId === c.id,
+          onchange: () => { w.colId = c.id; renderView(); } }),
+        h('span', { class: 'collection-info' }, h('strong', {}, c.name),
+          h('small', { class: 'muted' }, c.size + ' leads')))),
+      !cols.length && h('p', {}, 'Importe uma planilha antes de criar a campanha.'),
+      h('div', { class: 'row' },
+        h('button', { onclick: () => { state.g = 'lists'; renderView(); } }, 'Importar lista'),
+        h('button', { class: 'primary', disabled: !col, onclick: () => next(2) }, 'Definir parâmetros →')));
+  } else if (w.step === 2) {
+    const age = h('input', { type: 'number', min: 1, max: 365, value: String(w.maxPostAgeDays ?? 30) });
+    const instructions = h('textarea', { rows: 3,
+      placeholder: 'Qual é o objetivo comercial do comentário?',
+      value: w.extraInstructions || '' });
+    const approve = h('input', { type: 'checkbox', checked: w.approve !== false });
+    body = h('div', { class: 'stack' },
+      h('h3', {}, '2. Defina a ação de curtir e comentar'),
+      h('p', { class: 'muted' }, 'Uma publicação recente por lead. Comentários por IA; artigos e múltiplos posts ainda não estão disponíveis.'),
+      h('label', {}, 'Ignorar posts com mais de quantos dias?', age),
+      h('label', {}, 'Orientações para a IA', instructions),
+      h('label', { class: 'choice' }, approve, 'Aprovar manualmente cada comentário (recomendado)'),
+      h('div', { class: 'row' },
+        h('button', { onclick: () => next(1) }, '← Lista'),
+        h('button', { class: 'primary', onclick: () => {
+          w.maxPostAgeDays = Math.max(1, Math.min(365, Number(age.value) || 30));
+          w.extraInstructions = instructions.value.trim();
+          w.approve = approve.checked;
+          next(3);
+        } }, 'Revisar campanha →')));
+  } else {
+    const name = h('input', { value: w.name || 'Engajamento - ' + (col?.name || 'Leads'),
+      'aria-label': 'Nome da campanha', maxLength: 150 });
+    body = h('div', { class: 'stack' },
+      h('h3', {}, '3. Revise e crie a campanha'),
+      h('label', {}, 'Nome da campanha', name),
+      h('div', { class: 'card stack' },
+        h('strong', {}, 'Curtir e comentar publicações e artigos'),
+        h('div', {}, (col?.name || '—') + ' · ' + (col?.size || 0) + ' leads'),
+        h('div', {}, 'Até ' + w.maxPostAgeDays + ' dias · ' +
+          (w.approve ? 'Aprovação manual' : 'Comentários automáticos')),
+        h('div', { class: 'muted' }, 'Criar não inicia campanhas nem abre o navegador.')),
+      h('div', { class: 'row' },
+        h('button', { onclick: () => next(2) }, '← Configurações'),
+        h('button', { class: 'primary', disabled: !col, onclick: async (e) => {
+          e.target.disabled = true;
+          const result = await safe(() => api.createEngagementCampaign(a.id, {
+            name: name.value.trim() || 'Engajamento', collectionId: w.colId,
+            commentMode: w.approve ? 'manual' : 'auto',
+            tone: 'profissional', extraInstructions: w.extraInstructions || '',
+            maxPostAgeDays: w.maxPostAgeDays ?? 30,
+          }));
+          if (!result) { e.target.disabled = false; return; }
+          state.creating = false; state.wiz = null;
+          state.mode = 'advanced'; state.tab = 'campaigns';
+          await openCampaignWorkspace(result.campaignId);
+          toast('Campanha criada e pausada. Revise e ative quando desejar.', 7000);
+        } }, 'Criar campanha sem iniciar')));
+  }
+  return h('section', { class: 'card stack wizard' },
+    h('div', { class: 'kind' }, 'ENGAJAMENTO · ETAPA ' + w.step + ' DE 3'),
+    body);
 }
 
 // ── ② Campanha (assistente) ──────────────────────────────────────────────
 async function wizardPage(a, cols) {
   const w = (state.wiz = { step: 1, engage: true, approve: true, msgs: 5, gap: 1, checkDays: 1, timeout: 30, src: 'sheet', ...(state.wiz || {}) });
+  if (w.campaignType === 'engagement') return engagementWizard(a, cols, w);
   if (!w.colId && cols[0]) w.colId = cols[0].id;
   const col = cols.find((c) => c.id === w.colId);
   const columns = col ? await api.collectionColumns(a.id, col.id).catch(() => []) : [];
   const sheet = sheetMessages(columns);
-  if (!sheet && w.src === 'sheet') w.src = 'ai';
+  // Antes da importação não existe lista/colunas: manter a escolha original de
+  // mensagens da planilha. Converter para IA somente quando a lista escolhida
+  // realmente não possuir colunas de mensagens.
+  if (col && !sheet && w.src === 'sheet') w.src = 'ai';
   if (sheet && w.src === 'sheet') w.msgs = Math.max(1, sheet.msgs.length || w.msgs);
   const settings = await api.getSettings();
   const STEPS = ['Lista', 'Ações', 'Mensagens', 'Revisar e iniciar'];
@@ -222,11 +348,11 @@ async function wizardPage(a, cols) {
 
 async function campaignPage(a, cols, camps) {
   const active = camps.find((c) => c.active);
-  if (state.creating || !active) {
-    return h('div', { class: 'stack' },
-      active && h('div', { class: 'row' }, h('button', { class: 'link', onclick: () => { state.creating = false; state.wiz = null; renderView(); } }, '← Voltar para a campanha ativa')),
-      await wizardPage(a, cols));
-  }
+  if (state.chooseCampaignType) return intentionPicker();
+  if (state.creating) return h('div', { class: 'stack' },
+    h('button', { class: 'link', onclick: () => { state.creating = false; state.wiz = null; renderView(); } }, '← Voltar'),
+    await wizardPage(a, cols));
+  if (!active) return intentionPicker();
   const others = camps.filter((c) => !c.active);
   return h('div', { class: 'stack' },
     h('div', { class: 'card stack' },
@@ -236,7 +362,7 @@ async function campaignPage(a, cols, camps) {
       h('div', { class: 'row' },
         h('button', { class: 'link', onclick: () => goAdvanced('campaigns') }, 'Ver a lista de pessoas e editar as mensagens'),
         h('button', { class: 'link', onclick: () => goStep('track') }, 'Acompanhar →'))),
-    h('div', {}, h('button', { class: 'primary', onclick: () => { state.creating = true; state.wiz = { step: 1 }; renderView(); } }, '+ Criar nova campanha')),
+    h('div', {}, h('button', { class: 'primary', onclick: () => { state.chooseCampaignType = true; state.creating = false; state.wiz = null; renderView(); } }, '+ Criar nova campanha')),
     others.length > 0 && h('div', { class: 'card stack' }, h('b', {}, 'Campanhas pausadas'),
       ...others.map((c) => h('div', { class: 'row' }, h('span', { style: 'flex:1' }, `${c.name} — ${c.people.length} pessoa(s)`),
         h('button', { onclick: async () => {
@@ -338,7 +464,7 @@ async function trackPage(a, camps, stats) {
 async function simpleView(a) {
   const [cols, camps, stats, settings] = await Promise.all([api.listCollections(a.id), api.listCampaigns(a.id), api.accountStats(a.id), api.getSettings()]);
   const active = camps.find((c) => c.active);
-  if (!state.g) state.g = !cols.length ? 'lists' : !active ? 'campaign' : 'track';
+  if (!state.g) state.g = !active ? 'campaign' : 'track';
   const people = cols.reduce((s, c) => s + c.size, 0);
   const info = {
     lists: cols.length ? `${cols.length} lista(s), ${people} pessoas` : 'importar planilha',
