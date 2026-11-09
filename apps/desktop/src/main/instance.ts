@@ -355,7 +355,8 @@ export class AccountInstance {
     const left = await d.waitUntil(async () => !LOGIN_PAGE.test(wc.getURL()) && !wc.isLoading() && !(await onLogin().catch(() => true)), 25_000, 800);
     const url = wc.getURL();
     if (/\/checkpoint\/|\/challenge/.test(url) || (await d.exists('checkpoint').catch(() => false))) {
-      this.log('O LinkedIn pediu uma verificação de segurança (código por e-mail/SMS/app ou captcha). Conclua na janela da conta; a automação continua depois.');
+      this.pause('verificação de segurança exibida durante o login.');
+      this.log('Conclua a verificação manualmente na janela do LinkedIn. O login NÃO retoma campanhas.');
       return 'checkpoint';
     }
     if (!left) {
@@ -369,16 +370,12 @@ export class AccountInstance {
     }
     this.loginAttempts = [];
     this.log('Login no LinkedIn feito automaticamente.');
-    if (this.account.paused && this.pausedForSession) {
-      this.pausedForSession = false;
-      this.account.paused = false;
-      this.events.onAccountChanged(this.account);
-      this.log('Automação retomada: a pausa foi por sessão encerrada.');
-    }
+    // Autenticação e execução são operações independentes.
+    // Em hipótese alguma um novo login retira a pausa da conta.
+    if (this.account.paused)
+      this.log('Sessão autenticada. A automação permanece pausada até autorização explícita.');
     return 'ok';
   }
-
-  private pausedForSession = false;
 
   /** Conta com os tetos da equipe aplicados. */
   private effectiveAccount(): Account {
@@ -410,6 +407,7 @@ export class AccountInstance {
 
   private pause(reason: string) {
     this.account.paused = true;
+    this.stopScheduler(); // elimina timers pendentes; não depende de ACK visual
     this.log(`Conta pausada automaticamente: ${reason}`);
     this.events.onAccountChanged(this.account);
   }
@@ -531,8 +529,7 @@ export class AccountInstance {
         if (this.account.paused) {
           this.pause('a plataforma sinalizou limite, verificação de segurança ou sessão encerrada.');
           if (LOGIN_PAGE.test(this.window.webContents.getURL())) {
-            // foi só a sessão que caiu: o login automático retoma a automação
-            this.pausedForSession = true;
+            // Login pode ser recuperado, mas não reativa a automação nem os timers.
             await this.withBrowser(() => this.ensureLoggedIn()).catch(() => undefined);
           }
           break;
