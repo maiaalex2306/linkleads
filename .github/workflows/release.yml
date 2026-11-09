@@ -80,6 +80,18 @@ jobs:
           npm run bundle
           if [ -z "$APPLE_ID" ]; then export SKIP_NOTARIZE=1; fi
           npx electron-builder --publish never $( [ -n "$SKIP_NOTARIZE" ] && echo "-c.mac.notarize=false" )
+      - name: Validar assinatura do instalador Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $installers = @(Get-ChildItem -Path 'apps/desktop/release' -Filter 'LinkLeads-Setup-*.exe' -File)
+          if ($installers.Count -eq 0) { throw 'Instalador Windows ausente.' }
+          foreach ($installer in $installers) {
+            $signature = Get-AuthenticodeSignature -FilePath $installer.FullName
+            if ($signature.Status -ne 'Valid') {
+              throw "Assinatura Windows inválida em $($installer.Name): $($signature.Status)"
+            }
+          }
       - uses: actions/upload-artifact@v4
         with:
           name: instaladores-${{ matrix.os }}
