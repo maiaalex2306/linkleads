@@ -138,7 +138,7 @@ async function advancedWorkflowEditor(a, campaign, onDone) {
             disabled: !def.available || structuralLocked || !canEdit,
             title: def.information,
             onclick: () => addAction(def),
-          }, '+ Adicionar'))))));
+          }, '+ Adicionar')))));
   }
   function renderCanvas() {
     canvas.replaceChildren(h('div', { class: 'row' },
