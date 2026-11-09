@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { canContinueAfterFailure } from '../src/engine/runner.js';
 import {
   ACTION_CATALOG,
   CampaignRunner,
@@ -162,6 +163,45 @@ describe('CampaignRunner', () => {
     const runner = new CampaignRunner({ store, executors, now: () => MONDAY_10AM, sleep: async () => {} });
     const r = await runner.tick(campaign, account({ limitRules: [{ key: 'profile_load', max: 2, hours: 24 }] }));
     expect(r.processed).toBe(2);
+  });
+
+  it('impede avançar de resultado incerto mesmo quando fluxo antigo autorizava', async () => {
+    const store = setup();
+    const executions: string[] = [];
+    const executors = new ExecutorRegistry()
+      .register({
+        type: 'VisitAndExtract',
+        execute: async ({ person }) => {
+          executions.push('visit:' + person.id);
+          return { ok: false, reason: 'NO_REAL_EFFECT' };
+        },
+      })
+      .register({
+        type: 'SendInvite',
+        execute: async ({ person }) => {
+          executions.push('invite:' + person.id);
+          return { ok: true };
+        },
+        verify: async () => true,
+      });
+    const runner = new CampaignRunner({
+      store, executors, now: () => MONDAY_10AM, sleep: async () => {},
+      rng: seededRng(7), delayRange: [0, 0],
+    });
+    const legacy = structuredClone(campaign);
+    legacy.actions[0]!.continueOnFail = ['NO_REAL_EFFECT', 'THROTTLED', 'ERROR', 'NOT_FOUND'];
+    const result = await runner.tick(legacy, account());
+    expect(result.failed).toHaveLength(4);
+    expect(executions.filter((x) => x.startsWith('invite:'))).toHaveLength(0);
+    expect(store.statusOf('c1', 'a2', 'p1')).toBeUndefined();
+  });
+
+  it('continua apenas após resultados explicitamente seguros', () => {
+    expect(canContinueAfterFailure('NO_POST', ['NO_POST'])).toBe(true);
+    expect(canContinueAfterFailure('NO_POST', [])).toBe(false);
+    for (const reason of ['NO_REAL_EFFECT', 'THROTTLED', 'ERROR', 'NOT_FOUND', 'LIMIT_REACHED'] as const) {
+      expect(canContinueAfterFailure(reason, [reason])).toBe(false);
+    }
   });
 
   it('pausa a conta quando a plataforma sinaliza limite', async () => {

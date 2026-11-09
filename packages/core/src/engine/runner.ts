@@ -201,7 +201,10 @@ export class CampaignRunner {
         account.paused = true; // freio: plataforma sinalizou limite
         return 'stop';
       }
-      advance = !!action.continueOnFail?.includes(result.reason);
+      // Fail closed even for legacy campaigns saved before the visual
+      // editor validated continuation rules. An uncertain external effect
+      // must never trigger an additional LinkedIn action.
+      advance = canContinueAfterFailure(result.reason, action.continueOnFail);
     }
     if (!advance || !next) return 'ran';
 
@@ -256,11 +259,25 @@ export function resolveApproval(
     store.setStatus(campaign.id, actionId, personId, 'failed', outcome.reason);
     const action = campaign.actions[idx]!;
     const next = campaign.actions[idx + 1];
-    if (next && action.continueOnFail?.includes(outcome.reason)) store.enqueue(campaign.id, next.id, personId, notBeforeFor(next, now));
+    if (next && canContinueAfterFailure(outcome.reason, action.continueOnFail))
+      store.enqueue(campaign.id, next.id, personId, notBeforeFor(next, now));
   }
 }
 
 /** Momento a partir do qual a pessoa pode entrar na etapa `next` (espera configurada). */
 export function notBeforeFor(next: { waitHours?: number }, now: Date): Date | undefined {
   return next.waitHours ? new Date(now.getTime() + next.waitHours * 3_600_000) : undefined;
+}
+
+/**
+ * Legacy campaigns may have stored unsafe continueOnFail reasons before
+ * validation was introduced. The engine is the ultimate safety boundary:
+ * only deterministic, non-action or eligibility outcomes may advance.
+ * Never continue after THROTTLED, NO_REAL_EFFECT, ERROR, NOT_FOUND etc.
+ */
+export const SAFE_CONTINUATION_REASONS: ReadonlySet<FailureReason> =
+  new Set<FailureReason>(['NO_POST', 'AI_SKIPPED', 'ALREADY_CONNECTED', 'ICP_REJECTED']);
+
+export function canContinueAfterFailure(reason: FailureReason, configured?: readonly FailureReason[]): boolean {
+  return SAFE_CONTINUATION_REASONS.has(reason) && Boolean(configured?.includes(reason));
 }
