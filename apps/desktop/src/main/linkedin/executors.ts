@@ -140,6 +140,8 @@ interface LikeSettings {
   maxPostAgeDays?: number;
   /** incluir reshares (sem texto próprio)? padrão: não */
   includeReshares?: boolean;
+  /** Ação composta: permitir comentar uma publicação já curtida sem curtir novamente. */
+  allowAlreadyLiked?: boolean;
 }
 
 /** Escolhe o post mais recente do próprio autor, dentro da janela de idade. */
@@ -182,7 +184,8 @@ export function choosePost(posts: PostExtract[], publicId: string, s: LikeSettin
   // Nunca clicar em publicação já curtida; estado desconhecido exige confirmação
   // adicional antes de tocar na plataforma.
   const post = eligible.find((p) => p.liked === false) ??
-    eligible.find((p) => p.liked == null);
+    eligible.find((p) => p.liked == null) ??
+    (s.allowAlreadyLiked ? eligible.find((p) => p.liked === true) : undefined);
   if (post) return { post, why: '' };
   if (eligible.length) return { why: 'Todas as publicações elegíveis já foram curtidas; nenhuma ação adicional necessária' };
   if (uncertainActors) return { why: 'Não foi possível confirmar a identidade do autor de ' + uncertainActors + ' publicação(ões)', uncertain: true };
