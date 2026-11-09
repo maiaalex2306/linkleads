@@ -458,7 +458,7 @@ ipcMain.handle('campaigns:queue', (_e, id: string, campaignId: string,
  * Resumo leve por campanha: uma única agregação SQL, sem enviar milhares
  * de pessoas para o renderizador apenas para montar o menu lateral.
  */
-ipcMain.handle('campaigns:summaries', (_e, id: string) => {
+ipcMain.handle('campaigns:summaries', (_e, id: string, includeArchived = false) => {
   const a = account(id);
   const crm = crms.get(a);
   const nowMs = Date.now();
@@ -477,7 +477,7 @@ ipcMain.handle('campaigns:summaries', (_e, id: string) => {
   }>;
   const byId = new Map(rows.map((r) => [r.campaign_id, r]));
   const runnerEnabled = instances.get(id)?.schedulerRunning() ?? false;
-  return crm.listCampaigns(id).map((c) => {
+  return crm.listCampaigns(id, !!includeArchived).map((c) => {
     const r = byId.get(c.id);
     const queued = r?.queued ?? 0;
     const ready = r?.ready ?? 0;
@@ -485,10 +485,10 @@ ipcMain.handle('campaigns:summaries', (_e, id: string) => {
     const processing = r?.processing ?? 0;
     const successful = r?.successful ?? 0;
     const failed = r?.failed ?? 0;
-    const status = campaignDisplayStatus({
+    const status = c.archived ? 'archived' : campaignDisplayStatus({
       active: c.active, actionCount: c.actions.length, paused: a.paused, runnerEnabled,
     }, { queued, ready, waiting, processing, successful, failed });
-    return { id: c.id, name: c.name, active: c.active, status,
+    return { id: c.id, name: c.name, active: c.active, archived: !!c.archived, status,
       actions: c.actions.length, contacts: r?.contacts ?? 0,
       queued, ready, waiting, processing, successful, failed };
   });
@@ -562,6 +562,39 @@ ipcMain.handle('campaigns:addCollection', (_e, id: string, campaignId: string, c
 
 ipcMain.handle('campaigns:setActive', (_e, id: string, campaignId: string, active: boolean) => {
   crms.get(account(id)).setCampaignActive(campaignId, active);
+});
+
+/** Arquivamento reversível com bloqueio de execução no momento da mudança. */
+ipcMain.handle('campaigns:archive', (_e, id: string, campaignId: string, archived: boolean) => {
+  account(id);
+  if (instances.get(id)?.schedulerRunning())
+    throw new Error('Pare o executor da conta para arquivar ou restaurar campanhas.');
+  const crm = crms.get(account(id));
+  crm.setCampaignArchived(campaignId, !!archived);
+  trace.record('campaign', archived ? 'archived' : 'restored', {}, { accountId:id, campaignId });
+  return {ok:true};
+});
+
+/** Duplicação apenas do fluxo: novas IDs, sem contatos ou ações históricas. */
+ipcMain.handle('campaigns:duplicate', (_e, id: string, campaignId: string) => {
+  const crm = crms.get(account(id));
+  const original = crm.loadCampaign(campaignId, id);
+  if (!original) throw new Error('Campanha não encontrada nesta conta.');
+  const cloned: Campaign = {
+    ...original,
+    id: randomUUID(), name: (original.name + ' — Cópia').slice(0, 150),
+    active:false, archived:false,
+    actions: original.actions.map((action) => ({
+      ...action, id:randomUUID(),
+      settings: structuredClone(action.settings),
+      continueOnFail: [...(action.continueOnFail || [])],
+      exclusions: [...(action.exclusions || [])],
+    })),
+  };
+  crm.saveCampaign(cloned);
+  trace.record('campaign', 'duplicated', { count: cloned.actions.length },
+    { accountId:id, campaignId: cloned.id });
+  return { campaignId: cloned.id };
 });
 
 // Empresas-alvo e comitê ------------------------------------------------------
