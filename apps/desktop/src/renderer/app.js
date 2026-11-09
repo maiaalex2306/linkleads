@@ -117,18 +117,25 @@ function topNav() {
 }
 
 // Visão da conta -------------------------------------------------------------------
+// Uma resposta IPC antiga jamais pode sobrescrever uma tela mais recente.
+let latestViewRender = 0;
 async function renderView() {
+  const renderId = ++latestViewRender;
   const view = document.getElementById('view');
+  const commitView = (...nodes) => {
+    if (renderId !== latestViewRender) return;
+    view.replaceChildren(...nodes);
+  };
   document.getElementById('layout').classList.toggle('is-launcher', state.screen === 'launcher');
   if (state.screen === 'launcher') {
-    return view.replaceChildren(await launcherView(await api.listAccounts()));
+    return commitView(await launcherView(await api.listAccounts()));
   }
-  if (state.tab === 'settings') return view.replaceChildren(await settingsView());
+  if (state.tab === 'settings') return commitView(await settingsView());
   const accounts = await api.listAccounts();
   const a = accounts.find((x) => x.id === state.accountId);
-  if (!a) return view.replaceChildren(h('p', { class: 'muted' }, 'Adicione uma conta para começar.'));
+  if (!a) return commitView(h('p', { class: 'muted' }, 'Adicione uma conta para começar.'));
 
-  if (state.mode === 'simple') return view.replaceChildren(await simpleView(a));
+  if (state.mode === 'simple') return commitView(await simpleView(a));
   const stats = await api.accountStats(a.id);
   const tabs = [
     ['campaigns', 'Campanhas'], ['collections', 'Coleções'],
@@ -184,7 +191,7 @@ async function renderView() {
   const body = state.tab === 'campaigns' && state.campaignId
     ? await campaignDetailView(a)
     : await ({ collections: collectionsView, campaigns: campaignsView, approvals: approvalsView, inbox: inboxView, companies: companiesView, signals: signalsView, deliveries: deliveriesView, diagnostics: diagnosticsView, activity: activityView }[state.tab] || campaignsView)(a);
-  view.replaceChildren(header, body);
+  commitView(header, body);
 }
 
 async function collectionsView(a) {
