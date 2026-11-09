@@ -18,6 +18,31 @@ const t = (key: string, label: string, kind: 'text' | 'textarea', initial = ''):
 
 export const ACTION_FIELDS: Record<string, ConfigField[]> = {
   VisitAndExtract: [],
+  LikeAndComment: [
+    // O executor atual possui prova E2E de 1 post por perfil. Não habilitar
+    // quantidades maiores ou artigos até implementar navegação e verificação.
+    n('likesPerProfile', 'Publicações para curtir por perfil (atual: 1)', 1, 1, 1),
+    n('likeArticlesCount', 'Artigos para curtir (indisponível nesta versão)', 0, 0, 0),
+    n('maxPostAgeDays', 'Ignorar publicações mais antigas que (dias)', 1, 365, 30),
+    c('includeReshares', 'Permitir repostagens do próprio autor', false),
+    c('commentEnabled', 'Adicionar comentário após a curtida confirmada', true),
+    select('commentMethod', 'Origem do comentário (IA homologada)', ['ai'], 'ai'),
+    select('mode', 'Aprovação do comentário', ['manual', 'auto'], 'manual'),
+    t('goal', 'Objetivo específico do comentário', 'textarea'),
+    { key: 'language', label: 'Idioma', kind: 'select', default: '',
+      options: [{ value: '', label: 'Mesmo idioma da publicação' },
+        { value: 'Português', label: 'Português' },
+        { value: 'English', label: 'Inglês' }, { value: 'Español', label: 'Espanhol' }] },
+    { key: 'length', label: 'Comprimento', kind: 'select', default: 'medium',
+      options: [{ value: 'short', label: 'Curto · 1–2 frases' },
+        { value: 'medium', label: 'Médio · 3–4 frases' },
+        { value: 'long', label: 'Longo · 5+ frases' }] },
+    { key: 'tone', label: 'Tom', kind: 'select', default: 'profissional',
+      options: [{ value: 'profissional', label: 'Profissional' },
+        { value: 'amigavel', label: 'Amigável' }, { value: 'casual', label: 'Casual' }] },
+    n('maxChars', 'Máximo de caracteres', 100, 1250, 400),
+    t('extraInstructions', 'Orientações adicionais da IA', 'textarea'),
+  ],
   LikePosts: [n('maxPostAgeDays', 'Idade máxima das publicações (dias)', 1, 365, 30),
     c('includeReshares', 'Incluir compartilhamentos', false)],
   CommentPost: [select('mode', 'Aprovação de comentários', ['manual', 'auto'], 'manual'),
@@ -115,6 +140,17 @@ export function validateCampaignWorkflow(
         throw new Error('Opção inválida: ' + field.label);
       if ((field.kind === 'text' || field.kind === 'textarea') &&
         (typeof v !== 'string' || v.length > 5000)) throw new Error('Texto inválido: ' + field.label);
+    }
+    if (a.type === 'LikeAndComment') {
+      const s = settings as Record<string, unknown>;
+      if (s.likesPerProfile !== undefined && s.likesPerProfile !== 1)
+        throw new Error('Esta versão suporta somente 1 publicação por perfil.');
+      if (s.likeArticlesCount !== undefined && s.likeArticlesCount !== 0)
+        throw new Error('Artigos ainda não possuem executor validado.');
+      if (s.commentMethod !== undefined && s.commentMethod !== 'ai')
+        throw new Error('Comentários por modelo ainda não homologados nesta etapa.');
+      if (s.commentEnabled && s.likesPerProfile === 0)
+        throw new Error('Só é possível comentar após curtir.');
     }
     if (a.type === 'SendInvite' && typeof (settings as Record<string, unknown>).template === 'string' &&
       ((settings as Record<string, unknown>).template as string).length > 300)
