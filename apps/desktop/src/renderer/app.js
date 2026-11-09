@@ -49,15 +49,19 @@ async function renderAccounts() {
       },
     },
       h('input', { name: 'label', placeholder: 'Nova conta (nome)', required: true, autocomplete: 'off' }),
-      h('input', { name: 'linkedinEmail', type: 'email', placeholder: 'E-mail do LinkedIn', autocomplete: 'off' }),
-      h('input', { name: 'linkedinPassword', type: 'password', placeholder: 'Senha do LinkedIn', autocomplete: 'new-password' }),
-      h('div', { class: 'muted', style: 'font-size:12px' }, 'A senha fica criptografada neste computador e serve só para entrar sozinho no LinkedIn.'),
-      h('select', { name: 'linkedinAge', title: 'Conta nova no LinkedIn começa devagar e sobe em ~6 semanas' },
-        h('option', { value: 'established' }, 'Conta do LinkedIn com mais de 1 ano'),
-        h('option', { value: 'new' }, 'Conta do LinkedIn nova (aquecimento)')),
-      h('div', { class: 'row' },
-        h('select', { name: 'tier' }, ...[['basic', 'Basic'], ['premium', 'Premium'], ['sales_navigator', 'Sales Navigator'], ['recruiter', 'Recruiter']].map(([v, l]) => h('option', { value: v }, l))),
-        h('button', { class: 'primary' }, 'Adicionar')),
+      h('p',{class:'muted'},'Depois de cadastrar, abra o LinkedIn e faça login na janela da conta.'),
+      h('details',{class:'account-onboarding-advanced'},
+        h('summary',{},'Opções avançadas (opcional)'),
+        h('input',{name:'linkedinEmail',type:'email',placeholder:'E-mail do LinkedIn',autocomplete:'off'}),
+        h('input',{name:'linkedinPassword',type:'password',placeholder:'Senha do LinkedIn',autocomplete:'new-password'}),
+        h('p',{class:'muted'},'Prefira login manual. A senha opcional é criptografada neste computador.'),
+        h('select',{name:'linkedinAge'},
+          h('option',{value:'established'},'Conta estabelecida'),
+          h('option',{value:'new'},'Conta nova')),
+        h('select',{name:'tier'},...[['basic','Basic'],['premium','Premium'],
+          ['sales_navigator','Sales Navigator'],['recruiter','Recruiter']]
+          .map(([v,l])=>h('option',{value:v},l)))),
+      h('button',{class:'primary'},'Cadastrar conta')
     );
     listBox = h('div', { class: 'account-list' });
     const addBtn = h('button', { class: 'link add-account', onclick: () => { state.newAccountOpen = !state.newAccountOpen; renderAccounts(); } }, '+ Adicionar conta');
@@ -144,18 +148,10 @@ async function renderView() {
     ? await api.accountStats(a.id) : null;
   if (seq !== workspaceRenderSequence) return;
 
-  const navigation = [
-    ['campaigns','Campanhas'],['approvals','Aprovações'],
-    ['inbox','Mensagens'],['activity','Atividade'],
-  ];
-  const advanced = [['collections','Base de leads'],['companies','Empresas'],
-    ['signals','Sinais'],['deliveries','Entregas'],['diagnostics','Diagnóstico']];
-  if (advanced.some(([tab]) => state.tab===tab)) navigation.push(...advanced);
-
   const openAccountSettings = (key) => {
-    state.accountToolsOpen = true;
-    state[key] = !state[key];
-    renderView();
+    const next=!state[key];
+    for(const item of ['loginOpen','limitsOpen','proxyOpen','hoursOpen'])state[item]=false;
+    state.accountToolsOpen=true;state[key]=next;renderView();
   };
   const actions = h('div',{class:'row account-actions'},
     h('button',{onclick:async()=>{await safe(()=>api.openBrowser(a.id));await refresh();}},
@@ -201,9 +197,7 @@ async function renderView() {
       state.proxyOpen && proxyPanel(a,()=>{state.proxyOpen=false;renderView();})),
     state.tab==='activity' && stats && h('div',{class:'account-diagnostics stack'},
       h('div',{id:'health-box'},healthBar(stats)), scheduleBanner(a), livePanel(a)),
-    !state.campaignId && h('div',{class:'tabs simple-tabs'},
-      ...navigation.map(([tab,label])=>h('button',{class:state.tab===tab?'sel':'',
-        onclick:()=>{state.tab=tab;state.campaignId=null;renderView();}},label))));
+    null /* menu somente na lateral */);
   const body=state.tab==='campaigns' && state.campaignId
     ? await campaignDetailView(a)
     : await ({collections:collectionsView,campaigns:campaignsView,
