@@ -92,7 +92,13 @@ try {
   await ui.evaluate(() => window.linkleads.onLog((e) => window.__log(e.line)));
   await ui.locator('.account-list').getByText('Alexandre').click();
   await ui.getByRole('button', { name: /Login do LinkedIn/ }).click();
-  await ui.getByPlaceholder('•••••• (senha salva)').fill(site.state.loginPassword);
+  const passwordField = ui.getByPlaceholder('•••••• (senha salva)');
+  const reveal = passwordField.locator('..').getByRole('button', { name: 'Mostrar senha' });
+  await reveal.click();
+  check(await passwordField.getAttribute('type') === 'text', 'usuário pode visualizar a senha digitada');
+  await passwordField.locator('..').getByRole('button', { name: 'Ocultar senha' }).click();
+  check(await passwordField.getAttribute('type') === 'password', 'usuário pode ocultar a senha novamente');
+  await passwordField.fill(site.state.loginPassword);
   await ui.screenshot({ path: join(shots, 'login-painel.png') });
   await ui.getByRole('button', { name: 'Salvar', exact: true }).click();
   const back = await waitFor(async () => (await accountUrl()).endsWith('/feed/'));
