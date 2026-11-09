@@ -87,15 +87,27 @@ async function runNowExplained(a) {
 
 /** Resultado da última importação (fica na tela até a próxima). */
 function importReportCard(r, onClose) {
-  const reasons = Object.entries(r.reasons || {}).sort((x, y) => y[1] - x[1]);
-  return h('div', { class: 'card stack' },
-    h('div', { class: 'row' }, h('strong', { style: 'flex:1' }, `Importação de "${r.name}"`), h('button', { class: 'link', onclick: onClose }, 'fechar')),
-    h('div', {}, `${r.rows} linha(s) lidas · ${r.valid} com perfil válido · ${r.added} pessoa(s) nova(s) na coleção` + (r.reused ? ' (coleção já existia: completada, sem duplicar)' : '')),
-    reasons.length > 0 && h('div', { class: 'stack' },
-      h('div', { style: 'color:var(--warn)' }, `${r.rows - r.valid} linha(s) ficaram de fora:`),
-      h('ul', { style: 'margin:0' }, ...reasons.map(([why, n]) => h('li', {}, `${n} × ${why}`))),
-      h('details', {}, h('summary', { class: 'muted' }, 'Ver as primeiras linhas descartadas'),
-        h('div', { class: 'muted' }, (r.skipped || []).map((s) => `linha ${s.line}: ${s.reason}`).join(' · ')))),
-    r.customColumns?.length > 0 && h('div', { class: 'muted' }, `Colunas extras (viram variáveis {{custom.coluna}}): ${r.customColumns.join(', ')}`),
-  );
+  const rejected = Math.max(0, Number(r.rows || 0) - Number(r.valid || 0));
+  const reasons = Object.entries(r.reasons || {}).sort((a, b) => b[1] - a[1]);
+  const details = h('details', { class: 'import-details' },
+    h('summary', {}, 'Detalhes técnicos da importação'),
+    rejected && h('div', { class: 'muted' }, rejected + ' linha(s) descartadas'),
+    ...reasons.map(([reason, count]) => h('div', { class: 'muted' }, count + ' × ' + reason)),
+    r.skipped?.length && h('details', {},
+      h('summary', {}, 'Consultar linhas rejeitadas'),
+      ...r.skipped.map((line) => h('div', { class: 'muted' }, 'Linha ' + line.line + ': ' + line.reason))),
+    r.customColumns?.length && h('div', { class: 'muted' },
+      r.customColumns.length + ' colunas adicionais preservadas para personalização; ' +
+      'seus nomes não ocupam mais a tela principal.'));
+  return h('section', { class: 'card import-summary' },
+    h('div', { class: 'import-summary-head' },
+      h('span', { class: 'import-success' }, '✓ Importação concluída'),
+      h('button', { class: 'link', onclick: onClose, 'aria-label': 'Fechar resultado da importação' }, 'Fechar')),
+    h('strong', { class: 'import-filename', title: r.name }, r.name),
+    h('div', { class: 'import-stats' },
+      h('span', {}, Number(r.valid || 0) + ' perfis válidos'),
+      h('span', {}, Number(r.added || 0) + ' novos leads'),
+      rejected && h('span', {}, rejected + ' descartados')),
+    h('p', { class: 'muted' }, 'Sua lista está disponível abaixo. Marque a lista e crie uma campanha.'),
+    details);
 }
