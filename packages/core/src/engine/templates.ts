@@ -13,7 +13,7 @@ export interface EngagementCampaignOptions {
   maxPostAgeDays?: number;
 }
 
-/** Campanha pronta: uma única ação de curtir e comentar. */
+/** Campanha pronta: visita/extrai → UMA ação composta de curtir e comentar. */
 export function engagementCampaign(o: EngagementCampaignOptions): Campaign {
   return {
     id: o.id,
@@ -21,6 +21,10 @@ export function engagementCampaign(o: EngagementCampaignOptions): Campaign {
     name: o.name,
     active: false,
     actions: [
+      // A coleta de dados do perfil continua uma etapa independente;
+      // curtir e comentar são uma ÚNICA ação composta.
+      { id: `${o.id}-visit`, type: 'VisitAndExtract', name: 'Visitar e extrair perfil',
+        coolDown: 0, maxResults: -1, settings: {} },
       {
         id: `${o.id}-engage`, type: 'LikeAndComment',
         name: 'Curtir e comentar publicações e artigos',
