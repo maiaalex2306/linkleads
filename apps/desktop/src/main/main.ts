@@ -407,7 +407,9 @@ ipcMain.handle('campaigns:detail', (_e, id: string, campaignId: string) => {
   const crm = crms.get(account(id));
   const campaign = crm.loadCampaign(campaignId, id);
   if (!campaign) throw new Error('Campanha não encontrada nesta conta');
-  return { ...campaign, people: crm.campaignPeople(campaign) };
+  const saved = crm.db.prepare('SELECT COUNT(*) AS n FROM campaign_action_people WHERE campaign_id=?').get(campaignId) as { n: number };
+  const logged = crm.db.prepare('SELECT COUNT(*) AS n FROM action_log WHERE campaign_id=?').get(campaignId) as { n: number };
+  return { ...campaign, people: crm.campaignPeople(campaign), hasHistory: saved.n + logged.n > 0 };
 });
 
 /**
