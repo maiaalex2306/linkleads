@@ -36,7 +36,7 @@ jobs:
       matrix:
         include:
           - name: Campanha e sequência
-            suite: "run sequence"
+            suite: "run sequence withdraw"
           - name: Decisão e integrações
             suite: "decision integrations"
           - name: Equipe e diagnóstico

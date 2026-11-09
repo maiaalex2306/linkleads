@@ -1,10 +1,6 @@
 import { ACTION_CATALOG, type ActionConfig, type Campaign } from '@linkleads/core';
-
-export const EXECUTABLE_TYPES = [
-  'VisitAndExtract', 'LikePosts', 'CommentPost', 'SendInvite', 'CheckConnection',
-  'WithdrawInvite', 'MessageToPerson', 'IcpFilter', 'MonitorSignals', 'ExtractEmail',
-  'EnrichProfile', 'SendToCrm', 'SendToWebhook',
-] as const;
+import { EXECUTABLE_TYPES } from './campaign-executors.js';
+export { EXECUTABLE_TYPES } from './campaign-executors.js';
 const executable = new Set<string>(EXECUTABLE_TYPES);
 export type ConfigField = {
   key: string; label: string; kind: 'number' | 'checkbox' | 'select' | 'text' | 'textarea';
