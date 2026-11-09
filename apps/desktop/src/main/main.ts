@@ -702,6 +702,21 @@ ipcMain.handle('accounts:stats', (_e, id: string) => {
 
 // Inbox ------------------------------------------------------------------------
 ipcMain.handle('inbox:list', (_e, id: string, onlyUnhandled?: boolean) => crms.get(account(id)).inbox(!!onlyUnhandled));
+/** Conversas de pessoas da campanha (atribuição do envio ainda não persistida). */
+ipcMain.handle('campaigns:inbox', (_e, id: string, campaignId: string) => {
+  const crm = crms.get(account(id));
+  const camp = crm.loadCampaign(campaignId, id);
+  if (!camp) throw new Error('Campanha não encontrada nesta conta.');
+  const people = crm.db.prepare(
+    'SELECT DISTINCT person_id FROM campaign_action_people WHERE campaign_id=?'
+  ).all(campaignId) as Array<{ person_id: string }>;
+  const members = new Set(people.map((r) => r.person_id));
+  return {
+    replies: crm.inbox(false).filter((entry) => members.has(entry.personId)),
+    drafts: crm.listDrafts('pending').filter((d) => d.campaignId === campaignId),
+    attribution: 'Vínculo por participante, sem prova de que cada mensagem foi enviada por esta campanha.',
+  };
+});
 ipcMain.handle('inbox:thread', (_e, id: string, personId: string) => crms.get(account(id)).thread(personId));
 ipcMain.handle('inbox:markHandled', (_e, id: string, personId: string) => crms.get(account(id)).markHandled(personId));
 ipcMain.handle('instance:checkInbox', (_e, id: string) => instances.require(id).checkInbox(true));

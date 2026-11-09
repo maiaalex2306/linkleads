@@ -69,6 +69,7 @@ contextBridge.exposeInMainWorld('linkleads', {
   addCollectionToCampaign: invoke('campaigns:addCollection'),
   accountStats: invoke('accounts:stats'),
   listInbox: invoke('inbox:list'),
+  campaignInbox: invoke('campaigns:inbox'),
   inboxThread: invoke('inbox:thread'),
   markHandled: invoke('inbox:markHandled'),
   checkInbox: invoke('instance:checkInbox'),

@@ -255,6 +255,47 @@ async function detailLists(a, c) {
           onclick:()=>{state.campaignPage=page+1;renderView();} }, 'Próxima →'))));
 }
 
+async function detailInbox(a, c) {
+  const data = await api.campaignInbox(a.id, c.id);
+  return h('div', { class:'stack' },
+    h('div', { class:'workspace-metrics' },
+      metricBox('Contatos com resposta', data.replies.length),
+      metricBox('Rascunhos pendentes', data.drafts.length)),
+    h('div', { class:'wb-notice' }, data.attribution),
+    h('div', { class:'card stack' },
+      h('div', { class:'row' },
+        h('strong', { style:'flex:1' }, 'Respostas dos contatos desta campanha'),
+        h('button', { onclick:()=>{ state.tab='inbox';state.campaignId=null;renderView(); } },
+          'Abrir Inbox da conta')),
+      !data.replies.length && h('p',{class:'muted'},'Nenhuma resposta vinculada aos contatos desta campanha.'),
+      ...data.replies.map((it)=>{
+        const thread=h('div',{class:'thread'});
+        return h('div',{class:'workspace-inbox-row'},
+          h('div',{class:'row'},
+            h('strong',{style:'flex:1'},it.name),
+            h('span',{class:'muted'},it.unhandled+' não tratada(s)')),
+          h('p',{class:'muted'},it.lastInbound?.body?.slice(0,400) || ''),
+          h('button',{onclick:async()=>{
+            if(thread.childElementCount) {thread.replaceChildren();return;}
+            const msgs=await api.inboxThread(a.id,it.personId);
+            thread.replaceChildren(...msgs.map((x)=>h('div',{class:'bubble '+x.direction},x.body)));
+          }},'Ver conversa'),
+          thread);
+      })),
+    h('div',{class:'card stack'},
+      h('div',{class:'row'},
+        h('strong',{style:'flex:1'},'Textos aguardando aprovação'),
+        h('button',{onclick:()=>{state.tab='approvals';state.campaignId=null;renderView();}},
+          'Revisar aprovações')),
+      !data.drafts.length && h('p',{class:'muted'},'Nenhum rascunho pendente nesta campanha.'),
+      ...data.drafts.map((draft)=>h('div',{class:'workspace-inbox-row'},
+        h('strong',{},draft.personName || 'Contato'),
+        h('span',{class:'muted'},draft.kind),
+        h('div',{class:'muted'},'Texto preparado: revisão necessária na aba Aprovações.')))),
+    h('p',{class:'muted'},
+      'Mensagens agendadas, sem agendamento, falhas de envio e enviadas com atribuição exclusiva por campanha exigem um ledger de mensagens próprio; ainda não estão disponíveis nesta aba.'));
+}
+
 function detailDashboard(c) {
   const failed = campaignCount(c, 'failed');
   const success = campaignCount(c, 'successful');
@@ -305,7 +346,7 @@ async function campaignDetailView(a) {
   }
   if (state.campaignId !== requested || state.accountId !== a.id) return h('div');
   const sections = [['info','Informações'], ['workflow','Fluxo de trabalho'],
-    ['lists','Listas'], ['dashboard','Painel'], ['statistics','Estatísticas']];
+    ['lists','Listas'], ['inbox','Inbox da campanha'], ['dashboard','Painel'], ['statistics','Estatísticas']];
   const selected = sections.some(([id]) => id === state.campaignTab) ? state.campaignTab : 'info';
   return h('div', { class: 'stack workspace-campaign' },
     h('div', { class: 'row' },
@@ -327,6 +368,7 @@ async function campaignDetailView(a) {
     selected === 'info' ? detailInfo(a, c)
       : selected === 'workflow' ? await detailWorkflow(a, c)
       : selected === 'lists' ? await detailLists(a, c)
+      : selected === 'inbox' ? await detailInbox(a, c)
       : selected === 'dashboard' ? detailDashboard(c)
       : detailStatistics(c));
 }
