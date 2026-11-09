@@ -53,7 +53,7 @@ jobs:
           - name: Equipe e diagnóstico
             suite: "team diagnostics"
           - name: Prospecção e Sales Navigator
-            suite: "prospecting salesnav comment-duplicate"
+            suite: "prospecting salesnav comment-duplicate unified-engagement"
           - name: Login e limites
             suite: "login limits"
           - name: Launcher e workspace por conta
