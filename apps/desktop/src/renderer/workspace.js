@@ -253,15 +253,13 @@ async function detailWorkflow(a, c) {
         return h('section', { class: 'workflow-node card' },
           h('div', { class: 'row' },
             h('span', { class: 'workflow-num' }, String(i + 1)),
-            h('div', { style: 'flex:1' },
-              h('strong', {}, action.name),
-              h('div', { class: 'muted' }, action.type)),
-            action.waitHours ? h('span', { class: 'badge' }, '+' + action.waitHours + ' h') : ''),
+            h('div', { style: 'flex:1' },h('strong', {}, action.name)),
+            action.waitHours ? h('span', { class: 'badge' }, 'Espera ' + action.waitHours + ' h') : ''),
           h('div', { class: 'workflow-counts' },
-            h('span', {}, 'Fila: ' + count.queued),
-            h('span', {}, 'Processando: ' + count.processed),
-            h('span', {}, 'Sucesso: ' + count.success),
-            h('span', {}, 'Falha: ' + count.fail)));
+            h('span', {}, count.queued + ' na fila'),
+            h('span', {}, count.success + ' concluídas'),
+            count.processed>0 && h('span', {}, count.processed + ' em andamento'),
+            count.fail>0 && h('span', {class:'campaign-error-count'},count.fail + ' falhas')));
       })));
 }
 
