@@ -58,8 +58,9 @@ function Run-Step([string]$name, [string]$exe, [string[]]$arguments) {
 Push-Location $root
 try {
   if (-not $SkipInstall) { Run-Step 'npm-ci' 'npm.cmd' @('ci') }
+  # Testes primeiro: o pretest deve construir dependencias mesmo sem dist local.
+  Run-Step 'unit-tests-clean' 'npm.cmd' @('test')
   Run-Step 'typecheck' 'npm.cmd' @('run','typecheck')
-  Run-Step 'unit-tests' 'npm.cmd' @('test')
   Run-Step 'build' 'npm.cmd' @('run','build')
   if (-not $SkipBundle) {
     Run-Step 'bundle-electron' 'npm.cmd' @('run','bundle','-w','@linkleads/desktop')

@@ -8,6 +8,7 @@
     "build": "tsc -p tsconfig.json && node -e \"require('fs').cpSync('src/renderer','dist/renderer',{recursive:true})\" && node scripts/build-info.cjs",
     "dev": "electron .",
     "dev:build": "npm run build && electron .",
+    "pretest": "npm run build:deps --prefix ../..",
     "test": "vitest run test",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "bundle": "node scripts/bundle.mjs",

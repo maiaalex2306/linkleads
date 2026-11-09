@@ -9,6 +9,8 @@
     "apps/*"
   ],
   "scripts": {
+    "build:deps": "tsc -b packages/core packages/db packages/ai packages/integrations",
+    "pretest": "npm run build:deps",
     "build": "npm run build -w @linkleads/core -w @linkleads/db -w @linkleads/ai -w @linkleads/integrations -w @linkleads/server -w @linkleads/desktop",
     "test": "npm test -w @linkleads/core -w @linkleads/db -w @linkleads/ai -w @linkleads/integrations -w @linkleads/server -w @linkleads/desktop",
     "typecheck": "tsc -b packages/core packages/db packages/ai packages/integrations && npm run typecheck -w @linkleads/desktop",

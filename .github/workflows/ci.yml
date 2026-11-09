@@ -17,8 +17,10 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # A primeira operação após instalar deve funcionar sem dist pré-existente.
+      - name: Testar workspace em checkout limpo
+        run: npm test
       - run: npm run typecheck
-      - run: npm test
       - run: npm run build
       - name: Verificar sintaxe de todas as telas JavaScript
         run: |
