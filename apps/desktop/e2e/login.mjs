@@ -116,6 +116,16 @@ try {
   await ui.waitForTimeout(15_000);
   check(site.state.logins.length - n0 === 1, 'senha recusada: tenta uma vez e não insiste nos ciclos seguintes', { n: site.state.logins.length - n0, last: logs.slice(-6) });
   check(logs.some((l) => /não tenta de novo com a mesma senha|recusou o login/.test(l)), 'avisa que a senha foi recusada');
+
+  // Trocar de identidade sem fornecer nova senha nunca reutiliza o segredo antigo.
+  // Ajustar apenas maiúsculas/minúsculas no mesmo e-mail, por outro lado, preserva a credencial.
+  await call('setLogin', acc.id, { email: site.state.loginEmail.toUpperCase() });
+  check((await call('listAccounts')).find((a) => a.id === acc.id).hasLinkedinPassword,
+    'normalizar o mesmo e-mail mantém a senha salva');
+  await call('setLogin', acc.id, { email: 'outra-conta@example.invalid' });
+  const switched = (await call('listAccounts')).find((a) => a.id === acc.id);
+  check(switched.linkedinEmail === 'outra-conta@example.invalid' && !switched.hasLinkedinPassword,
+    'troca de e-mail exige nova senha e nunca tenta autenticar com a senha anterior');
   console.log(process.exitCode ? 'E2E LOGIN FALHOU' : 'E2E LOGIN OK');
 } catch (e) {
   console.error(e);
