@@ -82,14 +82,22 @@ export const ACTION_FIELDS: Record<string, ConfigField[]> = {
 };
 
 export function actionCatalogForEditor() {
-  return ACTION_CATALOG.map((action) => ({
-    ...action,
-    available: executable.has(action.type),
-    fields: ACTION_FIELDS[action.type] ?? [],
-    information: executable.has(action.type)
-      ? 'Executor disponível no aplicativo. Requer validação antes de executar no LinkedIn.'
-      : 'Planejada: não existe executor operacional para esta ação. Não pode ser adicionada.',
-  }));
+  return ACTION_CATALOG.map((action) => {
+    const legacy = action.type === 'LikePosts' || action.type === 'CommentPost';
+    return {
+      ...action,
+      legacy,
+      // Os dois executores legados continuam para histórico, mas não são
+      // oferecidos em campanhas novas: uma única ação para curtir e comentar.
+      available: !legacy && executable.has(action.type),
+      fields: ACTION_FIELDS[action.type] ?? [],
+      information: legacy
+        ? 'Etapa legada de engajamento. Use a ação única Curtir e comentar publicações e artigos.'
+        : executable.has(action.type)
+          ? 'Executor disponível no aplicativo. Requer validação antes de executar no LinkedIn.'
+          : 'Planejada: não existe executor operacional para esta ação. Não pode ser adicionada.',
+    };
+  });
 }
 
 const SAFE_CONTINUE = new Set(['NO_POST','AI_SKIPPED','ALREADY_CONNECTED','ICP_REJECTED']);
@@ -117,6 +125,8 @@ export function validateCampaignWorkflow(
   for (const a of next.actions) {
     const old = existing.get(a.id);
     if (old && old.type !== a.type) throw new Error('Não é permitido trocar o tipo de uma etapa existente.');
+    if (!old && (a.type === 'LikePosts' || a.type === 'CommentPost'))
+      throw new Error('Ações antigas de curtir/comentar não podem ser adicionadas. Utilize LikeAndComment.');
     if (!old && !executable.has(a.type))
       throw new Error('Ação sem executor disponível: ' + a.type);
     if (!ACTION_CATALOG.some((def) => def.type === a.type))
