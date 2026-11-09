@@ -59,7 +59,7 @@ try {
   await ui.getByRole('button', { name: '▶ Criar campanha e começar' }).click();
   await ui.getByText(/Onde estão as 2 pessoas/).waitFor({ timeout: 30_000 });
   const [camp] = await call('listCampaigns', acc.id);
-  check(camp.active && camp.actions[0].type === 'LikePosts', 'campanha criada, ativa, começando por curtir', camp.actions.map((a) => a.type));
+  check(camp.active && camp.actions[0].type === 'LikeAndComment', 'campanha criada, ativa, começando por curtir', camp.actions.map((a) => a.type));
   check(camp.actions.find((a) => a.type === 'SendInvite').settings.template === '{{custom.MSG-CONEXÃO}}' && camp.actions.filter((a) => a.type === 'MessageToPerson').length === 2, 'convite e mensagens vindos da planilha');
   check((await call('listAccounts'))[0].running, 'LinkedIn aberto e trabalhando sem precisar de outro clique');
   await ui.locator('#live-box .now').first().waitFor();

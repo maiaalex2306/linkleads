@@ -54,6 +54,8 @@ jobs:
             suite: "team diagnostics"
           - name: Prospecção e Sales Navigator
             suite: "prospecting salesnav comment-duplicate"
+          - name: Curtir e comentar — ação única
+            suite: "unified-engagement"
           - name: Login e limites
             suite: "login limits"
           - name: Launcher e workspace por conta
@@ -112,8 +114,9 @@ jobs:
           powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\homologar-linkleads.ps1 -SkipE2E -SkipBundle
 
   windows-e2e-smoke:
-    name: Windows Electron E2E — login, limites e decisão
-    needs: checks
+    name: Windows Electron E2E — login, limites, decisão e engajamento
+    # Teste nativo independente do runner Linux (sem contornar checks para a release).
+    needs: windows-homologator
     runs-on: windows-latest
     timeout-minutes: 25
     steps:
@@ -128,7 +131,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          foreach ($suite in @('login', 'limits', 'decision')) {
+          foreach ($suite in @('unified-engagement', 'login', 'limits', 'decision')) {
             Write-Host "E2E Windows: $suite"
             & node "apps/desktop/e2e/$suite.mjs"
             if ($LASTEXITCODE -ne 0) { throw "E2E Windows reprovado: $suite (exit $LASTEXITCODE)" }

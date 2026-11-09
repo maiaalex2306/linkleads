@@ -19,6 +19,21 @@ describe('IntegrationCrm', () => {
     expect(crm.listDeliveries()[0]).toMatchObject({ status: 'delivered', attempts: 3, lastError: null });
   });
 
+  it('comentário da ação composta usa URN exato, mesmo com outras curtidas no mesmo segundo', () => {
+    const crm = new IntegrationCrm(openAccountDb(':memory:'), 'UTC');
+    crm.upsertPerson({ id: 'ana', publicId: 'ana', firstName: 'Ana' });
+    const a = 'urn:li:activity:111111111111';
+    const b = 'urn:li:activity:222222222222';
+    crm.savePost('ana', { url: a, text: 'Post A', hasMedia: false });
+    crm.savePost('ana', { url: b, text: 'Post B', hasMedia: false });
+    crm.markPostLiked(a);
+    crm.markPostLiked(b);
+    expect(crm.lastLikedPost('ana', a)?.url).toBe(a);
+    expect(crm.lastLikedPost('ana', b)?.url).toBe(b);
+    expect(crm.lastLikedPost('outra', a)).toBeUndefined();
+    expect(crm.lastLikedPost('ana', 'urn:li:activity:333333333333')).toBeUndefined();
+  });
+
   it('ids externos e exportação', () => {
     const crm = new IntegrationCrm(openAccountDb(':memory:'), 'UTC');
     crm.createCollection('col', 'Lista', 'csv');

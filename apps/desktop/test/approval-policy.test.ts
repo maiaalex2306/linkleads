@@ -26,6 +26,15 @@ describe('aprovação manual não contorna regras do executor', () => {
   ] as const)('bloqueia envio sem pré-condição %j', (changes, error) => {
     expect(() => assertApprovalSafe({ ...state(), ...changes })).toThrow(error);
   });
+  it('aceita comentário da ação unificada e mantém todas as travas de segurança', () => {
+    const s: ApprovalSafetyState = { ...state(), kind: 'comment',
+      actionType: 'LikeAndComment', postId: 'urn:li:activity:7001' };
+    expect(() => assertApprovalSafe(s)).not.toThrow();
+    expect(() => assertApprovalSafe({ ...s, accountPaused: true })).toThrow(/pausada/);
+    expect(() => assertApprovalSafe({ ...s, actionType: 'SendInvite' })).toThrow(/Rascunho sem ação/);
+    expect(() => assertApprovalSafe({ ...s, remaining: 0 })).toThrow(/Limite de ações/);
+    expect(() => assertApprovalSafe({ ...s, postId: 'll-idx-0' })).toThrow(/canônico/);
+  });
   it('comentário exige post canônico em vez de ll-idx-0', () => {
     expect(() => assertApprovalSafe({ ...state(), kind: 'comment', actionType: 'CommentPost', postId: 'll-idx-0' }))
       .toThrow(/canônico/);

@@ -42,7 +42,7 @@ try {
   await call('openBrowser', acc.id);
   for (let attempt=0; attempt<3; attempt++) await call('runNow', acc.id);
   const current = (await call('listCampaigns', acc.id))[0].people;
-  const p = current.find((person) => person.actionName?.includes('Comentar'));
+  const p = current.find((person) => person.actionName?.includes('Curtir e comentar'));
   if (!site.state.liked) throw Error('Curtir não foi executado na fixture');
   if (!p || p.status !== 'failed' || p.reason !== 'NO_REAL_EFFECT' ||
       !/idêntico/.test(p.message || ''))

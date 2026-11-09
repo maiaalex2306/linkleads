@@ -44,14 +44,13 @@ describe('CSV', () => {
 describe('aprovação humana', () => {
   it('comentário fica pendente e avança após aprovação', async () => {
     const campaign = { ...engagementCampaign({ id: 'c', accountId: 'acc', name: 'Engajar', commentMode: 'manual' }), active: true };
-    const [, like, comment] = campaign.actions;
+    const [, engagement] = campaign.actions;
     const store = new InMemoryCampaignStore();
     store.addPerson({ id: 'p1' });
-    store.enqueue('c', like!.id, 'p1');
+    store.enqueue('c', engagement!.id, 'p1');
 
     const executors = new ExecutorRegistry()
-      .register({ type: 'LikePosts', execute: async () => ({ ok: true }), verify: async () => true })
-      .register({ type: 'CommentPost', execute: async () => ({ ok: false, reason: 'AWAITING_APPROVAL' }) });
+      .register({ type: 'LikeAndComment', execute: async () => ({ ok: false, reason: 'AWAITING_APPROVAL', data: { usageKeys: ['likes'] } }) });
     const account: Account = {
       id: 'acc', label: 'x', tier: 'basic', paused: false, onboardedAt: '2026-01-01T00:00:00Z',
       workingHours: { timezone: 'America/Sao_Paulo', days: [1, 2, 3, 4, 5], start: '09:00', end: '18:00' },
@@ -60,12 +59,12 @@ describe('aprovação humana', () => {
     const r = await runner.tick(campaign, account);
 
     expect(r.awaitingApproval).toBe(1);
-    expect(store.statusOf('c', comment!.id, 'p1')).toMatchObject({ status: 'processed', reason: 'AWAITING_APPROVAL' });
+    expect(store.statusOf('c', engagement!.id, 'p1')).toMatchObject({ status: 'processed', reason: 'AWAITING_APPROVAL' });
     // não é reprocessado no próximo tick
-    expect(store.listQueued('c', comment!.id, -1)).toHaveLength(0);
+    expect(store.listQueued('c', engagement!.id, -1)).toHaveLength(0);
 
-    resolveApproval(store, campaign, comment!.id, 'p1', { executed: true });
-    expect(store.statusOf('c', comment!.id, 'p1')?.status).toBe('successful');
+    resolveApproval(store, campaign, engagement!.id, 'p1', { executed: true });
+    expect(store.statusOf('c', engagement!.id, 'p1')?.status).toBe('successful');
   });
 });
 

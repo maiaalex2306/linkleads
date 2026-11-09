@@ -78,7 +78,7 @@ try {
   await call('startInstance', acc.id);
   await new Promise((r) => setTimeout(r, 3000));
 
-  // 3 ciclos: visitar → curtir → comentar (cada etapa entra na fila da seguinte)
+  // Uma única etapa: curtir, confirmar e preparar comentário para aprovação
   for (let i = 0; i < 3; i++) await call('runNow', acc.id);
 
   const [c] = await call('listCampaigns', acc.id);
