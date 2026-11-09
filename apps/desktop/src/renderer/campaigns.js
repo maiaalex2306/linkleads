@@ -338,8 +338,8 @@ async function campaignsView(a) {
         h('button', {
           disabled: a.paused && !c.active,
           onclick: async () => {
-            const result = await safe(() => api.setCampaignActive(a.id, c.id, !c.active));
-            if (result !== undefined) await renderView();
+            await safe(() => api.setCampaignActive(a.id, c.id, !c.active));
+            await renderView();
           },
         }, c.active ? 'Parar campanha' : 'Ativar campanha')))));
   const searchInput = h('input', {
