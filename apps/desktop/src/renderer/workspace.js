@@ -208,24 +208,31 @@ function campaignActionStats(c, action) {
 }
 function detailInfo(a, c) {
   return h('div', { class: 'stack' },
-    h('div', { class: 'workspace-metrics' },
-      metricBox('Contatos cadastrados na campanha', c.stats?.contacts ?? new Set(c.people.map((p) => p.personId || p.id || p.name)).size),
-      metricBox('Etapas na fila', campaignCount(c, 'queued')),
-      metricBox('Etapas bem-sucedidas', campaignCount(c, 'successful')),
-      metricBox('Falhas registradas', campaignCount(c, 'failed'))),
-    h('div', { class: 'card stack' },
-      h('strong', {}, 'Informações da campanha'),
-      h('div', {}, h('b', {}, 'Nome: '), c.name),
-      h('div', {}, h('b', {}, 'Conta: '), a.label),
-      h('div', {}, h('b', {}, 'Situação: '), c.archived ? 'Arquivada' : c.active ? 'Ativa na fila do executor' : 'Parada'),
-      h('div', {}, h('b', {}, 'Etapas: '), c.actions.length),
-      h('div', { class: 'muted' }, 'Ativar a campanha não inicia automaticamente o navegador. A execução depende do comando separado "Iniciar campanhas".')),
-    h('div', { class: 'card stack' },
-      h('strong', {}, 'Próximas ações'),
-      h('div', { class: 'row' },
-        h('button', { onclick: () => { state.campaignTab = 'workflow'; renderView(); } }, 'Ver fluxo de trabalho'),
-        h('button', { onclick: () => { state.campaignTab = 'lists'; renderView(); } }, 'Consultar listas'),
-        h('button', { onclick: () => { state.campaignTab = 'statistics'; renderView(); } }, 'Ver estatísticas'))));
+    h('div', { class:'card stack campaign-getting-started' },
+      h('strong', {}, 'Preparar esta campanha'),
+      h('p', { class:'muted' }, 'Complete as etapas abaixo. Você só precisa configurar opções avançadas quando sua campanha exigir.'),
+      h('div', { class:'setup-steps' },
+        h('button', { class:'setup-step',
+          onclick:()=>{state.campaignTab='workflow';state.editCampaign=true;renderView();} },
+          h('span', { class:'setup-number' }, c.actions.length ? '✓' : '1'),
+          h('span',{},h('strong',{},'Configurar as ações'),
+            h('small',{class:'muted'},c.actions.length ? c.actions.length+' ações configuradas' : 'Escolha o que o LINKLEADS fará')),
+          h('span',{},'Editar etapas')),
+        h('button', { class:'setup-step',
+          onclick:()=>{state.campaignTab='lists';renderView();} },
+          h('span',{class:'setup-number'},(c.stats?.contacts||0)>0?'✓':'2'),
+          h('span',{},h('strong',{},'Adicionar leads'),
+            h('small',{class:'muted'},(c.stats?.contacts||0)>0 ? c.stats.contacts+' leads importados' : 'Importe CSV nesta campanha')),
+          h('span',{},'Importar leads')),
+        h('div',{class:'setup-step passive'},
+          h('span',{class:'setup-number'},'3'),
+          h('span',{},h('strong',{},'Iniciar e acompanhar'),
+            h('small',{class:'muted'},'Inicie apenas depois de preparar a campanha e validar o login')))),
+      h('div',{class:'muted'},'Conta: '+a.label+' · Os dados e o histórico existentes são preservados.')),
+    h('div',{class:'card row campaign-next-link'},
+      h('div',{style:'flex:1'},h('strong',{},'Resultados da campanha'),
+        h('p',{class:'muted'},'Acompanhe a execução, os contatos concluídos e as falhas em um só lugar.')),
+      h('button',{onclick:()=>{state.campaignTab='dashboard';renderView();}},'Ver resultados')));
 }
 
 async function detailWorkflow(a, c) {
@@ -275,7 +282,41 @@ async function detailLists(a, c) {
   const searchBox = h('input', { type:'search', 'aria-label':'Buscar pessoa na lista',
     placeholder:'Nome, empresa ou perfil', value:search,
     onchange: (ev) => { state.queueSearch=ev.target.value; state.campaignPage=0; renderView(); } });
+  const listPicker = state.showCampaignListPicker
+    ? h('div',{class:'card row'},
+      h('label',{style:'flex:1'},'Lista já cadastrada',
+        h('select',{id:'campaign-existing-collection'},
+          h('option',{value:''},'Selecione uma lista'),
+          ...(await api.listCollections(a.id)).map((col)=>h('option',{value:col.id},col.name)))),
+      h('button',{class:'primary',onclick:async()=>{
+        const id=document.getElementById('campaign-existing-collection')?.value;
+        if(!id) return toast('Escolha a lista que deseja adicionar.');
+        const count=await safe(()=>api.addCollectionToCampaign(a.id,c.id,id));
+        if(count!==null && count!==undefined) {
+          toast(count ? count+' lead(s) adicionados à campanha.' : 'Nenhum lead novo; os contatos já estavam na fila.');
+          state.showCampaignListPicker=false;invalidateCampaignSummaries(a.id);await refresh();
+        }
+      }},'Adicionar lista'),
+      h('button',{onclick:()=>{state.showCampaignListPicker=false;renderView();}},'Cancelar'))
+    : null;
   return h('div', { class:'stack' },
+    h('div',{class:'card row campaign-import-card'},
+      h('div',{style:'flex:1'},h('strong',{},'Leads desta campanha'),
+        h('div',{class:'muted'},'Importe um arquivo CSV aqui. O LINKLEADS cadastra os contatos e evita duplicações.')),
+      h('button',{class:'primary',disabled:!c.actions.length,
+        title:!c.actions.length?'Configure pelo menos uma ação antes de importar os contatos.':'',
+        onclick:async()=>{
+          const r=await safe(()=>api.importCsv(a.id));
+          if(!r?.collectionId) return;
+          const n=await safe(()=>api.addCollectionToCampaign(a.id,c.id,r.collectionId));
+          if(n===null || n===undefined) return;
+          toast(n ? n+' lead(s) adicionado(s) à campanha.' : 'Arquivo processado; nenhum lead novo.');
+          invalidateCampaignSummaries(a.id);await refresh();
+        }},'Importar leads (CSV)'),
+      h('button',{disabled:!c.actions.length,
+        onclick:()=>{state.showCampaignListPicker=true;renderView();}},'Usar lista existente')),
+    !c.actions.length && h('p',{class:'muted'},'Antes de importar: abra “Etapas” e configure ao menos uma ação.'),
+    listPicker,
     h('div', { class:'workspace-list-tools card' },
       h('label', {}, 'Etapa', actionChoice),
       h('label', {}, 'Buscar', searchBox),
@@ -396,21 +437,50 @@ async function campaignDetailView(a) {
       h('button', { onclick: () => { state.campaignId = null; renderView(); } }, 'Voltar às campanhas'));
   }
   if (state.campaignId !== requested || state.accountId !== a.id) return h('div');
-  const sections = [['info','Informações'], ['workflow','Fluxo de trabalho'],
-    ['lists','Listas'], ['inbox','Inbox da campanha'], ['dashboard','Painel'], ['statistics','Estatísticas']];
-  const selected = sections.some(([id]) => id === state.campaignTab) ? state.campaignTab : 'info';
+  const sections = [['info','Preparação'], ['workflow','Etapas'],
+    ['lists','Leads'], ['dashboard','Resultados'], ['inbox','Conversas']];
+  const selected = sections.some(([id]) => id === state.campaignTab)
+    ? state.campaignTab : (state.campaignTab === 'statistics' ? 'dashboard' : 'info');
+  const summaries = await cachedCampaignSummaries(a.id);
+  const overview = summaries.find((item) => item.id === c.id);
+  const ux = campaignUserStatus(a, { ...c, status:overview?.status });
   return h('div', { class: 'stack workspace-campaign' },
     h('div', { class: 'row' },
-      h('button', { class: 'link', onclick: () => { state.campaignId = null; state.editCampaign = false; renderView(); } }, '← Todas as campanhas'),
-      h('span', { class: 'workspace-state ' + (c.active ? 'on' : '') }, c.archived ? 'Arquivada' : c.active ? 'Ativa' : 'Parada')),
-    h('div', { class: 'workspace-title' },
-      h('div', {}, h('div', { class: 'kind' }, 'CAMPANHA · ' + a.label), h('h2', {}, c.name)),
-      h('div', { class: 'row' },
-        !c.archived && h('button', { onclick: async () => {
-          await safe(() => api.setCampaignActive(a.id, c.id, !c.active));
-          await refresh();
-        } }, c.active ? 'Pausar campanha' : 'Ativar campanha'),
-        h('button', { onclick: () => safe(() => api.exportCsv(a.id, { campaignId: c.id, name: c.name })) }, 'Exportar CSV'))),
+      h('button', { class: 'link', onclick: () => { state.campaignId = null; state.editCampaign = false; state.renamingCampaignId=null; renderView(); } }, '← Campanhas')),
+    h('div',{class:'workspace-title campaign-primary-heading'},
+      h('div',{},h('div',{class:'kind'},'CAMPANHA · '+a.label),
+        campaignNameControl(a,c),
+        h('div',{class:'muted'},'Situação: '+ux.text+' · '+ux.reason)),
+      h('div',{class:'row'},
+        !c.archived && c.actions.length===0 && h('button',{class:'primary',onclick:()=>{
+          state.campaignTab='workflow';state.editCampaign=true;renderView();
+        }},'Configurar etapas'),
+        !c.archived && c.actions.length>0 && (c.stats?.contacts||0)===0 && h('button',{
+          class:'primary',onclick:()=>{state.campaignTab='lists';renderView();}
+        },'Adicionar leads'),
+        !c.archived && !!c.actions.length && (c.stats?.contacts||0)>0 &&
+          (a.runnerEnabled && c.active
+            ? h('button',{onclick:async()=>{
+                await safe(()=>api.setCampaignActive(a.id,c.id,false));
+                invalidateCampaignSummaries(a.id);await refresh();
+              }},'Pausar esta campanha')
+            : h('button',{class:'primary',disabled:a.paused,
+                title:a.paused?'A conta LinkedIn está pausada por segurança.':'',
+                onclick:async()=>{
+                  const existing=await api.listCampaignSummaries(a.id);
+                  const others=existing.filter(x=>x.id!==c.id&&x.active);
+                  if(others.length && !window.confirm(
+                    'Outras '+others.length+' campanha(s) estão habilitadas nesta conta. Iniciar o executor pode processá-las também. Continuar?'))return;
+                  if(!c.active) await safe(()=>api.setCampaignActive(a.id,c.id,true));
+                  if(!a.running){
+                    await safe(()=>api.openBrowser(a.id));
+                    toast('Navegador aberto. Faça login no LinkedIn e depois clique em Iniciar.');
+                  }else await safe(()=>api.startRunner(a.id));
+                  invalidateCampaignSummaries(a.id);await refresh();
+                }},a.running?'Iniciar campanha':'Abrir LinkedIn para iniciar')),
+        h('button',{onclick:()=>safe(()=>api.exportCsv(a.id,{campaignId:c.id,name:c.name}))},'Exportar CSV'))),
+    a.paused && h('div',{class:'campaign-status-explainer'},
+      'Conta pausada por segurança. Suas campanhas e listas foram preservadas; nenhuma ação será executada até você resolver a pausa e iniciar explicitamente.'),
     h('div', { class: 'cw-tabs' },
       ...sections.map(([id, label]) => h('button', {
         class: selected === id ? 'selected' : '',
@@ -420,6 +490,5 @@ async function campaignDetailView(a) {
       : selected === 'workflow' ? await detailWorkflow(a, c)
       : selected === 'lists' ? await detailLists(a, c)
       : selected === 'inbox' ? await detailInbox(a, c)
-      : selected === 'dashboard' ? detailDashboard(c)
-      : detailStatistics(c));
+      : detailDashboard(c));
 }
