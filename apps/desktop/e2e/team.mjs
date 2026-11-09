@@ -5,7 +5,7 @@ import { createRequire } from 'node:module';
 import { mkdtempSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { startFakeSite } from './fake-site.mjs';
 
 const require = createRequire(import.meta.url);
@@ -14,8 +14,8 @@ const here = dirname(fileURLToPath(import.meta.url));
 const appDir = join(here, '..');
 const tmp = mkdtempSync(join(tmpdir(), 'linkleads-team-'));
 const shots = process.env.SHOT_DIR ?? tmp;
-const { createApp } = await import(join(appDir, '../server/dist/server.js'));
-const { ServerStore } = await import(join(appDir, '../server/dist/store.js'));
+const { createApp } = await import(pathToFileURL(join(appDir, '../server/dist/server.js')).href);
+const { ServerStore } = await import(pathToFileURL(join(appDir, '../server/dist/store.js')).href);
 
 const listen = (srv) => new Promise((ok) => srv.listen(0, '127.0.0.1', () => ok(`http://127.0.0.1:${srv.address().port}`)));
 
