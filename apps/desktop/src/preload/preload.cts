@@ -56,6 +56,7 @@ contextBridge.exposeInMainWorld('linkleads', {
   collectionColumns: invoke('collections:columns'),
   importCsv: invoke('collections:importCsv'),
   listCampaigns: invoke('campaigns:list'),
+  campaignDetail: invoke('campaigns:detail'),
   listCampaignSummaries: invoke('campaigns:summaries'),
   createEngagementCampaign: invoke('campaigns:createEngagement'),
   setCampaignActive: invoke('campaigns:setActive'),

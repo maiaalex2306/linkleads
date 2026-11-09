@@ -44,6 +44,7 @@ import { writeFileSync } from 'node:fs';
 import { InstanceManager } from './instance-manager.js';
 import { Settings } from './settings.js';
 import { trace } from './trace.js';
+import { campaignDisplayStatus } from './campaign-status.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 trace.configure(join(app.getPath('userData'), 'traces'));
@@ -253,7 +254,12 @@ ipcMain.handle('accounts:setPaused', (_e, id: string, paused: boolean) => {
   a.paused = paused;
   accounts.save(a);
   const inst = instances.get(id);
-  if (inst) inst.account.paused = paused;
+  if (inst) {
+    inst.account.paused = paused;
+    // Retirar a pausa nunca restabelece os timers automaticamente.
+    if (paused) inst.stopScheduler();
+  }
+  trace.record('account', paused ? 'paused_manually' : 'pause_removed', {}, { accountId: id });
 });
 ipcMain.handle('accounts:remove', async (_e, id: string) => {
   await instances.stop(id);
@@ -370,6 +376,13 @@ ipcMain.handle('campaigns:list', (_e, id: string) => {
   const crm = crms.get(account(id));
   return crm.listCampaigns(id).map((c) => ({ ...c, people: crm.campaignPeople(c) }));
 });
+/** Carrega apenas a campanha selecionada e suas pessoas. */
+ipcMain.handle('campaigns:detail', (_e, id: string, campaignId: string) => {
+  const crm = crms.get(account(id));
+  const campaign = crm.loadCampaign(campaignId, id);
+  if (!campaign) throw new Error('Campanha não encontrada nesta conta');
+  return { ...campaign, people: crm.campaignPeople(campaign) };
+});
 
 /**
  * Resumo leve por campanha: uma única agregação SQL, sem enviar milhares
@@ -378,31 +391,36 @@ ipcMain.handle('campaigns:list', (_e, id: string) => {
 ipcMain.handle('campaigns:summaries', (_e, id: string) => {
   const a = account(id);
   const crm = crms.get(a);
+  const nowMs = Date.now();
   const rows = crm.db.prepare(`
     SELECT campaign_id, COUNT(DISTINCT person_id) AS contacts,
       SUM(CASE WHEN status = 'queued' THEN 1 ELSE 0 END) AS queued,
+      SUM(CASE WHEN status = 'queued' AND (not_before IS NULL OR not_before <= ?) THEN 1 ELSE 0 END) AS ready,
+      SUM(CASE WHEN status = 'queued' AND not_before > ? THEN 1 ELSE 0 END) AS waiting,
       SUM(CASE WHEN status = 'processed' THEN 1 ELSE 0 END) AS processing,
       SUM(CASE WHEN status = 'successful' THEN 1 ELSE 0 END) AS successful,
       SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed
     FROM campaign_action_people GROUP BY campaign_id
-  `).all() as Array<{ campaign_id: string; contacts: number; queued: number; processing: number; successful: number; failed: number }>;
+  `).all(nowMs, nowMs) as Array<{
+    campaign_id: string; contacts: number; queued: number; ready: number;
+    waiting: number; processing: number; successful: number; failed: number;
+  }>;
   const byId = new Map(rows.map((r) => [r.campaign_id, r]));
   const runnerEnabled = instances.get(id)?.schedulerRunning() ?? false;
   return crm.listCampaigns(id).map((c) => {
     const r = byId.get(c.id);
     const queued = r?.queued ?? 0;
+    const ready = r?.ready ?? 0;
+    const waiting = r?.waiting ?? 0;
     const processing = r?.processing ?? 0;
     const successful = r?.successful ?? 0;
     const failed = r?.failed ?? 0;
-    const status = !c.actions.length ? 'draft'
-      : !c.active ? 'stopped'
-      : a.paused ? 'blocked'
-      : runnerEnabled && (queued > 0 || processing > 0) ? 'running'
-      : queued > 0 || processing > 0 ? 'queued'
-      : 'completed';
+    const status = campaignDisplayStatus({
+      active: c.active, actionCount: c.actions.length, paused: a.paused, runnerEnabled,
+    }, { queued, ready, waiting, processing, successful, failed });
     return { id: c.id, name: c.name, active: c.active, status,
       actions: c.actions.length, contacts: r?.contacts ?? 0,
-      queued, processing, successful, failed };
+      queued, ready, waiting, processing, successful, failed };
   });
 });
 
