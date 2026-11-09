@@ -307,8 +307,10 @@ function campaignCard(a, c, cols) {
 
 async function campaignsView(a) {
   // Visão geral leve: NÃO carrega todas as pessoas das campanhas.
-  const summaries = await api.listCampaignSummaries(a.id);
-  const formOpen = Boolean(state.newCampaignOpen || !summaries.length);
+  const includeArchived = Boolean(state.showArchived);
+  const summaries = (await api.listCampaignSummaries(a.id, includeArchived))
+    .filter((c) => Boolean(c.archived) === includeArchived);
+  const formOpen = !includeArchived && Boolean(state.newCampaignOpen || !summaries.length);
   const filtered = summaries.filter((c) => state.campaignStatusFilter === 'all' || c.status === state.campaignStatusFilter);
   const sort = state.campaignSort || 'active';
   const ordered = [...filtered].sort((x, y) => sort === 'name'
@@ -335,13 +337,27 @@ async function campaignsView(a) {
         metricBox('Etapas com falha', c.failed)),
       h('div', { class: 'row campaign-overview-footer' },
         h('span', { class: 'muted', style: 'flex:1' }, c.actions + ' etapas · ' + c.successful + ' conclusões de etapa'),
-        h('button', {
+        !c.archived && h('button', {
           disabled: a.paused && !c.active,
           onclick: async () => {
             await safe(() => api.setCampaignActive(a.id, c.id, !c.active));
-            await renderView();
+            await refresh();
           },
-        }, c.active ? 'Parar campanha' : 'Ativar campanha')))));
+        }, c.active ? 'Parar campanha' : 'Ativar campanha'),
+        !c.archived && h('button', {
+          title:'Copia só as etapas, sem pessoas',
+          onclick: async () => {
+            const result=await safe(() => api.duplicateCampaign(a.id,c.id));
+            if(result?.campaignId) { toast('Fluxo duplicado, sem contatos ou histórico.'); await refresh(); }
+          },
+        }, 'Duplicar'),
+        h('button', { disabled:a.runnerEnabled,
+          onclick: async () => {
+            if (!c.archived && !window.confirm('Arquivar esta campanha? Ela ficará parada, mas os dados serão preservados.')) return;
+            const result=await safe(() => api.archiveCampaign(a.id,c.id,!c.archived));
+            if(result?.ok) { toast(c.archived ? 'Campanha restaurada' : 'Campanha arquivada'); await refresh(); }
+          },
+        }, c.archived ? 'Restaurar' : 'Arquivar')))));
   const searchInput = h('input', {
     type: 'search', placeholder: 'Pesquisar campanhas', value: state.campaignSearch || '',
     'aria-label': 'Pesquisar campanhas',
@@ -368,15 +384,22 @@ async function campaignsView(a) {
   const out = h('div', { class: 'stack' },
     h('div', { class: 'workspace-title' },
       h('div', {}, h('div', { class: 'kind' }, 'CAMPANHAS · ' + a.label),
-        h('h2', {}, 'Suas campanhas (' + summaries.filter((x) => x.active).length + ' ativa(s) de ' + summaries.length + ')')),
-      summaries.length > 0 && h('button', {
-        class: formOpen ? '' : 'primary',
-        onclick: () => { state.newCampaignOpen = !formOpen; renderView(); },
-      }, formOpen ? 'Fechar "Nova campanha"' : '+ Criar nova campanha')),
-    summaries.length > 0 && h('div', { class: 'muted' },
+        h('h2', {}, includeArchived ? 'Campanhas arquivadas (' + summaries.length + ')' :
+          'Suas campanhas (' + summaries.filter((x) => x.active).length + ' ativa(s) de ' + summaries.length + ')')),
+      h('div', { class:'row' },
+        h('button', { onclick: () => {
+          state.showArchived = !includeArchived;
+          state.campaignStatusFilter='all'; state.newCampaignOpen=false; renderView();
+        } }, includeArchived ? '← Ver campanhas ativas' : 'Ver arquivadas'),
+        !includeArchived && summaries.length > 0 && h('button', {
+          class: formOpen ? '' : 'primary',
+          onclick: () => { state.newCampaignOpen = !formOpen; renderView(); },
+        }, formOpen ? 'Fechar "Nova campanha"' : '+ Criar nova campanha'))),
+    !includeArchived && summaries.length > 0 && h('div', { class: 'muted' },
       'As campanhas ativas só executam ações quando o executor da conta estiver ligado. Abrir esta tela não inicia campanhas.'),
     controls,
     list,
+    !summaries.length && includeArchived && h('div', { class:'card muted' }, 'Nenhuma campanha arquivada.'),
     summaries.length > 0 && !filtered.length && h('div', { class: 'card muted' }, 'Nenhuma campanha nesta situação.'));
   if (formOpen) {
     const [cols, settings, integ] = await Promise.all([

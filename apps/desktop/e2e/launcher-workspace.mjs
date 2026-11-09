@@ -133,6 +133,22 @@ try {
     'fluxo persistido sem modificar outra conta');
   await ui.screenshot({ path: join(shots,'editor-fluxo.png'), fullPage:true });
 
+  const copy = await call('duplicateCampaign', b.id, draft.campaignId);
+  check(!!copy.campaignId && copy.campaignId !== draft.campaignId,
+    'duplicação tem ID próprio');
+  const copyDetail = await call('campaignDetail', b.id, copy.campaignId);
+  check(copyDetail.actions.length === 1 &&
+    copyDetail.actions[0].id !== persisted.actions[0].id && copyDetail.people.length === 0,
+    'cópia preserva fluxo sem repetir pessoas ou IDs de ações');
+  await call('archiveCampaign', b.id, draft.campaignId, true);
+  check(!(await call('listCampaignSummaries', b.id)).some((x) => x.id === draft.campaignId),
+    'arquivar oculta da visão ativa sem exclusão');
+  check((await call('listCampaignSummaries', b.id, true)).some((x) => x.id === draft.campaignId && x.archived),
+    'arquivo mantém dados e permite consultar campanha');
+  await call('archiveCampaign', b.id, draft.campaignId, false);
+  check((await call('campaignDetail', b.id, draft.campaignId)).actions.length === 1,
+    'restauração conserva ação original');
+
   const effects = ['liked', 'comments', 'invites', 'messages', 'withdrawals']
     .map((key) => site.state[key]).filter((x) => Array.isArray(x) ? x.length : Number(x));
   check(effects.length === 0, 'navegação não enviou interações externas');

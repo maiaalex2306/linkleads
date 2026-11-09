@@ -166,7 +166,7 @@ function detailInfo(a, c) {
       h('strong', {}, 'Informações da campanha'),
       h('div', {}, h('b', {}, 'Nome: '), c.name),
       h('div', {}, h('b', {}, 'Conta: '), a.label),
-      h('div', {}, h('b', {}, 'Situação: '), c.active ? 'Ativa na fila do executor' : 'Parada'),
+      h('div', {}, h('b', {}, 'Situação: '), c.archived ? 'Arquivada' : c.active ? 'Ativa na fila do executor' : 'Parada'),
       h('div', {}, h('b', {}, 'Etapas: '), c.actions.length),
       h('div', { class: 'muted' }, 'Ativar a campanha não inicia automaticamente o navegador. A execução depende do comando separado "Iniciar campanhas".')),
     h('div', { class: 'card stack' },
@@ -351,11 +351,11 @@ async function campaignDetailView(a) {
   return h('div', { class: 'stack workspace-campaign' },
     h('div', { class: 'row' },
       h('button', { class: 'link', onclick: () => { state.campaignId = null; state.editCampaign = false; renderView(); } }, '← Todas as campanhas'),
-      h('span', { class: 'workspace-state ' + (c.active ? 'on' : '') }, c.active ? 'Ativa' : 'Parada')),
+      h('span', { class: 'workspace-state ' + (c.active ? 'on' : '') }, c.archived ? 'Arquivada' : c.active ? 'Ativa' : 'Parada')),
     h('div', { class: 'workspace-title' },
       h('div', {}, h('div', { class: 'kind' }, 'CAMPANHA · ' + a.label), h('h2', {}, c.name)),
       h('div', { class: 'row' },
-        h('button', { onclick: async () => {
+        !c.archived && h('button', { onclick: async () => {
           await safe(() => api.setCampaignActive(a.id, c.id, !c.active));
           await refresh();
         } }, c.active ? 'Pausar campanha' : 'Ativar campanha'),
