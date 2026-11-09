@@ -157,14 +157,15 @@ async function renderView() {
     h('button',{onclick:async()=>{await safe(()=>api.openBrowser(a.id));await refresh();}},
       a.running ? 'Mostrar LinkedIn' : 'Abrir LinkedIn e fazer login'),
     a.runnerEnabled
-      ? h('button',{onclick:async()=>{await safe(()=>api.stopRunner(a.id));await refresh();}},'Parar execução')
-      : h('button',{class:'primary',disabled:a.paused,
+      ? h('button',{onclick:async()=>{await safe(()=>api.stopRunner(a.id));await refresh();}},'Parar execução da conta')
+      : !state.campaignId && h('button',{class:'primary',disabled:a.paused,
           title:a.paused?'A conta está pausada; nenhuma campanha pode executar.':'',
           onclick:async()=>{
             const summaries=await cachedCampaignSummaries(a.id);
-            if(!summaries.some((c)=>c.active&&!c.archived))return toast('Habilite uma campanha antes de iniciar.');
+            if(!summaries.some((c)=>c.active&&!c.archived))return toast('Abra a campanha que deseja iniciar.');
+            if(!window.confirm('Iniciar todas as campanhas habilitadas nesta conta?'))return;
             await safe(()=>api.startRunner(a.id));await refresh();
-          }},'Iniciar campanhas'),
+          }},'Iniciar campanhas habilitadas'),
     h('button',{onclick:()=>{state.accountToolsOpen=!state.accountToolsOpen;renderView();}},
       'Ajustes da conta'));
 
