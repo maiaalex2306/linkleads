@@ -303,3 +303,13 @@ button.workspace-sidebar-link .campaign-side-name { font-weight:650; max-width:1
 .workspace-list-tools label { font-weight:600; }
 .workspace-list-tools input,.workspace-list-tools select { width:100%; font-weight:400; }
 @media(max-width:850px) { .workspace-list-tools { grid-template-columns:minmax(0,1fr); } }
+
+/* Limites efetivos: mostrar explicitamente a política, não só o valor nominal. */
+.limit-guard-box { display:grid; gap:8px; padding:14px; border:1px solid var(--line);
+  border-left:4px solid var(--brand); border-radius:10px; background:var(--card); }
+.limit-guard-box p { margin:0; }
+.limit-guard-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:8px; }
+.limit-guard-item { display:flex; gap:6px; justify-content:space-between; align-items:baseline;
+  padding:8px 10px; border:1px solid var(--line); border-radius:7px; background:var(--bg); font-size:12px; }
+.limit-guard-item strong { flex:1; }
+.limit-guard-warning { display:block; font-weight:700; color:var(--bad); font-size:11px; margin-top:2px; }

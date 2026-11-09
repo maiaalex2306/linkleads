@@ -55,6 +55,32 @@ describe('ritmo', () => {
     expect(effectiveMax(fresh, { ...rule, max: 500 }, MONDAY_10AM)).toBe(50);
   });
 
+  it('limites de proteção continuam obrigatórios após personalização parcial ou excessiva', () => {
+    const usage = (_key: string, _since: number): number[] => [];
+    const partial = account({ limitRules: [{ key: 'likes', max: 5000, hours: 24 }] });
+    expect(remainingBudget(partial, 'activity', usage, MONDAY_10AM)).toBe(150);
+    expect(remainingBudget(partial, 'profile_url', usage, MONDAY_10AM)).toBe(40);
+    expect(remainingBudget(partial, 'invites', usage, MONDAY_10AM)).toBe(20);
+    expect(remainingBudget(partial, 'comments', usage, MONDAY_10AM)).toBe(20);
+    expect(remainingBudget(partial, 'likes', usage, MONDAY_10AM)).toBe(30);
+    const oversized = account({ limitRules: [
+      { key: 'activity', max: 200, hours: 24 },
+      { key: 'profile_url', max: 80, hours: 24 },
+    ] });
+    expect(remainingBudget(oversized, 'activity', usage, MONDAY_10AM)).toBe(150);
+    expect(remainingBudget(oversized, 'profile_url', usage, MONDAY_10AM)).toBe(40);
+  });
+
+  it('regras mais restritivas da conta continuam prevalecendo', () => {
+    const read = (_key: string, _since: number): number[] => [];
+    const customized = account({ limitRules: [
+      { key: 'profile_url', max: 1, hours: 24 },
+      { key: 'invites', max: 2, hours: 24 },
+    ] });
+    expect(remainingBudget(customized, 'profile_url', read, MONDAY_10AM)).toBe(1);
+    expect(remainingBudget(customized, 'invites', read, MONDAY_10AM)).toBe(2);
+  });
+
   it('variação reduz até o % pedido e fica estável no mesmo dia', () => {
     const rule = { key: 'profile_load' as const, max: 100, hours: 24, variation: 10 };
     const a = account();
