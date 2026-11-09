@@ -237,7 +237,10 @@ async function wizardPage(a, cols) {
   const col = cols.find((c) => c.id === w.colId);
   const columns = col ? await api.collectionColumns(a.id, col.id).catch(() => []) : [];
   const sheet = sheetMessages(columns);
-  if (!sheet && w.src === 'sheet') w.src = 'ai';
+  // Antes da importação não existe lista/colunas: manter a escolha original de
+  // mensagens da planilha. Converter para IA somente quando a lista escolhida
+  // realmente não possuir colunas de mensagens.
+  if (col && !sheet && w.src === 'sheet') w.src = 'ai';
   if (sheet && w.src === 'sheet') w.msgs = Math.max(1, sheet.msgs.length || w.msgs);
   const settings = await api.getSettings();
   const STEPS = ['Lista', 'Ações', 'Mensagens', 'Revisar e iniciar'];
