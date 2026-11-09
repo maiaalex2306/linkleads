@@ -92,19 +92,24 @@ async function renderAccounts() {
 
 function topNav() {
   const ver = h('span', { class: 'build-tag', title: 'Versão do código que está rodando agora' }, '');
+  const menu = h('details', { class: 'top-menu' },
+    h('summary', { 'aria-label': 'Abrir configurações e ferramentas' }, 'Configurações'),
+    h('div', { class: 'top-menu-content' },
+      h('button', { onclick: () => {
+        menu.open = false;
+        state.backScreen = state.screen;
+        state.screen = 'settings';
+        state.tab = 'settings';
+        renderView();
+      } }, 'Configurações gerais'),
+      h('button', { onclick: async () => {
+        menu.open = false;
+        const result = await safe(() => api.exportTrace(state.accountId || undefined));
+        if (result && !result.canceled) toast('Diagnóstico exportado: ' + result.file, 6500);
+      } }, 'Exportar diagnóstico')));
   document.getElementById('topnav').replaceChildren(
-    h('button', { class: 'link', onclick: () => {
-      state.backScreen = state.screen;
-      state.screen = 'settings';
-      state.tab = 'settings';
-      renderView();
-    } }, 'Configurações'),
-    h('button', { class: 'link', onclick: async () => {
-      const result = await safe(() => api.exportTrace(state.accountId || undefined));
-      if (result && !result.canceled) toast('TRACE exportado: ' + result.file + ' (' + result.files + ' arquivo(s))', 6500);
-    } }, 'Exportar TRACE'),
-    ver,
-  );
+    h('button', { class: 'link top-home', onclick: returnToLauncher }, 'Minhas contas'),
+    menu, ver);
   api.appInfo().then((i) => {
     const when = i.builtAt ? new Date(i.builtAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
     ver.textContent = `versão ${i.version} · ${i.commit}${when ? ` · compilada ${when}` : ''}`;
