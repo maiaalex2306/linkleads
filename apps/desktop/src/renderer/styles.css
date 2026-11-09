@@ -313,3 +313,13 @@ button.workspace-sidebar-link .campaign-side-name { font-weight:650; max-width:1
   padding:8px 10px; border:1px solid var(--line); border-radius:7px; background:var(--bg); font-size:12px; }
 .limit-guard-item strong { flex:1; }
 .limit-guard-warning { display:block; font-weight:700; color:var(--bad); font-size:11px; margin-top:2px; }
+
+/* Inspetor por ação: referência à organização do Linked Helper, usando cores ACP. */
+.wb-section-heading { font-size:13px; padding-top:5px; border-top:1px solid var(--line); }
+.wb-feature-note { display:grid; gap:5px; border:1px solid var(--line);
+  border-left:3px solid var(--brand); padding:11px 12px; border-radius:8px; background:var(--bg); }
+.wb-feature-note p { margin:0; color:var(--muted); font-size:12px; line-height:1.5; }
+@media (min-width:1160px) {
+  .wb-layout { grid-template-columns:minmax(175px,.75fr) minmax(235px,1fr) minmax(350px,1.55fr); gap:12px; }
+  .wb-inspector { grid-column:auto; max-height:calc(100vh - 210px); }
+}

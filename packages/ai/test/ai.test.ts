@@ -29,11 +29,15 @@ describe('buildUserMessage', () => {
     const msg = buildUserMessage(
       { url: 'u', text: 'Entregamos o projeto X', hasMedia: false },
       { id: 'p', firstName: 'Ana', headline: 'Engenheira' },
-      { tone: 'consultivo', extraInstructions: 'mencione saneamento' },
+      { tone: 'consultivo', goal: 'entender como mediram os resultados', length: 'medium', language: 'Português',
+        extraInstructions: 'mencione saneamento' },
     );
     expect(msg).toContain('Autor: Ana');
     expect(msg).toContain('<post>\nEntregamos o projeto X\n</post>');
     expect(msg).toContain('consultivo');
+    expect(msg).toContain('Objetivo da interação: entender como mediram os resultados');
+    expect(msg).toContain('Comprimento desejado: 3 a 4 frases');
+    expect(msg).toContain('Escreva o comentário em: Português');
     expect(msg).toContain('mencione saneamento');
   });
 });
