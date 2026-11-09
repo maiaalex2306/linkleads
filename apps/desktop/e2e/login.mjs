@@ -65,6 +65,11 @@ try {
   const stillPaused = (await call('listAccounts')).find((a) => a.id === acc.id);
   check(relogged && stillPaused?.paused === true && stillPaused?.runnerEnabled === false,
     'novo login NÃO retira pausa nem inicia campanhas', stillPaused);
+  // Formulários genéricos e snapshots obsoletos jamais removem checkpoint.
+  await call('updateAccount', { ...acc, paused: false });
+  const afterStaleUpdate = (await call('listAccounts')).find((a) => a.id === acc.id);
+  check(afterStaleUpdate?.paused === true && afterStaleUpdate?.runnerEnabled === false,
+    'edição genérica com estado antigo NÃO remove pausa de segurança', afterStaleUpdate);
   await call('setPaused', acc.id, false); // comando explícito do teste, não efeito do login
 
   // 3. senha errada: não insiste, avisa
