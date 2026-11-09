@@ -173,9 +173,12 @@ export function choosePost(posts: PostExtract[], publicId: string, s: LikeSettin
     if (age !== undefined && age > maxAge) return (old++, false);
     return true;
   });
-  // o mais recente que você ainda não curtiu; se todos já foram curtidos, o mais recente
-  const post = eligible.find((p) => p.liked !== true) ?? eligible[0];
+  // Nunca clicar em publicação já curtida; estado desconhecido exige confirmação
+  // adicional antes de tocar na plataforma.
+  const post = eligible.find((p) => p.liked === false) ??
+    eligible.find((p) => p.liked == null);
   if (post) return { post, why: '' };
+  if (eligible.length) return { why: 'Todas as publicações elegíveis já foram curtidas; nenhuma ação adicional necessária' };
   if (!posts.length) return { why: 'Não reconheci nenhum post na página de atividade (layout diferente ou a página não carregou)' };
   const parts = [
     old && `${old} com mais de ${maxAge} dias${newest !== undefined ? ` (o mais recente há ${newest} dias)` : ''}`,
@@ -201,10 +204,19 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
           const post = pick.post;
           if (!post) {
             const empty = await d.driver.exists('emptyActivity').catch(() => false);
-            const file = !posts.length && !empty ? await d.reportUnrecognized?.().catch(() => undefined) : undefined;
-            return { ok: false, reason: 'NO_POST', message: empty ? 'A pessoa não tem publicações' : `${pick.why}${file ? `. Relatório para ajuste: ${file}` : ''}` };
+            const unreadable = !posts.length && !empty;
+            const file = unreadable ? await d.reportUnrecognized?.().catch(() => undefined) : undefined;
+            if (unreadable) return { ok: false, reason: 'NO_REAL_EFFECT',
+              message: 'Página de atividades não reconhecida ou carregamento incompleto. Ação interrompida' +
+                (file ? '. Diagnóstico: ' + file : '') };
+            return { ok: false, reason: 'NO_POST', message: empty ? 'A pessoa não tem publicações' : pick.why };
           }
 
+          if (post.liked === null) {
+            await d.reportUnrecognized?.().catch(() => undefined);
+            return { ok: false, reason: 'NO_REAL_EFFECT',
+              message: 'Não foi possível verificar se a publicação já estava curtida' };
+          }
           if (!isCanonicalPostUrn(post.urn)) {
             await d.reportUnrecognized?.().catch(() => undefined);
             return { ok: false, reason: 'NO_REAL_EFFECT',
