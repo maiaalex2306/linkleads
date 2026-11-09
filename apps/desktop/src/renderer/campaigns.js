@@ -321,7 +321,7 @@ async function campaignsView(a) {
     ...ordered.map((c) => h('section', {
       class: 'card campaign-overview-item',
       'data-search': c.name.toLocaleLowerCase('pt-BR'),
-      hidden: search && !c.name.toLocaleLowerCase('pt-BR').includes(search),
+      hidden: Boolean(search && !c.name.toLocaleLowerCase('pt-BR').includes(search)),
     },
       h('div', { class: 'row campaign-overview-heading' },
         h('span', { class: 'workspace-state' + (c.status === 'blocked' || c.status === 'attention' ? ' paused' : c.status === 'running' ? ' on' : '') },
