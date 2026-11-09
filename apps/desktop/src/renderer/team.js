@@ -38,11 +38,12 @@ async function teamCard() {
 /** Login do LinkedIn da conta: e-mail e senha para entrar sozinho ao abrir o navegador. */
 function loginPanel(a, onClose) {
   const email = h('input', { type: 'email', value: a.linkedinEmail || '', placeholder: 'e-mail do LinkedIn', style: 'width:260px', autocomplete: 'off' });
-  const pass = h('input', { type: 'password', placeholder: a.hasLinkedinPassword ? '•••••• (senha salva)' : 'senha do LinkedIn', style: 'width:220px', autocomplete: 'new-password' });
+  const password = passwordInput({ placeholder: a.hasLinkedinPassword ? '•••••• (senha salva)' : 'senha do LinkedIn', autocomplete: 'new-password' });
+  const pass = password.input;
   return h('div', { class: 'card stack' },
     h('div', { class: 'row' }, h('strong', { style: 'flex:1' }, 'Login do LinkedIn'), h('button', { class: 'link', onclick: onClose }, 'fechar')),
     h('div', { class: 'muted' }, 'Ao abrir o navegador (ou se a sessão cair), o app entra sozinho no LinkedIn com este e-mail e senha, digitando como uma pessoa. A senha fica criptografada no cofre do sistema e nunca sai deste computador. Se o LinkedIn pedir um código de verificação, conclua na janela da conta.'),
-    h('div', { class: 'row' }, email, pass),
+    h('div', { class: 'row credential-row' }, email, password.element),
     h('div', { class: 'row' },
       h('button', { class: 'primary', onclick: async () => {
         const r = await safe(() => api.setLogin(a.id, { email: email.value, password: pass.value || undefined }));
@@ -59,13 +60,14 @@ function proxyPanel(a, onClose) {
   const host = h('input', { value: p.host || '', placeholder: 'host ou IP', style: 'width:200px' });
   const port = h('input', { type: 'number', value: p.port ? String(p.port) : '', placeholder: 'porta', style: 'width:90px' });
   const user = h('input', { value: p.username || '', placeholder: 'usuário (opcional)', style: 'width:160px' });
-  const pass = h('input', { type: 'password', placeholder: p.hasPassword ? '•••••• (senha salva)' : 'senha (opcional)', style: 'width:160px' });
+  const password = passwordInput({ placeholder: p.hasPassword ? '•••••• (senha salva)' : 'senha (opcional)' });
+  const pass = password.input;
   const result = h('div', { class: 'muted' });
   const read = () => host.value.trim() ? { protocol: protocol.value, host: host.value.trim(), port: Number(port.value), username: user.value.trim() || undefined, password: pass.value || undefined } : null;
   return h('div', { class: 'card stack' },
     h('div', { class: 'row' }, h('strong', { style: 'flex:1' }, 'Proxy desta conta'), h('button', { class: 'link', onclick: onClose }, 'fechar')),
     h('div', { class: 'muted' }, 'Use um proxy dedicado por conta (de preferência residencial ou de ISP, na mesma região da conta). Sem proxy, a conta usa o IP deste computador. A senha fica criptografada.'),
-    h('div', { class: 'row' }, protocol, host, port, user, pass),
+    h('div', { class: 'row' }, protocol, host, port, user, password.element),
     h('div', { class: 'row' },
       h('button', { onclick: async () => {
         const cfg = read();
