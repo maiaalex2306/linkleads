@@ -150,14 +150,16 @@ export function pickPost(posts: PostExtract[], publicId: string, s: LikeSettings
 /** Como pickPost, mas explica por que nenhum post serviu (para a tela). */
 export function choosePost(posts: PostExtract[], publicId: string, s: LikeSettings, personName = ''): { post?: PostExtract; why: string } {
   const maxAge = s.maxPostAgeDays ?? 30;
-  const norm = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-  const last = norm(personName).split(/\s+/).filter(Boolean).pop() ?? '';
+  const norm = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+  const expected = norm(personName);
   const isOwn = (p: PostExtract) => {
     const actor = p.actorHref ? profileSlug(p.actorHref) : undefined;
-    if (!actor) return true;
-    if (actor === publicId.toLowerCase()) return true;
-    if (/^acoaa|^acwaa/i.test(actor)) return !last || !p.actorName || norm(p.actorName).includes(last); // link pelo id interno
-    return !!last && !!p.actorName && norm(p.actorName).includes(last);
+    if (actor && actor === publicId.toLowerCase()) return true;
+    // IDs internos podem não coincidir com o slug, mas exigimos nome completo
+    // exato, nunca somente o sobrenome (pessoas homônimas podem ter sobrenome igual).
+    if ((!actor || /^(?:acoaa|acwaa)/i.test(actor)) && expected && p.actorName)
+      return norm(p.actorName) === expected;
+    return false;
   };
   let empty = 0;
   let reshare = 0;
