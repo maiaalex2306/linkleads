@@ -52,6 +52,9 @@ jobs:
         working-directory: apps/desktop
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          # Placeholder exigido pela config herdada; o updater está desativado
+          # neste build privado e nenhum arquivo será publicado neste domínio.
+          LINKLEADS_UPDATE_URL: https://preview.invalid/linkleads
         run: |
           npx electron-builder --win nsis --x64 --publish never -c electron-builder.preview.yml
           if ($LASTEXITCODE -ne 0) { throw 'Falha no instalador Windows' }
