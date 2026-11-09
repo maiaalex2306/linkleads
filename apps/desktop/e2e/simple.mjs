@@ -37,14 +37,16 @@ try {
   await app.evaluate(({ dialog }, f) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [f] }); }, csv);
   await ui.reload();
   await ui.locator('.account-list .acc').first().click();
-  await ui.getByRole('button', { name: 'Tela guiada' }).click();
   await ui.locator('.gsteps').waitFor();
+  check(await ui.getByRole('heading', { name: 'O que você quer fazer hoje?' }).isVisible(), 'entrada começa pela escolha de campanha');
   check(await ui.locator('.tabs').count() === 0, 'tela guiada: 4 etapas numeradas, sem a barra de abas');
   await ui.screenshot({ path: join(shots, 'guiada-1-listas.png') });
 
   // ① Listas
+  await ui.locator('.gstep', { hasText: 'Listas' }).click();
   await ui.getByRole('button', { name: '⬆ Importar planilha' }).click();
-  await ui.getByRole('button', { name: 'Criar campanha com esta lista →' }).click();
+  check(await ui.locator('.collection-row').count() === 1, 'importação apresentada como lista selecionável');
+  await ui.getByRole('button', { name: 'Continuar para criar campanha →' }).click();
   // ② Campanha: Ações → Mensagens (prévia) → Revisar
   await ui.getByText('O que o LinkLeads vai fazer, na ordem').waitFor();
   await ui.screenshot({ path: join(shots, 'guiada-2-acoes.png'), fullPage: true });
