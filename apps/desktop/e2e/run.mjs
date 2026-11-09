@@ -120,7 +120,8 @@ try {
   await ui.getByText(/Suas campanhas/).waitFor();
   await ui.screenshot({ path: join(shots, 'campanhas.png'), fullPage: true });
   await call('setProvider', 'openai');
-  await ui.getByRole('button', { name: 'Configurações', exact: true }).click();
+  await ui.locator('.top-menu > summary').click();
+  await ui.getByRole('button', { name: 'Configurações gerais' }).click();
   await ui.getByText('Sobre mim').first().waitFor();
   await ui.screenshot({ path: join(shots, 'configuracoes.png'), fullPage: true });
   await ui.emulateMedia({ colorScheme: 'dark' });
