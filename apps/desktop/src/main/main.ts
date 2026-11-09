@@ -220,7 +220,9 @@ ipcMain.handle('accounts:update', (_e, a: Account) => {
   }
   if (a.limitRules) a.limitRules = validRules(a.limitRules);
   if (a.linkedinAge && a.linkedinAge !== 'new' && a.linkedinAge !== 'established') throw new Error('Idade da conta inválida');
-  accounts.save({ ...a, proxy: current.proxy });
+  // A pausa só pode mudar pelo comando explícito accounts:setPaused.
+  // Um formulário antigo ou desatualizado não pode reativar campanhas.
+  accounts.save({ ...a, paused: current.paused, onboardedAt: current.onboardedAt, proxy: current.proxy });
   // conta em execução: aplica na hora (sem reiniciar)
   const inst = instances.get(a.id);
   if (inst) Object.assign(inst.account, { label: a.label, workingHours: a.workingHours, tier: a.tier, limitRules: a.limitRules, linkedinAge: a.linkedinAge });

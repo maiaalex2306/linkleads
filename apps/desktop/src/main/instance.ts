@@ -652,6 +652,8 @@ export class AccountInstance {
       withinHours: isWithinWorkingHours(now(), effective.workingHours),
       remaining: remainingBudget(effective, budget,
         (key, since) => this.crm.usageTimes(this.account.id, key, since), now()),
+      activityRemaining: remainingBudget(effective, 'activity',
+        (key, since) => this.crm.usageTimes(this.account.id, key, since), now()),
       text, postId: draft.postUrl,
     });
     // O status só muda após os controles. Bloqueios preservam o rascunho pendente.
@@ -663,6 +665,15 @@ export class AccountInstance {
       length: result.ok ? 0 : (result.message?.length ?? 0),
     }, { accountId: this.account.id, campaignId: draft.campaignId,
       actionId: draft.actionId, personId: draft.personId }, result.ok ? 'info' : 'warn');
+    // A aprovação manual também consome o orçamento geral, tal como o motor.
+    // Quando o efeito não pode ser confirmado, contabiliza conservadoramente
+    // a tentativa; não representa confirmação de sucesso no LinkedIn.
+    if (result.ok || (!result.ok && result.reason === 'NO_REAL_EFFECT')) {
+      this.crm.recordUsage(this.account.id, 'activity', now());
+    }
+    if (!result.ok && result.reason === 'NO_REAL_EFFECT') {
+      this.crm.recordUsage(this.account.id, budget, now());
+    }
     if (result.ok) {
       if (draft.kind === 'comment') {
         this.crm.markPostCommented(draft.postUrl, text, draft.interpretation);

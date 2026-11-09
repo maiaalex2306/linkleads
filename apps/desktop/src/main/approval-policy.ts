@@ -10,6 +10,7 @@ export interface ApprovalSafetyState {
   excluded: boolean;
   withinHours: boolean;
   remaining: number;
+  activityRemaining: number;
   text: string;
   postId?: string;
 }
@@ -26,6 +27,7 @@ export function assertApprovalSafe(a: ApprovalSafetyState): void {
     throw new Error('Contato excluído, respondeu ou solicitou interrupção.');
   if (!a.withinHours) throw new Error('Fora do horário autorizado desta conta.');
   if (!(a.remaining > 0)) throw new Error('Limite de ações atingido: envio bloqueado.');
+  if (!(a.activityRemaining > 0)) throw new Error('Limite geral de atividades atingido: envio bloqueado.');
   if (!a.text.trim()) throw new Error('Rascunho sem conteúdo.');
   if (a.kind === 'comment' && !/^urn:li:(?:activity|ugcPost|share):\d+$/.test(a.postId ?? ''))
     throw new Error('Publicação sem identificador canônico confirmado.');
