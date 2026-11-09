@@ -66,6 +66,9 @@ export const ACTION_CATALOG: readonly ActionDefinition[] = [
   def('DetectReplies', 'messaging', 'Ler inbox e detectar respostas', undefined, false, 30_000),
   // Engajamento
   def('EndorseSkills', 'engagement', 'Endossar competências', 'activity', true),
+  // Etapa única: seleciona e curte a publicação, depois comenta com a mesma ação.
+  // Limites individuais são contabilizados pelos efeitos comprovados no runner.
+  def('LikeAndComment', 'engagement', 'Curtir e comentar publicações e artigos', 'likes', false, 120_000),
   def('LikePosts', 'engagement', 'Curtir posts recentes', 'likes', true),
   def('CommentPost', 'engagement', 'Comentar post (após curtir)', 'comments', true),
   def('InviteToGroup', 'engagement', 'Convidar para grupo', 'activity', true),
