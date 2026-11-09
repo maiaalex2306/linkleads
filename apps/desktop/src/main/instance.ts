@@ -1,33 +1,16 @@
 import { app, BrowserWindow, session, type Session } from 'electron';
 import type { Account, Campaign, ExecutionResult, Person, ProgressEvent, TickReport } from '@linkleads/core';
-import { CampaignRunner, ExecutorRegistry, nextFreeAt, remainingBudget, resolveApproval, shouldAutoBrake } from '@linkleads/core';
+import { CampaignRunner, ExecutorRegistry, isWithinWorkingHours, nextFreeAt, remainingBudget, resolveApproval, shouldAutoBrake } from '@linkleads/core';
 import { LlmPostInterpreter, createLlm, type LlmClient } from '@linkleads/ai';
 import type { CommentDraft, IntegrationCrm } from '@linkleads/db';
 import { ApolloProvider } from '@linkleads/integrations';
 import type { EmitExtra, IntegrationHub } from './integration-hub.js';
 import type { IntegrationSettings } from './integration-settings.js';
-import { enrichProfile, extractEmail, sendToIntegrations } from './linkedin/contact-executors.js';
-import {
-  BASE,
-  commentWithAi,
-  likeLatestPost,
-  navigationKeys,
-  publishComment,
-  saveCurrentProfile,
-  visitAndExtract,
-  type ExecutorDeps,
-} from './linkedin/executors.js';
-import {
-  checkConnection,
-  messageToPerson,
-  scanInbox,
-  sendInvite,
-  sendInviteNow,
-  sendMessageNow,
-  withdrawInvite,
-  type InboxScanResult,
-} from './linkedin/outreach-executors.js';
-import { accountSummary, classifyCommittee, icpFilter, mapCompany, monitorSignals, type MapCompanyResult } from './linkedin/decision-executors.js';
+import { BASE, navigationKeys, publishComment, saveCurrentProfile, type ExecutorDeps } from './linkedin/executors.js';
+import { scanInbox, sendInviteNow, sendMessageNow, type InboxScanResult } from './linkedin/outreach-executors.js';
+import { accountSummary, classifyCommittee, mapCompany, type MapCompanyResult } from './linkedin/decision-executors.js';
+import { registerCampaignExecutors } from './campaign-executors.js';
+import { assertApprovalSafe } from './approval-policy.js';
 import { PageDriver } from './linkedin/page-driver.js';
 import { diagnosePage, type DiagnosisReport } from './linkedin/diagnostics.js';
 import { loadSelectors } from './linkedin/selectors.js';
@@ -222,20 +205,7 @@ export class AccountInstance {
     this.driver.onNavigate = (url, prev, how) => {
       for (const key of navigationKeys(url, prev, how)) this.crm.recordUsage(this.account.id, key, now());
     };
-    this.executors
-      .register(visitAndExtract(this.deps))
-      .register(likeLatestPost(this.deps))
-      .register(commentWithAi(this.deps))
-      .register(sendInvite(this.deps))
-      .register(checkConnection(this.deps))
-      .register(withdrawInvite(this.deps))
-      .register(messageToPerson(this.deps))
-      .register(icpFilter(this.deps))
-      .register(monitorSignals(this.deps))
-      .register(extractEmail(this.deps))
-      .register(enrichProfile(this.deps))
-      .register(sendToIntegrations(this.deps, 'SendToCrm'))
-      .register(sendToIntegrations(this.deps, 'SendToWebhook'));
+    registerCampaignExecutors(this.executors, this.deps);
     this.runner = new CampaignRunner({
       store: crm,
       executors: this.executors,
@@ -664,11 +634,30 @@ export class AccountInstance {
     trace.record('approval', 'approve_requested', {}, { accountId: this.account.id });
     const draft = this.crm.getDraft(draftId);
     if (!draft || draft.status !== 'pending') throw new Error('Rascunho não está pendente');
-    if (this.account.paused) throw new Error('A conta está pausada');
     const killedType = { comment: 'CommentPost', invite_note: 'SendInvite', message: 'MessageToPerson' }[draft.kind];
-    if (this.settings.disabledActions().includes(killedType)) throw new Error('Este tipo de ação está desligado no interruptor geral');
+    if (this.settings.disabledActions().includes(killedType))
+      throw new Error('Este tipo de ação está desligado no interruptor geral');
     const text = (editedText ?? draft.comment).trim();
     const campaign = this.crm.loadCampaign(draft.campaignId, this.account.id);
+    const action = campaign?.actions.find((a) => a.id === draft.actionId);
+    const person = this.crm.getPerson(draft.personId);
+    const blockedReason = this.crm.isGloballyBlocked(draft.personId);
+    const exclusions = new Set([...(campaign?.exclusions ?? []), ...(action?.exclusions ?? [])]);
+    const excluded = !person || exclusions.has(draft.personId) ||
+      Boolean(person.publicId && exclusions.has(person.publicId));
+    const budget = draft.kind === 'comment' ? 'comments'
+      : draft.kind === 'invite_note' ? 'invites' : 'messages';
+    const effective = this.effectiveAccount();
+    assertApprovalSafe({
+      kind: draft.kind, actionType: action?.type, accountPaused: this.account.paused,
+      campaignActive: !!campaign?.active, campaignArchived: !!campaign?.archived,
+      blockedReason, excluded,
+      withinHours: isWithinWorkingHours(now(), effective.workingHours),
+      remaining: remainingBudget(effective, budget,
+        (key, since) => this.crm.usageTimes(this.account.id, key, since), now()),
+      text, postId: draft.postUrl,
+    });
+    // O status só muda após os controles. Bloqueios preservam o rascunho pendente.
     this.crm.updateDraft(draftId, { status: 'approved', comment: text });
 
     const result = await this.executeDraft(draft, text);
