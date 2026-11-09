@@ -366,3 +366,11 @@ button.workspace-sidebar-link .campaign-side-name { font-weight:650; max-width:1
  .campaign-import-card button { flex:1; }
  .topnav-controls { gap:8px; flex-wrap:wrap; }
 }
+
+/* Cadastro básico da conta: as opções de credenciais e categoria só aparecem se solicitadas. */
+.account-onboarding-advanced { border:1px solid var(--line); padding:9px 11px; border-radius:9px; }
+.account-onboarding-advanced summary { color:var(--muted); cursor:pointer; }
+.account-onboarding-advanced[open] { display:grid; gap:8px; }
+.account-onboarding-advanced[open] input,.account-onboarding-advanced[open] select { width:100%; }
+.account-onboarding-advanced p { margin:4px 0; font-size:12px; }
+.campaign-empty-search { margin:8px 0; }
