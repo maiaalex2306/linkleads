@@ -298,3 +298,8 @@ button.workspace-sidebar-link .campaign-side-name { font-weight:650; max-width:1
 .wb-notice { border-left:3px solid var(--warn); background:var(--accent-soft); color:var(--soft-ink); border-radius:6px; padding:9px 12px; font-size:12px; }
 @media(max-width:1400px) { .wb-layout { grid-template-columns:minmax(190px,1fr) minmax(250px,1.8fr); } .wb-inspector { grid-column:1 / -1; max-height:none; } }
 @media(max-width:840px) { .wb-layout { grid-template-columns:minmax(0,1fr); } .wb-palette,.wb-inspector { max-height:none; } .wb-title label { min-width:150px; } }
+
+.workspace-list-tools { display:grid; grid-template-columns:minmax(170px,1fr) minmax(200px,1.3fr) minmax(180px,1.2fr); align-items:end; gap:12px; }
+.workspace-list-tools label { font-weight:600; }
+.workspace-list-tools input,.workspace-list-tools select { width:100%; font-weight:400; }
+@media(max-width:850px) { .workspace-list-tools { grid-template-columns:minmax(0,1fr); } }

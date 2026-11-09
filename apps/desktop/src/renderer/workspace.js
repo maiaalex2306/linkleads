@@ -49,6 +49,8 @@ async function openCampaignWorkspace(campaignId) {
   state.campaignTab = 'info';
   state.campaignPage = 0;
   state.campaignFilter = 'all';
+  state.campaignActionFilter = '';
+  state.queueSearch = '';
   state.editCampaign = false;
   await renderView();
   await renderAccounts();
@@ -234,7 +236,7 @@ async function detailLists(a, c) {
       },label))),
     h('div', { class:'card stack' },
       h('div', { class:'row' },
-        h('strong', { style:'flex:1' }, 'Registros da campanha'),
+        h('strong', { style:'flex:1' }, 'Perfis da campanha'),
         h('span', { class:'muted' },data.total+' registro(s) · '+data.pageSize+' por página')),
       h('div', { class:'workspace-table-scroll' },h('table', {},
         h('thead',{},h('tr',{},...['Pessoa','Empresa','Ação','Situação','Motivo','Quando'].map((v)=>h('th',{},v)))),

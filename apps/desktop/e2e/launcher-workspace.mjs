@@ -111,6 +111,28 @@ try {
   check(betaCampaigns.length === 0, 'campanhas isoladas por conta');
   check(await ui.locator('#work-nav').getByText('Monitoramento industrial').count() === 0, 'menu não mostra campanhas de outra conta');
 
+  const draft = await call('createBlankCampaign', b.id, 'Fluxo editável');
+  check(!!draft.campaignId, 'cria campanha vazia, sem executar');
+  await ui.reload();
+  await ui.locator('.launcher-account', { hasText: 'Conta Beta' })
+    .getByRole('button', { name: 'Abrir campanhas' }).click();
+  await ui.locator('#work-nav').getByRole('button', { name: /Fluxo editável/ }).click();
+  await ui.getByRole('button', { name:'Fluxo de trabalho', exact:true }).click();
+  await ui.getByRole('button', { name:'Editar etapas' }).click();
+  await ui.locator('.wb-root').waitFor();
+  check(await ui.locator('.wb-action.is-unavailable').count() > 0,
+    'catálogo mostra ações sem executor como indisponíveis');
+  await ui.locator('.wb-action', { hasText:'Visitar e extrair perfil' })
+    .getByRole('button', { name:'+ Adicionar' }).click();
+  check(await ui.locator('.wb-canvas .wb-step').count() === 1,
+    'editor visual adiciona uma etapa disponível');
+  await ui.getByRole('button', { name:'Salvar fluxo' }).click();
+  await ui.locator('.wb-root').waitFor({ state:'detached' });
+  const persisted = await call('campaignDetail', b.id, draft.campaignId);
+  check(persisted.actions.length === 1 && persisted.actions[0].type === 'VisitAndExtract',
+    'fluxo persistido sem modificar outra conta');
+  await ui.screenshot({ path: join(shots,'editor-fluxo.png'), fullPage:true });
+
   const effects = ['liked', 'comments', 'invites', 'messages', 'withdrawals']
     .map((key) => site.state[key]).filter((x) => Array.isArray(x) ? x.length : Number(x));
   check(effects.length === 0, 'navegação não enviou interações externas');

@@ -67,10 +67,13 @@ try {
   check(await ui.locator('#live-box').getByRole('button', { name: /Tentar de novo/ }).count() === 0,
     'painel não oferece repetir falhas NOT_FOUND');
   const refused = await ui.evaluate(async ([id, campaignId]) => {
-    // O comando permanece seguro mesmo se chamado fora da interface.
-    return window.linkleads.retryFailed(id, campaignId);
+    try { await window.linkleads.retryFailed(id, campaignId); return false; }
+    catch { return true; }
   }, [acc.id, camp.campaignId]);
-  check(refused === 0, 'API não reencaminha falhas potencialmente ambíguas');
+  check(refused, 'API bloqueia retry enquanto o executor está ligado');
+  await call('stopRunner', acc.id);
+  check(await call('retryFailed', acc.id, camp.campaignId) === 0,
+    'API não reencaminha NOT_FOUND mesmo com executor desligado');
 
   // layout novo: nome só no título da aba; e página que não mostra o perfil (gera relatório)
   await call('setCampaignActive', acc.id, camp.campaignId, false);
