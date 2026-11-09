@@ -1,5 +1,11 @@
 name: CI
 
+# Descarte pipelines substituídos por novos commits do mesmo PR.
+# Evita consumo de runners e minutos em revisões obsoletas.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 on:
   push:
     branches: [main]
@@ -17,6 +23,9 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # Dependências usadas no runtime: impedir distribuição com vulnerabilidade alta/crítica conhecida.
+      - name: Auditar dependências de runtime
+        run: npm audit --omit=dev --audit-level=high
       # A primeira operação após instalar deve funcionar sem dist pré-existente.
       - name: Testar workspace em checkout limpo
         run: npm test
