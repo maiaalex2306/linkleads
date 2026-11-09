@@ -114,11 +114,13 @@ try {
 
   await ui.reload();
   await ui.locator('.account-list .acc').first().click();
-  await ui.getByRole('button', { name: 'Configurações', exact: true }).click();
+  await ui.locator('.top-menu > summary').click();
+  await ui.getByRole('button', { name: 'Configurações gerais' }).click();
   await ui.getByText('Equipe: BioSolvit').waitFor();
   await ui.getByText('Equipe: BioSolvit').scrollIntoViewIfNeeded();
   await ui.screenshot({ path: join(shots, 'fase5-equipe.png') });
   await ui.getByRole('button', { name: '← Voltar' }).click();
+  await ui.getByRole('button', { name: 'Tela completa' }).click();
   await ui.getByRole('button', { name: /^Proxy/ }).click();
   await ui.getByText('Proxy desta conta').waitFor();
   await ui.getByRole('button', { name: 'Testar' }).click();
