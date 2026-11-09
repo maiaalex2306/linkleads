@@ -148,7 +148,7 @@ export function pickPost(posts: PostExtract[], publicId: string, s: LikeSettings
 }
 
 /** Como pickPost, mas explica por que nenhum post serviu (para a tela). */
-export function choosePost(posts: PostExtract[], publicId: string, s: LikeSettings, personName = ''): { post?: PostExtract; why: string } {
+export function choosePost(posts: PostExtract[], publicId: string, s: LikeSettings, personName = ''): { post?: PostExtract; why: string; uncertain?: boolean } {
   const maxAge = s.maxPostAgeDays ?? 30;
   const norm = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
   const expected = norm(personName);
@@ -164,11 +164,15 @@ export function choosePost(posts: PostExtract[], publicId: string, s: LikeSettin
   let empty = 0;
   let reshare = 0;
   let others = 0;
+  let uncertainActors = 0;
   let old = 0;
   let newest: number | undefined;
   const eligible = posts.filter((p) => {
     if (!p.text && !p.hasMedia) return (empty++, false);
     if (p.isReshare && !s.includeReshares) return (reshare++, false);
+    const actor = p.actorHref ? profileSlug(p.actorHref) : undefined;
+    if ((!actor && !p.actorName) || (actor && /^(?:acoaa|acwaa)/i.test(actor) && !p.actorName))
+      return (uncertainActors++, false);
     if (!isOwn(p)) return (others++, false);
     const age = p.age ? parseRelativeAgeDays(p.age) : undefined;
     if (age !== undefined) newest = newest === undefined ? age : Math.min(newest, age);
@@ -181,6 +185,7 @@ export function choosePost(posts: PostExtract[], publicId: string, s: LikeSettin
     eligible.find((p) => p.liked == null);
   if (post) return { post, why: '' };
   if (eligible.length) return { why: 'Todas as publicações elegíveis já foram curtidas; nenhuma ação adicional necessária' };
+  if (uncertainActors) return { why: 'Não foi possível confirmar a identidade do autor de ' + uncertainActors + ' publicação(ões)', uncertain: true };
   if (!posts.length) return { why: 'Não reconheci nenhum post na página de atividade (layout diferente ou a página não carregou)' };
   const parts = [
     old && `${old} com mais de ${maxAge} dias${newest !== undefined ? ` (o mais recente há ${newest} dias)` : ''}`,
@@ -208,8 +213,9 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
             const empty = await d.driver.exists('emptyActivity').catch(() => false);
             const unreadable = !posts.length && !empty;
             const file = unreadable ? await d.reportUnrecognized?.().catch(() => undefined) : undefined;
-            if (unreadable) return { ok: false, reason: 'NO_REAL_EFFECT',
-              message: 'Página de atividades não reconhecida ou carregamento incompleto. Ação interrompida' +
+            if (unreadable || pick.uncertain) return { ok: false, reason: 'NO_REAL_EFFECT',
+              message: (pick.uncertain ? pick.why :
+                'Página de atividades não reconhecida ou carregamento incompleto. Ação interrompida') +
                 (file ? '. Diagnóstico: ' + file : '') };
             return { ok: false, reason: 'NO_POST', message: empty ? 'A pessoa não tem publicações' : pick.why };
           }
