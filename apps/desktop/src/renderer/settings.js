@@ -26,7 +26,8 @@ async function settingsView() {
   const about = h('textarea', { value: s.aboutMe, placeholder: 'Ex.: Sou Alexandre, da BioSolvit. Trabalho com soluções para perdas de água e saneamento.' });
   const providerCards = PROVIDERS.map(([id, label, ph, env]) => {
     const st = s.providers[id];
-    const key = h('input', { type: 'password', placeholder: st.keySource !== 'none' ? '•••••• (já configurada)' : ph, style: 'width:320px' });
+    const secret = passwordInput({ placeholder: st.keySource !== 'none' ? '•••••• (já configurada)' : ph });
+    const key = secret.input;
     const model = h('input', { value: st.model, placeholder: st.defaultModel, style: 'width:200px' });
     const active = s.aiProvider === id;
     return h('div', { class: 'card stack' + (active ? ' active' : '') },
@@ -36,7 +37,7 @@ async function settingsView() {
           h('strong', {}, label)),
         h('span', { class: 'badge ' + (st.keySource === 'none' ? 'failed' : 'successful') }, st.keySource === 'none' ? 'sem chave' : st.keySource === 'env' ? `chave via ${env}` : 'chave salva'),
       ),
-      h('div', { class: 'row' }, key,
+      h('div', { class: 'row' }, secret.element,
         h('button', { class: 'primary', onclick: () => key.value && safe(() => api.setAiKey(id, key.value), 'Chave salva').then(renderView) }, 'Salvar chave'),
         st.keySource === 'app' && h('button', { onclick: () => safe(() => api.setAiKey(id, null), 'Chave removida').then(renderView) }, 'Remover')),
       h('div', { class: 'row' }, h('span', { class: 'muted' }, 'Modelo'), model,
