@@ -13,7 +13,7 @@ export interface EngagementCampaignOptions {
   maxPostAgeDays?: number;
 }
 
-/** Campanha pronta: visitar → curtir o post mais recente → comentar com IA. */
+/** Campanha pronta: uma única ação de curtir e comentar. */
 export function engagementCampaign(o: EngagementCampaignOptions): Campaign {
   return {
     id: o.id,
@@ -21,19 +21,15 @@ export function engagementCampaign(o: EngagementCampaignOptions): Campaign {
     name: o.name,
     active: false,
     actions: [
-      { id: `${o.id}-visit`, type: 'VisitAndExtract', name: 'Visitar e extrair perfil', coolDown: 0, maxResults: -1, settings: {} },
       {
-        id: `${o.id}-like`, type: 'LikePosts', name: 'Curtir post mais recente', coolDown: 0, maxResults: -1,
-        settings: { count: 1, maxPostAgeDays: o.maxPostAgeDays ?? 30 },
-      },
-      {
-        id: `${o.id}-comment`, type: 'CommentPost', name: 'Comentar com IA', coolDown: 0, maxResults: -1,
+        id: `${o.id}-engage`, type: 'LikeAndComment',
+        name: 'Curtir e comentar publicações e artigos',
+        coolDown: 0, maxResults: -1,
         settings: {
-          mode: o.commentMode,
-          tone: o.tone ?? 'profissional',
-          aboutMe: o.aboutMe ?? '',
-          extraInstructions: o.extraInstructions ?? '',
-          maxChars: 400,
+          likesPerProfile: 1, likeArticlesCount: 0, maxPostAgeDays: o.maxPostAgeDays ?? 30,
+          includeReshares: false, commentEnabled: true, commentMethod: 'ai',
+          mode: o.commentMode, tone: o.tone ?? 'profissional',
+          aboutMe: o.aboutMe ?? '', extraInstructions: o.extraInstructions ?? '', maxChars: 400,
         },
       },
     ],
@@ -131,7 +127,7 @@ export interface ProspectingSequenceOptions {
 }
 
 /** Sem post recente, IA preferiu não comentar ou comentário rejeitado: segue para o convite mesmo assim. */
-const ENGAGEMENT_SOFT_FAILS: FailureReason[] = ['NO_POST', 'AI_SKIPPED', 'NO_REAL_EFFECT', 'ERROR', 'REJECTED'];
+const ENGAGEMENT_SOFT_FAILS: FailureReason[] = ['NO_POST', 'AI_SKIPPED'];
 
 /**
  * Sequência de prospecção completa (sem visita separada: abrir o perfil para curtir já "visita"):
@@ -159,12 +155,15 @@ export function prospectingSequence(o: ProspectingSequenceOptions): Campaign {
           ]
         : []),
       {
-        id: `${o.id}-like`, type: 'LikePosts', name: 'Curtir post mais recente', coolDown: 0, maxResults: -1,
-        settings: { count: 1, maxPostAgeDays: o.maxPostAgeDays ?? 30 }, continueOnFail: ENGAGEMENT_SOFT_FAILS,
-      },
-      {
-        id: `${o.id}-comment`, type: 'CommentPost', name: 'Comentar com IA', coolDown: 0, maxResults: -1,
-        settings: { mode: o.commentMode, tone: o.tone ?? 'profissional', aboutMe: o.aboutMe ?? '', extraInstructions: o.extraInstructions ?? '', maxChars: 400 },
+        id: `${o.id}-engage`, type: 'LikeAndComment',
+        name: 'Curtir e comentar publicações e artigos',
+        coolDown: 0, maxResults: -1,
+        settings: {
+          likesPerProfile: 1, likeArticlesCount: 0, maxPostAgeDays: o.maxPostAgeDays ?? 30,
+          includeReshares: false, commentEnabled: true, commentMethod: 'ai',
+          mode: o.commentMode, tone: o.tone ?? 'profissional',
+          aboutMe: o.aboutMe ?? '', extraInstructions: o.extraInstructions ?? '', maxChars: 400,
+        },
         continueOnFail: ENGAGEMENT_SOFT_FAILS,
       },
       {
