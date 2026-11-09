@@ -94,8 +94,7 @@ try {
   await ui.screenshot({ path: join(shots, 'limites.png'), fullPage: true });
   await ui.getByRole('button', { name:'Atividade', exact:true }).click();
   await ui.locator('#health-box').screenshot({ path: join(shots, 'medidores.png') });
-  await ui.getByRole('button', { name: 'Ajustes da conta' }).click();
-  await ui.getByRole('button', { name: 'Limites', exact:true }).click();
+  // O painel de limites continua aberto no estado da interface após navegar em Atividade.
   await ui.getByRole('button', { name: 'Restaurar padrão' }).click();
   await ui.getByRole('button', { name: 'Salvar', exact: true }).click();
   await ui.waitForTimeout(500);
