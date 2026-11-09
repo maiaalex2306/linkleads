@@ -1,7 +1,8 @@
 import { app, BrowserWindow, dialog, ipcMain, safeStorage } from 'electron';
 import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
+import { resolveTestUserData } from './test-user-data.js';
 import { fileURLToPath } from 'node:url';
 import {
   DEFAULT_LIMIT_RULES,
@@ -49,6 +50,17 @@ import { SAFE_RETRY_REASONS, isSafeManualRetry } from './retry-policy.js';
 import { actionCatalogForEditor, validateCampaignWorkflow } from './workflow-model.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
+// E2E Electron deve SEMPRE usar dados isolados, inclusive no Windows, no qual
+// XDG_CONFIG_HOME normalmente não altera userData. Fail closed se faltar raiz.
+const isolatedTestData = resolveTestUserData(
+  process.env.LINKLEADS_TEST_BASE_URL,
+  process.env.LINKLEADS_TEST_USER_DATA,
+  process.env.XDG_CONFIG_HOME,
+);
+if (isolatedTestData) {
+  mkdirSync(isolatedTestData, { recursive: true });
+  app.setPath('userData', isolatedTestData);
+}
 trace.configure(join(app.getPath('userData'), 'traces'));
 trace.record('lifecycle', 'process_start', { mode: process.env.LINKLEADS_TEST_BASE_URL ? 'test' : 'production' });
 
