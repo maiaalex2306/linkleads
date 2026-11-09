@@ -248,9 +248,8 @@ export class SqliteCampaignStore implements CampaignStore {
   }
 
   /**
-   * Devolve para a fila (na mesma etapa) quem falhou por motivos que podem mudar
-   * (perfil não carregou, erro, sem efeito confirmado…). Não mexe em quem respondeu,
-   * pediu para parar, foi excluído ou ficou fora do ICP.
+   * Reenvio manual conservador: o chamador fornece APENAS razões de ações
+   * comprovadamente não executadas. Falha de verificação não autoriza repetição.
    */
   retryFailed(campaignId: string, reasons: string[]): number {
     if (!reasons.length) return 0;

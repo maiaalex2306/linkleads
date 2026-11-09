@@ -101,7 +101,7 @@ async function refreshLive() {
     if (lk !== lastListsKey) { lastListsKey = lk; box.querySelector('.live-lists').replaceChildren(...liveLists(L)); }
   }
   if (health) health.replaceChildren(healthBar(stats));
-  if (state.tab === 'campaigns') refreshCampaignTables(id).catch(() => {});
+  if (state.tab === 'campaigns' && campaignTables.size > 0) refreshCampaignTables(id).catch(() => {});
   if (state.mode === 'simple') refreshSimpleFunnel(id).catch(() => {});
 }
 
@@ -115,4 +115,6 @@ async function refreshCampaignTables(id) {
   for (const c of camps) campaignTables.get(c.id)?.(c);
 }
 
-setInterval(() => refreshLive().catch(() => {}), 1000);
+// O painel consulta o SQLite a cada 5 s, não a cada segundo.
+// Um tick rápido de interface não deve disparar consultas e JSON grande.
+setInterval(() => { if (!document.hidden) refreshLive().catch(() => {}); }, 5000);

@@ -1,4 +1,4 @@
-// E2E: a tela explica por que nada acontece (campanha terminada com falhas) e permite tentar de novo.
+// E2E: explica falhas sem oferecer repetição insegura de ações sobre o LinkedIn.
 import { createRequire } from 'node:module';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -46,8 +46,8 @@ try {
   await call('runNow', acc.id);
   L = await call('liveStatus', acc.id);
   const q = L.queues[0];
-  check(/terminou/.test(q.explain) && /2 falha\(s\) podem ser tentadas de novo/.test(q.explain), 'campanha sem nada a fazer: explica que terminou e que dá para tentar de novo', q);
-  check(q.reasons.NOT_FOUND === 2 && q.retryable === 2, 'mostra os motivos das falhas', q.reasons);
+  check(/terminou/.test(q.explain) && !/podem ser tentadas de novo/.test(q.explain), 'falhas de perfil não geram repetição insegura', q);
+  check(q.reasons.NOT_FOUND === 2 && q.retryable === 0, 'mostra os motivos e nenhuma repetição automática', q.reasons);
   const people = (await call('listCampaigns', acc.id))[0].people;
   check(people.every((p) => /página não encontrada/.test(p.message || '')), 'cada falha guarda o detalhe (qual página não carregou)', people);
 
@@ -64,10 +64,13 @@ try {
   await ui.getByText(/O LinkedIn mostrou "página não encontrada"/).first().waitFor();
   check(true, 'lista individual da campanha mostra o detalhe da falha');
 
-  await ui.locator('#live-box').getByRole('button', { name: 'Tentar de novo (2)' }).click();
-  await ui.waitForTimeout(1500);
-  L = await call('liveStatus', acc.id);
-  check(L.queues[0].ready === 2 && L.queues[0].failed === 0, '"Tentar de novo" devolve as 2 para a fila', L.queues[0]);
+  check(await ui.locator('#live-box').getByRole('button', { name: /Tentar de novo/ }).count() === 0,
+    'painel não oferece repetir falhas NOT_FOUND');
+  const refused = await ui.evaluate(async ([id, campaignId]) => {
+    // O comando permanece seguro mesmo se chamado fora da interface.
+    return window.linkleads.retryFailed(id, campaignId);
+  }, [acc.id, camp.campaignId]);
+  check(refused === 0, 'API não reencaminha falhas potencialmente ambíguas');
 
   // layout novo: nome só no título da aba; e página que não mostra o perfil (gera relatório)
   await call('setCampaignActive', acc.id, camp.campaignId, false);

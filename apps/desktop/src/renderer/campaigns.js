@@ -293,7 +293,7 @@ function campaignCard(a, c, cols) {
       h('button', { class: 'primary', onclick: () => openCampaignWorkspace(c.id) }, 'Abrir campanha'),
       addCol,
       exportButton(a, { campaignId: c.id, name: c.name }),
-      c.people.some((p) => p.status === 'failed') && h('button', { title: 'Devolve para a fila quem falhou por perfil que não carregou, erro, sem efeito confirmado ou sem post', onclick: async () => {
+      !a.paused && !a.runnerEnabled && c.people.some((p) => p.status === 'failed' && p.reason === 'LIMIT_REACHED') && h('button', { title: 'Reencaminha somente falhas por limite local, sem ações de efeito incerto', onclick: async () => {
         const n = await safe(() => api.retryFailed(a.id, c.id));
         if (n != null) { toast(n ? `${n} pessoa(s) voltaram para a fila` : 'Nenhuma falha que valha tentar de novo (ex.: respondeu, fora do ICP)'); renderView(); }
       } }, 'Tentar de novo as falhas'),

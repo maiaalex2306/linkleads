@@ -45,6 +45,7 @@ import { InstanceManager } from './instance-manager.js';
 import { Settings } from './settings.js';
 import { trace } from './trace.js';
 import { campaignDisplayStatus } from './campaign-status.js';
+import { SAFE_RETRY_REASONS, isSafeManualRetry } from './retry-policy.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 trace.configure(join(app.getPath('userData'), 'traces'));
@@ -272,12 +273,19 @@ ipcMain.handle('instance:open', (_e, id: string) => void instances.open(account(
 ipcMain.handle('instance:startRunner', (_e, id: string) => void instances.startRunner(account(id)));
 ipcMain.handle('instance:stopRunner', (_e, id: string) => void instances.stopRunner(id));
 ipcMain.handle('instance:stop', (_e, id: string) => instances.stop(id));
-/** Falhas que podem mudar numa nova tentativa (página não carregou, erro, sem efeito, bloqueio, sem post). */
-const RETRYABLE = ['NOT_FOUND', 'ERROR', 'NO_REAL_EFFECT', 'THROTTLED', 'NO_POST', 'LIMIT_REACHED'];
+/** Só reexecutar automaticamente uma falha comprovadamente pré-execução. */
+const RETRYABLE = SAFE_RETRY_REASONS;
 
 ipcMain.handle('campaigns:retryFailed', (_e, id: string, campaignId: string) => {
-  const crm = crms.get(account(id));
+  const a = account(id);
+  if (a.paused) throw new Error('Conta pausada: primeiro resolva a verificação de segurança.');
+  const crm = crms.get(a);
+  const campaign = crm.loadCampaign(campaignId, id);
+  if (!campaign) throw new Error('Campanha inexistente nesta conta.');
+  if (campaign.active && instances.get(id)?.schedulerRunning())
+    throw new Error('Pare o executor antes de reorganizar falhas.');
   const n = crm.retryFailed(campaignId, RETRYABLE);
+  trace.record('campaign', 'safe_retry_requested', { count: n }, { accountId: id, campaignId });
   return n;
 });
 
@@ -301,7 +309,7 @@ ipcMain.handle('instance:live', (_e, id: string) => {
     const failedRows = rows.filter((r) => r.status === 'failed');
     const reasons: Record<string, number> = {};
     for (const r of failedRows) reasons[r.reason ?? 'ERROR'] = (reasons[r.reason ?? 'ERROR'] ?? 0) + 1;
-    const retryable = failedRows.filter((r) => RETRYABLE.includes(r.reason ?? 'ERROR')).length;
+    const retryable = acc.paused ? 0 : failedRows.filter((r) => isSafeManualRetry(r.reason)).length;
     const approval = rows.filter((r) => r.reason === 'AWAITING_APPROVAL').length;
     const done = rows.filter((r) => r.status === 'successful').length;
     let explain: string;
