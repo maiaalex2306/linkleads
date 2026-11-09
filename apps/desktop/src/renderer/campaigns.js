@@ -311,7 +311,6 @@ async function campaignsView(a) {
     .filter((c)=>Boolean(c.archived)===includeArchived);
   const search = (state.campaignSearch||'').trim().toLocaleLowerCase('pt-BR');
   const filtered = summaries.filter((c)=>{
-    if(search && !c.name.toLocaleLowerCase('pt-BR').includes(search)) return false;
     if(state.campaignStatusFilter==='stopped') return !c.active;
     if(state.campaignStatusFilter==='enabled') return c.active;
     return true;
@@ -360,7 +359,8 @@ async function campaignsView(a) {
       : !c.active ? 'Pronta para iniciar.'
       : c.status==='running' ? 'Em execução neste momento.'
       : 'Na programação. Aguarde o próximo ciclo.';
-    return h('section',{class:'card campaign-overview-item'},
+    return h('section',{class:'card campaign-overview-item',
+      hidden:!!search&&!c.name.toLocaleLowerCase('pt-BR').includes(search)},
       h('div',{class:'campaign-overview-heading row'},
         h('div',{style:'flex:1;min-width:0'},
           h('strong',{class:'campaign-overview-name'},c.name),
@@ -391,14 +391,19 @@ async function campaignsView(a) {
           if(result?.ok){state.campaignMenuId=null;invalidateCampaignSummaries(a.id);await refresh();}
         }},c.archived?'Restaurar campanha':'Arquivar campanha')));
   });
+  const emptySearch=h('p',{class:'muted',hidden:!search||ordered.some(c=>c.name.toLocaleLowerCase('pt-BR').includes(search))},
+    'Nenhuma campanha corresponde a esta busca.');
   const findInput = h('input',{type:'search',placeholder:'Buscar campanha por nome',
     value:state.campaignSearch||'', 'aria-label':'Pesquisar campanhas',
     oninput:(ev)=>{state.campaignSearch=ev.target.value;
       const value=state.campaignSearch.toLocaleLowerCase('pt-BR').trim();
       const cards=document.querySelectorAll('.campaign-overview-item');
+      let visible=0;
       cards.forEach((card)=>{const name=card.querySelector('.campaign-overview-name')?.textContent||'';
         card.hidden=!!value&&!name.toLocaleLowerCase('pt-BR').includes(value);
+        if(!card.hidden)visible++;
       });
+      emptySearch.hidden=visible>0;
     }});
   return h('div',{class:'stack campaign-simple-overview'},
     h('div',{class:'workspace-title'},
@@ -425,7 +430,7 @@ async function campaignsView(a) {
         h('option',{value:'recent'},'Habilitadas primeiro'),
         h('option',{value:'name'},'Nome A–Z'),
         h('option',{value:'contacts'},'Mais leads'))),
-    h('div',{class:'campaign-overview-list'},...sections),
+    h('div',{class:'campaign-overview-list'},...sections),emptySearch,
     !!summaries.length&&!ordered.length && h('div',{class:'card muted'},'Nenhuma campanha corresponde ao filtro.'),
     !summaries.length&&includeArchived && h('div',{class:'card muted'},'Nenhuma campanha arquivada.'));
 }
