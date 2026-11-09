@@ -21,7 +21,12 @@ export function assertApprovalSafe(a: ApprovalSafetyState): void {
   if (a.accountPaused) throw new Error('Conta pausada: envio proibido.');
   if (!a.campaignActive || a.campaignArchived)
     throw new Error('Campanha parada ou arquivada: envie somente depois de reativar.');
-  if (a.actionType !== APPROVAL_ACTION[a.kind])
+  // Um comentário pode ser originado pela etapa legada CommentPost OU
+  // pela nova ação composta. Todos os demais tipos continuam proibidos.
+  const validAction = a.kind === 'comment'
+    ? a.actionType === 'CommentPost' || a.actionType === 'LikeAndComment'
+    : a.actionType === APPROVAL_ACTION[a.kind];
+  if (!validAction)
     throw new Error('Rascunho sem ação válida desta campanha.');
   if (a.blockedReason || a.excluded)
     throw new Error('Contato excluído, respondeu ou solicitou interrupção.');
