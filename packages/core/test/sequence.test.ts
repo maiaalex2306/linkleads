@@ -129,11 +129,14 @@ describe('sequência de prospecção (curtir → comentar → convite)', () => {
     expect(store.statusOf('pro', id('CommentPost'), 'p1')).toBeUndefined();
   });
 
-  it('comentário rejeitado na aprovação: segue para o convite', () => {
+  it('comentário rejeitado na aprovação: preserva rejeição e NÃO avança ao convite', () => {
     const { campaign, store, id } = build();
     store.enqueue('pro', id('CommentPost'), 'p1');
     resolveApproval(store, campaign, id('CommentPost'), 'p1', { executed: false, reason: 'REJECTED' });
-    expect(store.statusOf('pro', id('SendInvite'), 'p1')?.status).toBe('queued');
+    expect(store.statusOf('pro', id('CommentPost'), 'p1')).toMatchObject({
+      status: 'failed', reason: 'REJECTED'
+    });
+    expect(store.statusOf('pro', id('SendInvite'), 'p1')).toBeUndefined();
   });
 
   it('convite rejeitado na aprovação: para (não manda mensagem)', () => {
