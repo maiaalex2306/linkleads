@@ -344,3 +344,58 @@ button.workspace-sidebar-link .campaign-side-name { font-weight:650; max-width:1
 @media(max-width:1180px) { .launcher-toolbar { grid-template-columns:1fr; } }
 @media(max-width:620px) { .launcher-account-meta,.launcher-account .launcher-actions { padding-left:0; }
   .launcher-account .row { flex-wrap:wrap; } }
+
+
+/* 2026-11 — Hierarquia de trabalho: conta → campanha → lista → parâmetros */
+header { display:flex; align-items:center; gap:18px; padding:0 18px; min-height:54px; }
+header h1 { flex:1; min-width:0; font-size:19px; letter-spacing:-.5px; }
+#topnav { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:12px; }
+#topnav .top-home { font-weight:650; }
+#topnav .build-tag { font-size:11px; opacity:.75; white-space:nowrap; }
+.top-menu { position:relative; }
+.top-menu > summary { cursor:pointer; list-style:none; font-weight:600; font-size:13px; padding:8px 12px; border-radius:9px; }
+.top-menu > summary::-webkit-details-marker { display:none; }
+.top-menu > summary::after { content:' ▾'; }
+.top-menu[open] > summary,.top-menu > summary:hover { background:rgba(255,255,255,.12); }
+.top-menu-content { position:absolute; right:0; top:calc(100% + 8px); z-index:30; width:228px;
+  padding:8px; border:1px solid var(--line); border-radius:12px; background:var(--card);
+  box-shadow:0 12px 34px rgba(0,0,0,.16); display:grid; gap:5px; }
+.top-menu-content button { width:100%; text-align:left; padding:10px 12px; }
+.password-field { display:flex; gap:0; align-items:stretch; flex:1; min-width:180px; max-width:100%; }
+.password-field input { flex:1; min-width:0; border-radius:9px 0 0 9px; }
+.password-field .password-eye { flex:none; padding:7px 12px; background:var(--bg);
+  border-radius:0 9px 9px 0; border-left:0; font-size:12px; font-weight:650; cursor:pointer; }
+.password-field .password-eye:hover { color:var(--brand); background:var(--brand-soft); }
+.credential-row { display:grid; grid-template-columns:minmax(190px,1fr) minmax(230px,1fr); align-items:center; }
+.credential-row input[type=email] { width:100%; box-sizing:border-box; }
+.auth-guidance { background:var(--brand-soft); color:var(--fg); border-radius:10px;
+  padding:12px 14px; font-size:13px; line-height:1.55; border-left:3px solid var(--brand); }
+.import-summary { display:grid; gap:10px; padding:18px 20px; }
+.import-summary-head { display:flex; align-items:center; justify-content:space-between; }
+.import-success { color:var(--ok); font-weight:750; font-size:13px; }
+.import-filename { max-width:100%; overflow:hidden; text-overflow:ellipsis; overflow-wrap:anywhere; }
+.import-stats { display:flex; gap:10px; flex-wrap:wrap; }
+.import-stats span { padding:6px 10px; border-radius:30px; background:var(--bg); font-size:12px; }
+.import-details { font-size:12px; }
+.import-details > summary { cursor:pointer; color:var(--muted); }
+.import-details[open] { border-top:1px solid var(--line); padding-top:12px; }
+.collection-picker { display:grid; border:1px solid var(--line); border-radius:12px; overflow:hidden; background:var(--card); }
+.collection-row { display:flex; align-items:center; gap:14px; padding:14px 16px; cursor:pointer; border-bottom:1px solid var(--line); }
+.collection-row:last-child { border-bottom:0; }
+.collection-row:hover,.collection-row.selected { background:var(--brand-soft); }
+.collection-row > input { flex:none; width:18px; height:18px; accent-color:var(--brand); }
+.collection-info { display:grid; gap:3px; min-width:0; }
+.collection-info strong { font-size:13px; overflow-wrap:anywhere; line-height:1.45; }
+.collection-info small { font-size:12px; }
+.intent-card { max-width:900px; padding:26px; gap:14px; }
+.intent-card h2 { margin:0; font-size:25px; letter-spacing:-.4px; }
+.intent-card textarea { width:100%; max-width:100%; min-height:78px; box-sizing:border-box; padding:13px; }
+.intent-actions { flex-wrap:wrap; gap:9px; }
+.intent-actions button { padding:11px 14px; }
+@media (max-width:800px) {
+  header { flex-wrap:wrap; gap:5px; padding:10px; }
+  #topnav { gap:7px; }
+  #topnav .build-tag { display:none; }
+  .credential-row { grid-template-columns:minmax(0,1fr); }
+  .intent-card { padding:16px; }
+}
