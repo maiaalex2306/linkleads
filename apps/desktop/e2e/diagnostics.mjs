@@ -102,6 +102,7 @@ try {
   await ui.reload();
   await ui.locator('.account-list .acc').first().click();
   await ui.locator('.account-list').getByText('Conta teste').click();
+  await ui.getByRole('button', { name: 'Tela completa' }).click();
   await ui.locator('.schedule').waitFor();
   const banner = await ui.locator('.schedule').textContent();
   check(/horário de trabalho/i.test(banner), 'aviso de horário aparece no topo da conta', banner);
