@@ -10,7 +10,9 @@ describe('Catálogo e validador visual', () => {
   it('lista todos os tipos de catálogo e diferencia os executáveis', () => {
     const list = actionCatalogForEditor();
     expect(list.length).toBeGreaterThanOrEqual(35);
-    expect(list.find((x) => x.type === 'LikePosts')?.available).toBe(true);
+    expect(list.find((x) => x.type === 'LikePosts')?.available).toBe(false);
+    expect(list.find((x) => x.type === 'CommentPost')?.legacy).toBe(true);
+    expect(list.find((x) => x.type === 'LikeAndComment')?.available).toBe(true);
     expect(list.find((x) => x.type === 'SendInMail')?.available).toBe(false);
   });
   it('oferece curtir + comentar em uma única ação com parâmetros efetivos', () => {
