@@ -3,8 +3,9 @@ import { detectJobChange, getActionDefinition, parseRelativeAgeDays, publicIdFro
 import type { CommentSettings, LlmClient, PostInterpreter } from '@linkleads/ai';
 import type { IntegrationCrm } from '@linkleads/db';
 import type { EnrichmentProvider } from '@linkleads/integrations';
-import { commentPublished, editorText, extractPosts, extractProfile, likeState, profileReady, type PostExtract } from './dom-scripts.js';
+import { matchingCommentCount, editorText, extractPosts, extractProfile, likeState, profileReady, type PostExtract } from './dom-scripts.js';
 import { BlockedError, type PageDriver } from './page-driver.js';
+import { isCanonicalPostUrn } from './post-identity.js';
 
 /** LINKLEADS_TEST_BASE_URL aponta para o site falso dos testes e2e; nunca usar em produção. */
 export const BASE = process.env.LINKLEADS_TEST_BASE_URL ?? 'https://www.linkedin.com';
@@ -204,6 +205,11 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
             return { ok: false, reason: 'NO_POST', message: empty ? 'A pessoa não tem publicações' : `${pick.why}${file ? `. Relatório para ajuste: ${file}` : ''}` };
           }
 
+          if (!isCanonicalPostUrn(post.urn)) {
+            await d.reportUnrecognized?.().catch(() => undefined);
+            return { ok: false, reason: 'NO_REAL_EFFECT',
+              message: 'Publicação sem identificador canônico: nenhuma curtida realizada' };
+          }
           const snapshot: PostSnapshot = { url: post.urn, text: post.text, postedAt: post.age ?? undefined, hasMedia: post.hasMedia };
           d.crm.savePost(ctx.person.id, snapshot);
 
@@ -237,6 +243,10 @@ interface CommentActionSettings extends CommentSettings {
 
 /** Publica um comentário num post e confirma que ele aparece. */
 export async function publishComment(d: ExecutorDeps, urn: string, text: string): Promise<ExecutionResult> {
+  if (!isCanonicalPostUrn(urn)) return {
+    ok: false, reason: 'NO_REAL_EFFECT',
+    message: 'Publicação sem identificador canônico: comentário não enviado',
+  };
   return guard(async () => {
     await d.driver.goto(postUrl(urn), 'postItem');
     if (!(await d.driver.exists('commentEditor'))) {
@@ -253,13 +263,19 @@ export async function publishComment(d: ExecutorDeps, urn: string, text: string)
     const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
     if (norm(typed) !== norm(text)) return { ok: false, reason: 'NO_REAL_EFFECT', message: 'O texto digitado não confere com o comentário' };
 
+    const before = await d.driver.read(matchingCommentCount,
+      d.driver.sel as unknown as Record<string, readonly string[]>, urn, text);
+    if (before > 0) return { ok: false, reason: 'NO_REAL_EFFECT',
+      message: 'Texto idêntico já presente: envio interrompido para evitar duplicidade' };
     if (!(await d.driver.click('commentSubmit'))) return { ok: false, reason: 'NO_REAL_EFFECT', message: 'Botão de publicar não encontrado' };
-    const snippet = norm(text).slice(0, 60);
-    const published = await d.driver.waitUntil(
-      () => d.driver.read(commentPublished, d.driver.sel as unknown as Record<string, readonly string[]>, snippet),
-      12_000,
-    );
-    return published ? { ok: true, data: { post: urn } } : { ok: false, reason: 'NO_REAL_EFFECT', message: 'Comentário não apareceu após publicar' };
+    const published = await d.driver.waitUntil(async () => {
+      const after = await d.driver.read(matchingCommentCount,
+        d.driver.sel as unknown as Record<string, readonly string[]>, urn, text);
+      return after > before;
+    }, 12_000);
+    return published ? { ok: true, data: { post: urn } }
+      : { ok: false, reason: 'NO_REAL_EFFECT',
+        message: 'Nenhum novo comentário confirmado no post identificado' };
   });
 }
 
@@ -289,7 +305,7 @@ export function commentWithAi(d: ExecutorDeps): ActionExecutor {
         return { ok: false, reason: 'ERROR', message: `IA: ${e instanceof Error ? e.message : String(e)}` };
       }
       if (!interpretation.shouldComment) {
-        d.crm.markPostCommented(post.url, '', interpretation); // guarda a interpretação; não comenta
+        d.crm.savePostInterpretation(post.url, interpretation); // guarda decisão sem falso comentário
         return { ok: false, reason: 'AI_SKIPPED', message: interpretation.skipReason };
       }
 

@@ -627,6 +627,12 @@ export class LocalCrm extends SqliteCampaignStore {
     this.db.prepare(`UPDATE posts SET liked_at = datetime('now') WHERE url = ?`).run(url);
   }
 
+  /** Guarda análise, sem declarar que uma interação com a plataforma ocorreu. */
+  savePostInterpretation(url: string, interpretation: unknown): void {
+    this.db.prepare('UPDATE posts SET interpretation_json = ? WHERE url = ?')
+      .run(JSON.stringify(interpretation), url);
+  }
+
   markPostCommented(url: string, comment: string, interpretation: unknown): void {
     this.db
       .prepare(`UPDATE posts SET commented_at = datetime('now'), comment = ?, interpretation_json = ? WHERE url = ?`)

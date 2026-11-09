@@ -195,7 +195,32 @@ export function editorText(sel: Record<string, readonly string[]>): string {
   return '';
 }
 
-/** Algum comentário publicado contém o trecho? (prova de efeito real) */
+/** Conta ocorrências completas do comentário SOMENTE no post identificado.
+ * Comparar antes/depois evita confirmar uma mensagem que já estava na tela.
+ * Não garante autoria em todo layout; ausência de prova = resultado incerto.
+ */
+export function matchingCommentCount(
+  sel: Record<string, readonly string[]>, urn: string, commentText: string,
+): number {
+  const norm = (t: string) => t.replace(/\s+/g, ' ').trim().toLocaleLowerCase();
+  const target = norm(commentText);
+  if (!target) return 0;
+  const container = __llPostContainers({ postItem: sel.postItem!, likeButton: sel.likeButton! })
+    .find((item) => item.urn === urn)?.el;
+  if (!container) return 0;
+  const seen = new Set<Element>();
+  let count = 0;
+  for (const selector of sel.commentItemText!) {
+    for (const el of Array.from(container.querySelectorAll(selector))) {
+      if (seen.has(el)) continue;
+      seen.add(el);
+      if (norm((el as HTMLElement).innerText ?? '') === target) count++;
+    }
+  }
+  return count;
+}
+
+/** Busca legada, apenas para diagnóstico. NÃO usar como prova de envio. */
 export function commentPublished(sel: Record<string, readonly string[]>, snippet: string): boolean {
   const norm = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase();
   const target = norm(snippet);
