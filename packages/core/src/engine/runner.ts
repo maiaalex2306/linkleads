@@ -175,7 +175,19 @@ export class CampaignRunner {
     const alreadyDone = result.ok && (
       result.data?.alreadyLiked === true || result.data?.already === 'not_pending'
     );
-    if ((result.ok && !alreadyDone) || (!result.ok && result.reason === 'NO_REAL_EFFECT')) {
+    // Ações compostas precisam prestar contas por efeito (curtida, comentário).
+    // Um rascunho aguardando aprovação pode conter curtida já comprovada.
+    // O metadado não é aceito de outros tipos; nunca usar contagem de "sucesso"
+    // como substituto de evidência do efeito no LinkedIn.
+    if (action.type === 'LikeAndComment') {
+      const keys = result.data?.usageKeys;
+      if (Array.isArray(keys)) {
+        for (const key of new Set(keys)) {
+          if (key === 'likes' || key === 'comments')
+            store.recordUsage(account.id, key, this.now());
+        }
+      }
+    } else if ((result.ok && !alreadyDone) || (!result.ok && result.reason === 'NO_REAL_EFFECT')) {
       for (const key of def.consumes) store.recordUsage(account.id, key, this.now());
       if (def.requiresVerification && !def.consumes.includes('activity'))
         store.recordUsage(account.id, 'activity', this.now());
