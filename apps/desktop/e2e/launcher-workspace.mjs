@@ -47,6 +47,8 @@ try {
   const before = (await call('listAccounts')).find((x) => x.id === a.id);
   check(!before.running && !before.runnerEnabled, 'selecionar conta não abre navegador nem inicia campanhas');
   await ui.getByRole('button', { name: 'Campanhas', exact: true }).waitFor();
+  await ui.locator('.campaign-overview-item').first().waitFor();
+  check((await ui.locator('.campaign-overview-item').count()) === 1, 'resumo da conta sem carregar listas completas');
   await ui.screenshot({ path: join(shots, 'workspace-campanhas.png'), fullPage: true });
 
   await ui.locator('#work-nav').getByRole('button', { name: /Monitoramento industrial/ }).click();

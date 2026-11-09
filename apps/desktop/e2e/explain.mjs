@@ -59,8 +59,10 @@ try {
   await ui.waitForTimeout(1200);
   await ui.locator('#live-box').screenshot({ path: join(shots, 'painel-explica.png') });
   await ui.getByRole('button', { name: 'Campanhas', exact: true }).click();
+  await ui.locator('.campaign-overview-item').first().getByRole('button', { name: 'Abrir campanha' }).click();
+  await ui.getByRole('button', { name: 'Listas', exact: true }).click();
   await ui.getByText(/O LinkedIn mostrou "página não encontrada"/).first().waitFor();
-  check(true, 'tabela da campanha mostra o detalhe da falha');
+  check(true, 'lista individual da campanha mostra o detalhe da falha');
 
   await ui.locator('#live-box').getByRole('button', { name: 'Tentar de novo (2)' }).click();
   await ui.waitForTimeout(1500);

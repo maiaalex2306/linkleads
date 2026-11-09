@@ -247,3 +247,19 @@ button.workspace-sidebar-link .campaign-side-name { font-weight:650; max-width:1
 .workspace-progress .bar i { border-radius:5px; background:var(--brand); }
 @media(max-width:1100px){ .workspace-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.launcher-cards{grid-template-columns:1fr} }
 @media(max-width:780px){#layout,#layout.is-launcher{grid-template-columns:1fr;height:auto;min-height:calc(100vh - 51px)} #accounts{max-height:260px;border-right:0;border-bottom:1px solid var(--line)} main{min-height:calc(100vh - 300px);padding:14px} .workspace-title h2{font-size:20px} .launcher-account .row{flex-wrap:wrap} .launcher-account .workspace-state{margin-left:55px}}
+
+/* Overview leve por conta: usa métricas agregadas e cartões sem tabelas de pessoas. */
+.campaign-overview-controls { display:grid; grid-template-columns:minmax(180px,2fr) minmax(160px,1fr) minmax(150px,1fr); gap:12px; align-items:end; }
+.campaign-overview-controls label { font-weight:650; }
+.campaign-overview-controls input,.campaign-overview-controls select { width:100%; min-width:0; font-weight:400; padding:10px 12px; }
+.campaign-overview-list { display:grid; gap:12px; }
+.campaign-overview-item { padding:18px 20px; gap:12px; display:grid; }
+.campaign-overview-heading { justify-content:space-between; }
+.campaign-overview-name { font-size:16px; flex:1; min-width:120px; overflow-wrap:anywhere; }
+.campaign-overview-stats { display:grid; grid-template-columns:repeat(4,minmax(95px,1fr)); gap:10px; }
+.campaign-overview-stats .workspace-metric { padding:10px 12px; }
+.campaign-overview-stats .workspace-metric strong { font-size:19px; }
+.campaign-overview-footer { padding-top:10px; border-top:1px solid var(--line); }
+.workspace-error-detail { margin-top:4px; overflow-wrap:anywhere; max-width:440px; }
+@media(max-width:1000px){ .campaign-overview-controls { grid-template-columns:1fr 1fr; } .campaign-overview-stats { grid-template-columns:repeat(2,1fr); } }
+@media(max-width:640px){ .campaign-overview-controls { grid-template-columns:1fr; } .campaign-overview-stats { grid-template-columns:1fr 1fr; } }
