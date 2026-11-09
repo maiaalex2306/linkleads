@@ -18,6 +18,11 @@ writeFileSync(csv, [
   'Ana,Silva,https://www.linkedin.com/in/ana-silva/,Toyota,LinkedIn,Automotivo',
   'Carlos,Pereira,https://www.linkedin.com/in/carlos-pereira-tyt/,Toyota,LinkedIn,Automotivo',
 ].join('\n'));
+const alternateCsv = join(tmp, 'LEADS_SAUDE.csv');
+writeFileSync(alternateCsv, [
+  'firstName,lastName,profileUrl,empresa',
+  'Bruno,Lima,https://www.linkedin.com/in/bruno-lima/,Hospital Exemplo',
+].join('\n'));
 const site = await startFakeSite();
 const app = await electron.launch({
   executablePath: require(join(appDir, '../../node_modules/electron')),
@@ -49,6 +54,20 @@ try {
   check(await summary.locator('.import-details').count() === 1, 'metadados técnicos recolhidos');
   check(await ui.locator('.collection-row').count() === 1, 'importação aparece como lista selecionável');
   check((await ui.locator('.collection-row').textContent()).includes('2 leads'), 'nome e quantidade visíveis');
+  // Importar outra lista e escolher explicitamente a primeira: a campanha não pode
+  // usar a última planilha importada só por ela ser a mais recente.
+  await app.evaluate(({ dialog }, file) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [file] });
+  }, alternateCsv);
+  await ui.getByRole('button', { name: '⬆ Importar planilha' }).click();
+  const lists = await call('listCollections', acc.id);
+  const original = lists.find((x) => x.size === 2);
+  const alternative = lists.find((x) => x.size === 1);
+  check(lists.length === 2 && original && alternative, 'duas listas independentes com quantidades corretas');
+  await ui.getByRole('checkbox', { name: 'Selecionar lista ' + original.name }).check();
+  check(await ui.getByRole('checkbox', { name: 'Selecionar lista ' + original.name }).isChecked() &&
+    !(await ui.getByRole('checkbox', { name: 'Selecionar lista ' + alternative.name }).isChecked()),
+  'checkbox escolhe exclusivamente a lista solicitada');
   await ui.getByRole('button', { name: 'Continuar para criar campanha →' }).click();
   await ui.getByRole('heading', { name: '2. Defina a ação de curtir e comentar' }).waitFor();
   await ui.getByPlaceholder('Qual é o objetivo comercial do comentário?').fill('Comentar sobre água industrial');
@@ -57,6 +76,7 @@ try {
   await ui.getByRole('button', { name: 'Criar campanha sem iniciar' }).click();
   const all = await call('listCampaigns', acc.id);
   check(all.length === 1, 'criada uma campanha');
+  check(all[0].people.length === 2, 'campanha recebeu somente os dois leads da lista selecionada');
   check(!all[0].active, 'campanha permanece pausada após criação');
   check(all[0].actions.filter((x) => x.type === 'LikeAndComment').length === 1,
     'curtir e comentar é apenas uma etapa no fluxo');
