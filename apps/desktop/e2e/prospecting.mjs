@@ -65,8 +65,8 @@ try {
   });
   const [camp] = await call('listCampaigns', acc.id);
   check(enqueued === 1 && camp.actions.map((a) => a.type).join() ===
-    'LikePosts,CommentPost,SendInvite,CheckConnection,MessageToPerson,MessageToPerson,MessageToPerson,MessageToPerson,MessageToPerson',
-  'ordem: curtir → comentar → convite → conferir aceite → 5 mensagens (sem visita separada)', camp.actions.map((a) => a.type));
+    'LikeAndComment,SendInvite,CheckConnection,MessageToPerson,MessageToPerson,MessageToPerson,MessageToPerson,MessageToPerson',
+  'ordem: ação única de engajamento → convite → conferir aceite → 5 mensagens', camp.actions.map((a) => a.type));
   const chk = camp.actions.find((a) => a.type === 'CheckConnection');
   check(chk.waitHours === 24 && chk.settings.timeoutDays === 30, 'confere o aceite 1 dia depois do convite, por até 30 dias');
 
@@ -84,10 +84,10 @@ try {
   check(site.state.liked && site.state.comments.length === 1, 'curtiu e comentou o post', { liked: site.state.liked, comments: site.state.comments });
   check((site.state.profileLoads || []).filter((l) => l.clicked).length >= 2, 'abriu o perfil pela busca, digitando o nome (curtir e convidar)', site.state.profileLoads);
   check(site.state.connection === 'pending' && /^Olá Ana/.test(site.state.inviteNote || ''), 'convite enviado logo depois do comentário, no mesmo dia', site.state.inviteNote);
-  check([...seen].some((x) => /curtindo/.test(x)) && [...seen].some((x) => /comentário/.test(x)) && [...seen].some((x) => /convite/.test(x)),
-    'painel "Agora" mostrou a curtida, o comentário e o convite enquanto aconteciam', [...seen]);
+  check([...seen].some((x) => /curtir|comentar/i.test(x)) && [...seen].some((x) => /convite/.test(x)),
+    'painel "Agora" mostrou a ação composta e o convite enquanto aconteciam', [...seen]);
   const L1 = await call('liveStatus', acc.id);
-  check(L1.recent.slice(0, 3).map((r) => r.text.split(':')[0]).reverse().join() === 'Curtir post mais recente,Comentar com IA,Enviar convite', 'histórico: curtir → comentar → convite, nesta ordem', L1.recent);
+  check(L1.recent.slice(0, 2).map((r) => r.text.split(':')[0]).reverse().join() === 'Curtir e comentar publicações e artigos,Enviar convite', 'histórico: engajamento unificado → convite', L1.recent);
   check(L1.upcoming.some((u) => /Conferir aceite.*Ana/.test(u.text)) && L1.queues[0].waiting === 1, 'painel mostra a conferência do aceite agendada para amanhã', { up: L1.upcoming, q: L1.queues });
   await ui.reload();
   await ui.locator('.account-list .acc').first().click();
