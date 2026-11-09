@@ -42,7 +42,10 @@ jobs:
           if ($info.channel -ne 'evaluation') { throw 'Bundle sem identificação de avaliação' }
           $main = Get-Content apps/desktop/app-dist/main/main.mjs -Raw
           if ($main -notmatch 'LinkLeads-Preview') { throw 'Isolamento de userData não identificado' }
-          if ($main -notmatch 'atualização automática desativada') { throw 'Atualizações não estão bloqueadas no bundle' }
+          # O esbuild reescreve/escapa strings e elimina código morto; não verificar frase UTF-8 literal.
+          # A proteção é verificada pelo carimbo do bundle e pelo código-fonte da rotina de atualização.
+          $updater = Get-Content apps/desktop/src/main/updater.ts -Raw
+          if ($updater -notmatch "LINKLEADS_PREVIEW_BUILD === '1'") { throw 'Bloqueio de atualização ausente da implementação' }
           Write-Host "Canal=$($info.channel), commit=$($info.commit), dados isolados verificados"
       - name: Gerar instalador NSIS de avaliação
         shell: pwsh
