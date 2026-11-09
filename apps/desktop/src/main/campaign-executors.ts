@@ -1,6 +1,7 @@
 import { ExecutorRegistry, type ActionExecutor } from '@linkleads/core';
 import type { ExecutorDeps } from './linkedin/executors.js';
 import { visitAndExtract, likeLatestPost, commentWithAi } from './linkedin/executors.js';
+import { likeAndComment } from './engagement-executor.js';
 import { sendInvite, checkConnection, withdrawInvite, messageToPerson } from './linkedin/outreach-executors.js';
 import { icpFilter, monitorSignals } from './linkedin/decision-executors.js';
 import { extractEmail, enrichProfile, sendToIntegrations } from './linkedin/contact-executors.js';
@@ -15,6 +16,7 @@ type Definition = Readonly<{ type: string; create: Factory }>;
  */
 export const CAMPAIGN_EXECUTOR_DEFINITIONS: readonly Definition[] = [
   { type: 'VisitAndExtract', create: visitAndExtract },
+  { type: 'LikeAndComment', create: likeAndComment },
   { type: 'LikePosts', create: likeLatestPost },
   { type: 'CommentPost', create: commentWithAi },
   { type: 'SendInvite', create: sendInvite },
