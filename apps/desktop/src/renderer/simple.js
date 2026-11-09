@@ -136,6 +136,7 @@ function intentionPicker() {
     placeholder: 'Ex.: Quero criar uma campanha para curtir e comentar posts dos meus leads' });
   const start = (kind) => {
     state.creating = true;
+    state.chooseCampaignType = false;
     state.wiz = { step: 1, campaignType: kind, approve: true, maxPostAgeDays: 30 };
     state.g = 'campaign';
     renderView();
@@ -344,6 +345,7 @@ async function wizardPage(a, cols) {
 
 async function campaignPage(a, cols, camps) {
   const active = camps.find((c) => c.active);
+  if (state.chooseCampaignType) return intentionPicker();
   if (state.creating) return h('div', { class: 'stack' },
     h('button', { class: 'link', onclick: () => { state.creating = false; state.wiz = null; renderView(); } }, '← Voltar'),
     await wizardPage(a, cols));
@@ -357,7 +359,7 @@ async function campaignPage(a, cols, camps) {
       h('div', { class: 'row' },
         h('button', { class: 'link', onclick: () => goAdvanced('campaigns') }, 'Ver a lista de pessoas e editar as mensagens'),
         h('button', { class: 'link', onclick: () => goStep('track') }, 'Acompanhar →'))),
-    h('div', {}, h('button', { class: 'primary', onclick: () => { state.creating = true; state.wiz = { step: 1 }; renderView(); } }, '+ Criar nova campanha')),
+    h('div', {}, h('button', { class: 'primary', onclick: () => { state.chooseCampaignType = true; state.creating = false; state.wiz = null; renderView(); } }, '+ Criar nova campanha')),
     others.length > 0 && h('div', { class: 'card stack' }, h('b', {}, 'Campanhas pausadas'),
       ...others.map((c) => h('div', { class: 'row' }, h('span', { style: 'flex:1' }, `${c.name} — ${c.people.length} pessoa(s)`),
         h('button', { onclick: async () => {
