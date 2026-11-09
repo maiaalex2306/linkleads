@@ -131,4 +131,4 @@ export function createInterpreter(opts: { provider: AiProvider; apiKey?: string;
   return new LlmPostInterpreter(createLlm(opts));
 }
 
-export { SYSTEM_PROMPT, buildUserMessage };
+export { SYSTEM_PROMPT };
