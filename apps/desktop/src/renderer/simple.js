@@ -142,7 +142,7 @@ function intentionPicker() {
     renderView();
   };
   const interpret = () => {
-    const normalized = text.value.normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase();
+    const normalized = text.value.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
     if (/curtir|comentar|comentario|publicac|engaj/.test(normalized)) return start('engagement');
     if (/convite|conexao|mensagem|prospect/.test(normalized)) return start('sequence');
     toast('Escolha Curtir e comentar ou Prospecção. O assistente ainda não interpreta todos os pedidos com IA.');
