@@ -59,7 +59,7 @@ const page = (body, script = '') => `<!doctype html><html><head><meta charset="u
 
 const postHtml = (withEditor, urn = URN) => `
 <div class="${state.modernReaction ? 'new-feed-post' : 'feed-shared-update-v2'}" ${state.modernReaction ? 'data-component-type="feed-update"' : ('data-urn="' + urn + '"')}>
-  ${state.modernReaction ? ('<a href="/feed/update/' + urn.replace(/:(\\d+)$/, (_, digits) => ':' + digits.padEnd(19, '0')) + '/">Abrir publicação</a>') : ''}
+  ${state.modernReaction ? ('<a href="/feed/update/' + urn.replace(/:(\d+)$/, (_, digits) => ':' + digits.padEnd(19, '0')) + '/">Abrir publicação</a>') : ''}
   <div class="update-components-actor"><a class="update-components-actor__meta-link" href="/in/ana-silva/">Ana Silva</a>
     <span class="update-components-actor__sub-description">${urn === URN ? '2d' : state.deepAge} •</span></div>
   <div class="update-components-text">Concluímos a telemetria de 120 km de rede e reduzimos as perdas de água em 18% no primeiro trimestre.</div>
@@ -224,7 +224,7 @@ export function startFakeSite(port = 0) {
         // O segundo post só aparece após o scroll: simula carregamento incremental
         // da timeline e exige que o executor pule o primeiro, já curtido.
         const deepHtml = `<div class="${state.modernReaction ? 'new-feed-post' : 'feed-shared-update-v2'}" ${state.modernReaction ? 'data-component-type="feed-update"' : ('data-urn="' + DEEP_URN + '"')}>
-          ${state.modernReaction ? ('<a href="/feed/update/' + DEEP_URN.replace(/:(\\d+)$/, (_, digits) => ':' + digits.padEnd(19, '0')) + '/">Abrir publicação</a>') : ''}
+          ${state.modernReaction ? ('<a href="/feed/update/' + DEEP_URN.replace(/:(\d+)$/, (_, digits) => ':' + digits.padEnd(19, '0')) + '/">Abrir publicação</a>') : ''}
           <div class="update-components-actor"><a class="update-components-actor__meta-link" href="/in/ana-silva/">Ana Silva</a>
           <span class="update-components-actor__sub-description">${state.deepAge} •</span></div>
           <div class="update-components-text">Publicação histórica elegível para análise contextual.</div>
