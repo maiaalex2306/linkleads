@@ -10,7 +10,7 @@ import { join } from 'node:path';
  * ATENÇÃO: estes seletores precisam ser validados numa conta real antes de uso em produção.
  */
 export const DEFAULT_SELECTORS = {
-  version: '2026.11.1',
+  version: '2026.11.2',
   // perfil
   profileName: ['main h1', 'h1.text-heading-xlarge', 'h1'],
   profileHeadline: ['main .pv-text-details__left-panel .text-body-medium', 'main section .text-body-medium.break-words'],
@@ -26,8 +26,8 @@ export const DEFAULT_SELECTORS = {
   postAge: ['.update-components-actor__sub-description', '.feed-shared-actor__sub-description'],
   postMedia: ['.update-components-image, .update-components-linkedin-video, .update-components-document__container, .update-components-article'],
   postResharedHeader: ['.update-components-header', '.feed-shared-header'],
-  likeButton: ['button.react-button__trigger', 'button[aria-label*="Like"][aria-pressed]', 'button[aria-label*="Gostei"][aria-pressed]', 'button[aria-pressed][aria-label*="React"]'],
-  commentButton: ['button[aria-label="Comment"]', 'button[aria-label="Comentar"]', 'button.comment-button'],
+  likeButton: ['button[aria-label^="Situação do botão de reação:"]', 'button[aria-label^="Reaction button state:"]', 'button.react-button__trigger', 'button[aria-label*="Like"][aria-pressed]', 'button[aria-label*="Gostei"][aria-pressed]', 'button[aria-pressed][aria-label*="React"]'],
+  commentButton: ['button[aria-label^="Comentar"]', 'button[aria-label="Comment"]', 'button[aria-label="Comentar"]', 'button.comment-button'],
   commentEditor: ['.comments-comment-box-comment__text-editor [contenteditable="true"]', '.comments-comment-texteditor [contenteditable="true"]', '.ql-editor[contenteditable="true"]'],
   commentSubmit: ['button.comments-comment-box__submit-button--cr', 'button.comments-comment-box__submit-button', 'form.comments-comment-box__form button[type="submit"]'],
   commentItemText: ['.comments-comment-item__main-content', '.comments-comment-entity .update-components-text', 'article.comments-comment-entity'],
