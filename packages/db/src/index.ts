@@ -155,6 +155,20 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
       CREATE INDEX IF NOT EXISTS idx_cap_seq ON campaign_action_people (seq);
     `,
   },
+  {
+    version: 12,
+    // Reserva durável antes do possível envio externo de comentário.
+    // Em uma queda, 'started' não autoriza retry: a operação pode ter acontecido.
+    sql: `
+      CREATE TABLE IF NOT EXISTS comment_submission_ledger (
+        post_url TEXT PRIMARY KEY,
+        text_hash TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('started','confirmed','uncertain')),
+        started_at TEXT NOT NULL DEFAULT (datetime('now')),
+        finished_at TEXT
+      );
+    `,
+  },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.version;
@@ -640,6 +654,31 @@ export class LocalCrm extends SqliteCampaignStore {
   savePostInterpretation(url: string, interpretation: unknown): void {
     this.db.prepare('UPDATE posts SET interpretation_json = ? WHERE url = ?')
       .run(JSON.stringify(interpretation), url);
+  }
+
+  /**
+   * Reserva uma única tentativa por publicação nesta conta, antes de enviar.
+   * Um registro started após reiniciar é potencialmente enviado; nunca repetir
+   * sem conciliação explícita do operador. Não grava o texto do comentário.
+   */
+  beginCommentSubmission(postUrl: string, textHash: string): boolean {
+    const result = this.db.prepare(
+      "INSERT OR IGNORE INTO comment_submission_ledger (post_url, text_hash, status) VALUES (?, ?, 'started')",
+    ).run(postUrl, textHash);
+    return Number(result.changes) === 1;
+  }
+
+  /** Confirmação posterior não deve apagar o histórico da tentativa. */
+  finishCommentSubmission(postUrl: string, status: 'confirmed' | 'uncertain'): void {
+    this.db.prepare(
+      "UPDATE comment_submission_ledger SET status=?, finished_at=datetime('now') WHERE post_url=? AND status IN ('started','uncertain')",
+    ).run(status, postUrl);
+  }
+
+  commentSubmissionStatus(postUrl: string): 'started' | 'confirmed' | 'uncertain' | undefined {
+    const row = this.db.prepare('SELECT status FROM comment_submission_ledger WHERE post_url=?')
+      .get(postUrl) as { status: 'started' | 'confirmed' | 'uncertain' } | undefined;
+    return row?.status;
   }
 
   markPostCommented(url: string, comment: string, interpretation: unknown): void {
