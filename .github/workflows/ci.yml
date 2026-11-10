@@ -81,6 +81,9 @@ jobs:
             xvfb-run -a node apps/desktop/e2e/$t.mjs || exit 1
             echo "::endgroup::"
           done
+          if [[ "${{ matrix.name }}" == "Curtir e comentar — ação única" ]]; then
+            LINKLEADS_E2E_MODERN_REACTION=1 xvfb-run -a node apps/desktop/e2e/engagement-scroll.mjs
+          fi
 
 
   visual-regression:
