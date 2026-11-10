@@ -199,6 +199,62 @@ export function choosePost(posts: PostExtract[], publicId: string, s: LikeSettin
   return { why: `Achei ${posts.length} post(s), nenhum serve: ${parts.join(', ')}` };
 }
 
+/**
+ * Percorre a atividade como o usuário: lê os posts da viewport, desce com wheel
+ * nativo e espera novos cartões surgirem antes de avaliar novamente.
+ * A busca é limitada em rolagens e tempo. Não altera o DOM e não clica em
+ * "curtir" até verificar autoria, idade, identidade e estado não curtido.
+ */
+async function discoverUnlikedPost(
+  d: ExecutorDeps, publicId: string, settings: LikeSettings, personName: string,
+  ignoredUrns: ReadonlySet<string> = new Set(),
+): Promise<{ post?: PostExtract; posts: PostExtract[]; why: string; uncertain?: boolean }> {
+  const seen = new Map<string, PostExtract>();
+  const start = Date.now();
+  const ageLimit = Math.max(1, Math.min(365, settings.maxPostAgeDays ?? 365));
+  // Publicações antigas podem exigir várias cargas da timeline.
+  const maxScrolls = Math.min(90, Math.max(20, Math.ceil(ageLimit / 5)));
+  let stalled = 0;
+  for (let step = 0; step <= maxScrolls && Date.now() - start < 120_000; step++) {
+    await d.driver.assertNotBlocked();
+    const batch = await d.driver.read(extractPosts, d.driver.sel as unknown as Record<string, readonly string[]>, 150);
+    for (const p of batch) seen.set(p.urn, p);
+    // O post já curtido NÃO é candidato nesta ação; procurar o seguinte.
+    // Estado desconhecido, idade ilegível ou URN provisória também não autorizam clique.
+    const unread = [...seen.values()].filter((p) =>
+      !ignoredUrns.has(p.urn) && p.liked === false &&
+      isCanonicalPostUrn(p.urn) && p.age && parseRelativeAgeDays(p.age) !== undefined);
+    const found = choosePost(unread, publicId, { ...settings, maxPostAgeDays: ageLimit, allowAlreadyLiked: false }, personName);
+    if (found.post) return { post: found.post, posts: [...seen.values()], why: '' };
+    if (step === maxScrolls) break;
+    const before = await d.driver.read(() => {
+      const el = document.scrollingElement ?? document.documentElement;
+      return { offset: el.scrollTop, height: el.scrollHeight, visible: el.clientHeight };
+    });
+    await d.driver.input.scroll(680);
+    await new Promise((resolve) => setTimeout(resolve, 650));
+    const after = await d.driver.read(() => {
+      const el = document.scrollingElement ?? document.documentElement;
+      return { offset: el.scrollTop, height: el.scrollHeight, visible: el.clientHeight };
+    });
+    const next = await d.driver.read(extractPosts, d.driver.sel as unknown as Record<string, readonly string[]>, 150);
+    const newPost = next.some((p) => !seen.has(p.urn));
+    if (after.offset <= before.offset && after.height <= before.height && !newPost) stalled++;
+    else stalled = 0;
+    if (stalled >= 3) break; // fim do feed, sem movimento nem carga adicional
+  }
+  const posts = [...seen.values()];
+  const verdict = choosePost(posts.filter((p) => !ignoredUrns.has(p.urn)), publicId,
+    { ...settings, maxPostAgeDays: ageLimit, allowAlreadyLiked: false }, personName);
+  const unknown = posts.some((p) => p.liked === null || !isCanonicalPostUrn(p.urn) ||
+    !p.age || parseRelativeAgeDays(p.age) === undefined);
+  return {
+    posts, why: verdict.why || 'Nenhuma publicação elegível, não curtida e verificável encontrada no intervalo percorrido',
+    uncertain: verdict.uncertain || (!verdict.post && unknown && !posts.some((p) => p.liked === false &&
+      isCanonicalPostUrn(p.urn) && p.age && parseRelativeAgeDays(p.age) !== undefined)),
+  };
+}
+
 export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
   return {
     type: 'LikePosts',
@@ -208,42 +264,43 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
           const s = ctx.action.settings as LikeSettings;
           const open = await gotoProfile(d, ctx.person, 'recent-activity/all/');
           if (open !== 'ok') return openFailed(open);
-          await d.driver.waitUntil(async () => (await d.driver.read(extractPosts, d.driver.sel as unknown as Record<string, readonly string[]>, 1)).length > 0 || (await d.driver.exists('emptyActivity')), 20_000);
-          const posts = await d.driver.read(extractPosts, d.driver.sel as unknown as Record<string, readonly string[]>, 10);
-          const pick = choosePost(posts, ctx.person.publicId ?? ctx.person.id, s, [ctx.person.firstName, ctx.person.lastName].filter(Boolean).join(' '));
-          const post = pick.post;
-          if (!post) {
-            const empty = await d.driver.exists('emptyActivity').catch(() => false);
-            const unreadable = !posts.length && !empty;
-            const file = unreadable ? await d.reportUnrecognized?.().catch(() => undefined) : undefined;
-            if (unreadable || pick.uncertain) return { ok: false, reason: 'NO_REAL_EFFECT',
-              message: (pick.uncertain ? pick.why :
-                'Página de atividades não reconhecida ou carregamento incompleto. Ação interrompida') +
-                (file ? '. Diagnóstico: ' + file : '') };
-            return { ok: false, reason: 'NO_POST', message: empty ? 'A pessoa não tem publicações' : pick.why };
+          await d.driver.waitUntil(async () =>
+            (await d.driver.read(extractPosts, d.driver.sel as unknown as Record<string, readonly string[]>, 1)).length > 0 ||
+            (await d.driver.exists('emptyActivity')), 20_000);
+          const ignored = new Set<string>();
+          for (let attempt = 0; attempt < 4; attempt++) {
+            const found = await discoverUnlikedPost(d, ctx.person.publicId ?? ctx.person.id, s,
+              [ctx.person.firstName, ctx.person.lastName].filter(Boolean).join(' '), ignored);
+            const post = found.post;
+            if (!post) {
+              const empty = await d.driver.exists('emptyActivity').catch(() => false);
+              const unreadable = !found.posts.length && !empty;
+              const file = (unreadable || found.uncertain) ?
+                await d.reportUnrecognized?.().catch(() => undefined) : undefined;
+              if (unreadable || found.uncertain) return { ok: false, reason: 'NO_REAL_EFFECT',
+                message: found.why + (file ? '. Diagnóstico: ' + file : '') };
+              return { ok: false, reason: 'NO_POST',
+                message: empty ? 'A pessoa não tem publicações' : found.why };
+            }
+            // O botão precisa aparecer na tela após o scroll. Conferir o estado
+            // NOVAMENTE imediatamente antes do clique: nunca desfazer um like.
+            const point = await d.driver.scrollIntoView('likeButton', { urn: post.urn, containerKey: 'postItem' });
+            if (!point) { ignored.add(post.urn); continue; }
+            const state = await d.driver.read(likeState, d.driver.sel as unknown as Record<string, readonly string[]>, post.urn);
+            if (state === true) { ignored.add(post.urn); continue; }
+            if (state !== false) {
+              await d.reportUnrecognized?.().catch(() => undefined);
+              return { ok: false, reason: 'NO_REAL_EFFECT',
+                message: 'Estado de curtida incerto imediatamente antes do clique; nenhuma interação enviada' };
+            }
+            const snapshot: PostSnapshot = { url: post.urn, text: post.text, postedAt: post.age ?? undefined, hasMedia: post.hasMedia };
+            d.crm.savePost(ctx.person.id, snapshot);
+            await d.driver.input.think(800, 1900);
+            await d.driver.input.click(point.x, point.y);
+            return { ok: true, data: { post: post.urn } };
           }
-
-          if (post.liked === null) {
-            await d.reportUnrecognized?.().catch(() => undefined);
-            return { ok: false, reason: 'NO_REAL_EFFECT',
-              message: 'Não foi possível verificar se a publicação já estava curtida' };
-          }
-          if (!isCanonicalPostUrn(post.urn)) {
-            await d.reportUnrecognized?.().catch(() => undefined);
-            return { ok: false, reason: 'NO_REAL_EFFECT',
-              message: 'Publicação sem identificador canônico: nenhuma curtida realizada' };
-          }
-          const snapshot: PostSnapshot = { url: post.urn, text: post.text, postedAt: post.age ?? undefined, hasMedia: post.hasMedia };
-          d.crm.savePost(ctx.person.id, snapshot);
-
-          if (post.liked === true) {
-            d.crm.markPostLiked(post.urn); // já curtido: segue o fluxo sem clicar de novo
-            return { ok: true, data: { post: post.urn, alreadyLiked: true } };
-          }
-          await d.driver.input.think(1500, 5000); // "lê" o post antes de curtir
-          const clicked = await d.driver.click('likeButton', { urn: post.urn, containerKey: 'postItem' });
-          if (!clicked) return { ok: false, reason: 'NO_REAL_EFFECT', message: 'Botão de curtir não encontrado' };
-          return { ok: true, data: { post: post.urn } };
+          return { ok: false, reason: 'NO_REAL_EFFECT',
+            message: 'Nenhum botão de curtir verificável após percorrer a página de atividades' };
         }),
       ),
     verify: async (_ctx, result) => {
