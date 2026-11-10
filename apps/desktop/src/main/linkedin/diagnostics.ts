@@ -1,5 +1,7 @@
 import { DEFAULT_LABELS, type LabelKey, type SelectorKey } from './selectors.js';
-import { diagnoseKeys, visibleButtonLabels, type KeyDiagnosis } from './dom-scripts.js';
+import { diagnoseKeys, visibleButtonLabels, extractPosts, type KeyDiagnosis } from './dom-scripts.js';
+import { isCanonicalPostUrn } from './post-identity.js';
+import { parseRelativeAgeDays } from '@linkleads/core';
 import type { PageDriver } from './page-driver.js';
 
 export type PageKind = 'perfil' | 'atividade' | 'post' | 'mensagens' | 'empresa_pessoas' | 'empresa_vagas' | 'contato' | 'feed' | 'outra';
@@ -61,7 +63,8 @@ export interface DiagnosisReport {
   /** estrutura da página, sem textos: títulos (h1–h3) com classes e onde estão; para ajustar seletores */
   structure?: { hasMain: boolean; titleEndsWithLinkedIn: boolean; headings: Array<{ tag: string; classes: string; inMain: boolean; textLength: number; parents: string }> };
   /** posts: o que o app reconheceu e a estrutura em volta das DATAS dos posts (sem textos nem nomes) */
-  posts?: { recognized: number; probes: unknown[] };
+  posts?: { recognized: number; probes: unknown[]; canonical: number; provisional: number;
+    dated: number; undated: number; reactionKnown: number; reactionUnknown: number };
 }
 
 /** Pura: estrutura em volta das datas dos posts ("há 1 sem") — tags, papéis, classes, nomes de atributos e rótulos de botões. */
@@ -125,6 +128,19 @@ export async function diagnosePage(driver: PageDriver, appVersion: string): Prom
   const scopes = page === 'perfil' ? [...driver.sel.profileActions.map((c) => c.replace(/ button$/, '')), ...driver.sel.modal] : ['main'];
   const buttons = await driver.read(visibleButtonLabels, scopes, personName);
   const uiLanguage = await driver.read(() => document.documentElement.lang || navigator.language);
+  // Apenas contadores: não exportar textos, nomes ou URLs dos posts.
+  // Diferenciar ausência de URN, data e estado de reação no diagnóstico.
+  const isActivity = page === 'atividade' || page === 'post' || page === 'feed';
+  const extracted = isActivity ? await driver.read(extractPosts, sel, 150).catch(() => []) : [];
+  const postCounts = {
+    recognized: extracted.length,
+    canonical: extracted.filter((p) => isCanonicalPostUrn(p.urn)).length,
+    provisional: extracted.filter((p) => !isCanonicalPostUrn(p.urn)).length,
+    dated: extracted.filter((p) => p.age && parseRelativeAgeDays(p.age) !== undefined).length,
+    undated: extracted.filter((p) => !p.age || parseRelativeAgeDays(p.age) === undefined).length,
+    reactionKnown: extracted.filter((p) => p.liked !== null).length,
+    reactionUnknown: extracted.filter((p) => p.liked === null).length,
+  };
   return {
     at: new Date().toISOString(),
     appVersion,
@@ -137,8 +153,6 @@ export async function diagnosePage(driver: PageDriver, appVersion: string): Prom
     labels,
     buttons,
     structure: await driver.read(pageStructure).catch(() => undefined),
-    posts: page === 'atividade' || page === 'post' || page === 'feed'
-      ? { recognized: await driver.read((s: Record<string, readonly string[]>) => __llPostContainers({ postItem: s.postItem!, likeButton: s.likeButton! }).length, driver.sel as unknown as Record<string, readonly string[]>).catch(() => -1), probes: await driver.read(postsProbe).catch(() => []) }
-      : undefined,
+    posts: isActivity ? { ...postCounts, probes: await driver.read(postsProbe).catch(() => []) } : undefined,
   };
 }
