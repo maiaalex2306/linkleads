@@ -58,7 +58,7 @@ jobs:
         shell: pwsh
         run: |
           $env:LINKLEADS_E2E_APP = Join-Path $env:GITHUB_WORKSPACE 'apps/desktop/app-dist'
-          foreach ($suite in @('onboarding-guided','session-persistence','login','unified-engagement','engagement-scroll','profile-visit-scroll')) {
+          foreach ($suite in @('onboarding-guided','session-persistence','login','unified-engagement','engagement-scroll','profile-visit-scroll','ui-polish')) {
             Write-Host "E2E Windows (bundle de producao): $suite"
             node "apps/desktop/e2e/$suite.mjs"
             if ($LASTEXITCODE -ne 0) { throw "E2E reprovado: $suite" }
