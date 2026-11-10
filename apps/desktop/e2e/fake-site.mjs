@@ -6,6 +6,7 @@ const state = {
   anaHeadline: 'Diretora de Operações na Águas do Vale', companyVisits: 0,
   // sessão do LinkedIn falso: loggedOut força a página de login; logins guarda as tentativas (e-mail, senha)
   loggedOut: false, logins: [], loginEmail: 'ana@empresa.com.br', loginPassword: 'senha-certa',
+  loginHydrationDelayMs: 0, loginSocialButtons: false,
 };
 
 const loginHtml = `<form class="login__form"><input id="username" name="session_key" autocomplete="username">
@@ -183,7 +184,18 @@ export function startFakeSite(port = 0) {
       });
       return;
     }
-    if (url === '/login' || url.startsWith('/login?')) return html(loginHtml, loginScript);
+    if (url === '/login' || url.startsWith('/login?')) {
+      // Variação realista: provedores externos oferecem submit antes do formulário de senha.
+      // O formulário principal pode aparecer somente depois da hidratação da página.
+      const social = state.loginSocialButtons
+        ? '<form class="social-auth"><button type="submit">Continuar com o Google</button></form>'
+        : '';
+      const ms = state.loginHydrationDelayMs || 0;
+      if (ms) return html(social + '<div id="login-slot">Carregando formulário...</div>',
+        'setTimeout(() => { document.querySelector("#login-slot").innerHTML = ' +
+        JSON.stringify(loginHtml) + ';' + loginScript + ' }, ' + ms + ');');
+      return html(social + loginHtml, loginScript.replace("document.querySelector('form')", "document.querySelector('form.login__form')"));
+    }
     if (state.loggedOut && !url.startsWith('/api')) { res.writeHead(302, { location: '/login' }); return res.end(); }
     // link pelo número do membro: o LinkedIn redireciona para o /in/ da pessoa
     if (url === '/profile/view?id=444') { res.writeHead(302, { location: '/in/diego-siste/' }); return res.end(); }
