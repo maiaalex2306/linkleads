@@ -361,11 +361,22 @@ header h1 { flex:1; min-width:0; font-size:19px; letter-spacing:-.5px; }
   padding:8px; border:1px solid var(--line); border-radius:12px; background:var(--card);
   box-shadow:0 12px 34px rgba(0,0,0,.16); display:grid; gap:5px; }
 .top-menu-content button { width:100%; text-align:left; padding:10px 12px; }
-.password-field { display:flex; gap:0; align-items:stretch; flex:1; min-width:180px; max-width:100%; }
-.password-field input { flex:1; min-width:0; border-radius:9px 0 0 9px; }
-.password-field .password-eye { flex:none; padding:7px 12px; background:var(--bg);
-  border-radius:0 9px 9px 0; border-left:0; font-size:12px; font-weight:650; cursor:pointer; }
-.password-field .password-eye:hover { color:var(--brand); background:var(--brand-soft); }
+/* Senha: padrão de mercado — ícone ocular embutido, sem alterar a largura do campo. */
+.password-field { display:flex; align-items:center; position:relative; isolation:isolate;
+  flex:1; min-width:180px; max-width:100%; }
+.password-field > input { display:block; width:100%; min-width:0; min-height:38px;
+  padding-right:48px; border-radius:9px; }
+.password-field .password-eye { position:absolute; top:50%; right:5px; transform:translateY(-50%);
+  display:grid; place-items:center; width:36px; height:32px; padding:0;
+  background:transparent; color:var(--muted); border:1px solid transparent;
+  border-radius:7px; cursor:pointer; transition:background-color .14s ease, color .14s ease; }
+.password-field .password-eye svg { display:block; width:19px; height:19px; pointer-events:none; }
+.password-field .password-eye:hover,
+.password-field .password-eye[aria-pressed="true"] { color:var(--brand-dark); background:var(--brand-soft); }
+.password-field .password-eye:focus-visible { outline:2px solid var(--brand); outline-offset:1px; }
+@media (prefers-reduced-motion:reduce) {
+  .password-field .password-eye { transition:none; }
+}
 .credential-row { display:grid; grid-template-columns:minmax(190px,1fr) minmax(230px,1fr); align-items:center; }
 .credential-row input[type=email] { width:100%; box-sizing:border-box; }
 .auth-guidance { background:var(--brand-soft); color:var(--fg); border-radius:10px;
@@ -398,4 +409,37 @@ header h1 { flex:1; min-width:0; font-size:19px; letter-spacing:-.5px; }
   #topnav .build-tag { display:none; }
   .credential-row { grid-template-columns:minmax(0,1fr); }
   .intent-card { padding:16px; }
+}
+
+
+/* 0.5.2 — hierarquia tipográfica: painel > seção > campo, sem competir com os dados. */
+#view h2 { font-weight:760; letter-spacing:-.025em; line-height:1.32; color:var(--fg); }
+#view h3 { font-weight:740; letter-spacing:-.012em; line-height:1.4; color:var(--fg); }
+#view .workspace-title h2 { font-weight:790; letter-spacing:-.035em; }
+#view .kind { font-weight:750; letter-spacing:.075em; }
+#view .card > :is(h2,h3,strong):first-child,
+#view .card > .row:first-child > :is(h2,h3,strong),
+#view .wb-palette > :is(h3,strong):first-child,
+#view .wb-inspector > :is(h3,strong):first-child {
+  color:var(--fg); font-weight:760; font-size:15px; line-height:1.38;
+  letter-spacing:-.015em; overflow-wrap:anywhere;
+}
+#view .card > h2:first-child { font-size:18px; }
+#view .card > h3:first-child { font-size:16px; }
+#view .card.stack { row-gap:12px; }
+#view .card > .row:first-child { column-gap:10px; }
+#view .step .head > strong { font-weight:750; font-size:14px; line-height:1.4;
+  letter-spacing:-.01em; }
+#view .campaign-overview-name { font-weight:780; line-height:1.35; }
+#view .account-title strong { font-weight:770; }
+#view .gtxt strong, #view .gtxt b { font-weight:750; }
+#view .wb-section-heading { font-size:13.5px; font-weight:750; color:var(--fg);
+  letter-spacing:-.01em; padding-top:9px; }
+.sidebar-heading { font-weight:750; letter-spacing:.07em; }
+#view .tabs button.sel, #view .cw-tabs button.selected { font-weight:750; }
+#view th { font-weight:700; letter-spacing:.005em; }
+#view .card .muted { line-height:1.55; }
+#view :is(button, input, select, textarea) { transition:border-color .14s ease, background-color .14s ease; }
+@media (prefers-reduced-motion:reduce) {
+  #view :is(button, input, select, textarea) { transition:none; }
 }
