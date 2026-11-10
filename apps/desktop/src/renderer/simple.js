@@ -346,31 +346,94 @@ async function wizardPage(a, cols) {
   return h('div', { class: 'card stack wizard' }, dots, body);
 }
 
+async function openSimpleCampaignEditor(campaignId) {
+  await openCampaignWorkspace(campaignId);
+  state.campaignTab = 'workflow';
+  state.editCampaign = true;
+  renderView();
+}
+
 async function campaignPage(a, cols, camps) {
-  const active = camps.find((c) => c.active);
   if (state.chooseCampaignType) return intentionPicker();
   if (state.creating) return h('div', { class: 'stack' },
     h('button', { class: 'link', onclick: () => { state.creating = false; state.wiz = null; renderView(); } }, '← Voltar'),
     await wizardPage(a, cols));
-  if (!active) return intentionPicker();
-  const others = camps.filter((c) => !c.active);
+  if (!camps.length && !state.simpleArchived) return intentionPicker();
+  // Uma área por conta; arquivo separado. O backend omite campanhas arquivadas
+  // da lista operacional, mas preserva sua estrutura e histórico.
+  const archived = Boolean(state.simpleArchived);
+  const all = await api.listCampaignSummaries(a.id, archived);
+  const summaries = all.filter((c) => Boolean(c.archived) === archived);
+  const active = camps.find((c) => c.active);
+  const tab = (id, label) => h('button', {
+    class: archived === (id === 'archived') ? 'primary' : '',
+    'aria-current': archived === (id === 'archived') ? 'page' : undefined,
+    onclick: () => { state.simpleArchived = id === 'archived'; renderView(); },
+  }, label);
+  const list = summaries.map((c) => h('div', { class: 'card stack' },
+    h('div', { class: 'row', style: 'align-items:center;flex-wrap:wrap' },
+      h('span', { class: 'pill ' + (c.active ? 'ok' : '') },
+        c.archived ? 'Arquivada' : c.active ? 'Em execução' : 'Pausada'),
+      h('strong', { style: 'flex:1;min-width:200px' }, c.name),
+      h('span', { class: 'muted' }, c.contacts + ' contato(s) · ' + c.actions + ' etapa(s)')),
+    h('div', { class: 'row', style: 'flex-wrap:wrap;gap:8px' },
+      !c.archived && h('button', { class: 'primary', onclick: () => openSimpleCampaignEditor(c.id) }, 'Abrir e editar fluxo'),
+      !c.archived && h('button', { onclick: () => openSimpleCampaignEditor(c.id) }, 'Configurar etapas'),
+      !c.archived && h('button', { title: 'Abre o editor existente; ações com histórico não podem ser removidas ou reordenadas', onclick: () => openCampaignWorkspace(c.id) }, 'Ver pessoas e histórico'),
+      !c.archived && h('button', {
+        onclick: async () => {
+          const copy = await safe(() => api.duplicateCampaign(a.id, c.id));
+          if (copy?.campaignId) { toast('Cópia criada sem contatos ou histórico. Edite livremente o fluxo duplicado.'); await openSimpleCampaignEditor(copy.campaignId); }
+        },
+      }, 'Duplicar para modificar etapas'),
+      h('button', {
+        disabled: a.runnerEnabled,
+        title: a.runnerEnabled ? 'Pare apenas o executor desta conta antes de arquivar ou restaurar' : '',
+        onclick: async () => {
+          if (!c.archived && !window.confirm('Arquivar esta campanha? Ela será desativada, mas pessoas, etapas e histórico serão preservados.')) return;
+          const result = await safe(() => api.archiveCampaign(a.id, c.id, !c.archived));
+          if (result?.ok) { toast(c.archived ? 'Campanha restaurada sem ativar' : 'Campanha arquivada sem excluir dados'); await refresh(); }
+        },
+      }, c.archived ? 'Restaurar à lista de campanhas' : 'Arquivar campanha'))));
   return h('div', { class: 'stack' },
-    h('div', { class: 'card stack' },
-      h('div', { class: 'row' }, h('span', { class: 'pill ok' }, 'Ativa'), h('h3', { style: 'margin:0;flex:1' }, active.name),
-        h('button', { onclick: () => safe(() => api.setCampaignActive(a.id, active.id, false)).then(refresh) }, '⏸ Pausar esta campanha')),
-      h('div', { class: 'muted' }, `${active.people.length} pessoa(s) · etapas: ${active.actions.map((x) => x.name).join(' → ')}`),
+    h('div', { class: 'row', style: 'align-items:center;flex-wrap:wrap' },
+      h('h2', { style: 'flex:1;margin:0' }, 'Campanhas desta conta'),
+      h('button', { class: 'primary', onclick: () => { state.simpleArchived = false; state.chooseCampaignType = true; state.creating = false; state.wiz = null; renderView(); } }, '+ Nova campanha')),
+    h('p', { class: 'muted' }, 'Campanhas e arquivo pertencem somente a esta conta LinkedIn. Arquivar não exclui contatos, histórico nem etapas; restaurar não inicia a execução.'),
+    h('nav', { class: 'row', 'aria-label': 'Campanhas e arquivadas', style: 'display:flex;gap:8px;border-bottom:1px solid var(--border, #ddd);padding-bottom:12px' },
+      tab('current', 'Campanhas (' + (archived ? camps.length : summaries.length) + ')'),
+      tab('archived', 'Arquivadas' + (archived ? ' (' + summaries.length + ')' : ''))),
+    !archived && active && h('div', { class: 'card stack' },
+      h('strong', {}, 'Campanha em andamento: ' + active.name),
+      h('p', { class: 'muted' }, 'Edite parâmetros no construtor visual. Para adicionar, remover ou reorganizar etapas em fluxos com histórico, duplique a campanha antes.'),
       h('div', { class: 'row' },
-        h('button', { class: 'link', onclick: () => goAdvanced('campaigns') }, 'Ver a lista de pessoas e editar as mensagens'),
-        h('button', { class: 'link', onclick: () => goStep('track') }, 'Acompanhar →'))),
-    h('div', {}, h('button', { class: 'primary', onclick: () => { state.chooseCampaignType = true; state.creating = false; state.wiz = null; renderView(); } }, '+ Criar nova campanha')),
-    others.length > 0 && h('div', { class: 'card stack' }, h('b', {}, 'Campanhas pausadas'),
-      ...others.map((c) => h('div', { class: 'row' }, h('span', { style: 'flex:1' }, `${c.name} — ${c.people.length} pessoa(s)`),
-        h('button', { onclick: async () => {
-          if (!window.confirm(`Ativar "${c.name}"? A campanha ativa agora ("${active.name}") será pausada.`)) return;
-          await api.setCampaignActive(a.id, active.id, false);
-          await safe(() => api.setCampaignActive(a.id, c.id, true));
-          refresh();
-        } }, 'Ativar')))));
+        h('button', { onclick: () => goStep('track') }, 'Acompanhar e aprovar'),
+        h('button', { onclick: () => openSimpleCampaignEditor(active.id) }, 'Abrir editor visual'))),
+    ...list,
+    !summaries.length && h('div', { class: 'card muted' },
+      archived ? 'Nenhuma campanha arquivada nesta conta.' : 'Nenhuma campanha nesta conta. Crie uma nova campanha ou restaure uma arquivada.'),
+  );
+}
+
+/** Ajusta somente a janela de posts explicitamente para campanha existente.
+ * A versão 0.5.5 preserva parâmetros antigos, inclusive 30 dias. */
+function postAgeNotice(a, campaign) {
+  const affected = (campaign?.actions || []).filter((act) =>
+    (act.type === 'LikePosts' || act.type === 'LikeAndComment') &&
+    Number(act.settings?.maxPostAgeDays) > 0 && Number(act.settings.maxPostAgeDays) < 365);
+  if (!affected.length) return null;
+  const age = Math.min(...affected.map((act) => Number(act.settings.maxPostAgeDays)));
+  return h('div', { class: 'card stack attention' },
+    h('strong', {}, 'Esta campanha ainda considera somente ' + age + ' dias de publicações'),
+    h('p', { class: 'muted' }, 'O programa preservou o parâmetro gravado. Alterar para um ano requer confirmação e não modifica outras contas ou etapas.'),
+    h('div', {}, h('button', { class: 'primary', onclick: async () => {
+      if (!window.confirm('Alterar o limite de posts desta campanha para 365 dias, sem modificar as outras etapas?')) return;
+      const next = { ...campaign, actions: campaign.actions.map((act) =>
+        act.type === 'LikePosts' || act.type === 'LikeAndComment'
+          ? { ...act, settings: { ...(act.settings || {}), maxPostAgeDays: 365 } } : act) };
+      const saved = await safe(() => api.updateCampaign(a.id, next), 'Limite de 365 dias salvo');
+      if (saved?.ok) refresh();
+    } }, 'Corrigir esta campanha para 365 dias')));
 }
 
 // ── ③ Configurações ──────────────────────────────────────────────────────
@@ -386,31 +449,48 @@ async function configPage(a) {
   const ritmo = (key, title, desc) => h('label', { class: 'choice' + (preset === key ? ' sel' : '') },
     h('input', { type: 'radio', name: 'ritmo', checked: preset === key, onchange: () => setPreset(key) }), h('div', {}, h('b', {}, title), h('div', { class: 'muted' }, desc)));
   const sec = (icon, title, ok, body) => h('div', { class: 'card stack' }, h('div', { class: 'row' }, h('span', { class: 'ficon' }, icon), h('h3', { style: 'margin:0;flex:1' }, title), ok != null && h('span', { class: 'pill ' + (ok ? 'ok' : 'warn') }, ok ? 'ok' : 'falta')), body);
+  const tabs = [
+    ['access', 'Acesso e login'], ['schedule', 'Horários'],
+    ['limits', 'Limites e ritmo'], ['network', 'Rede e proxy'],
+  ];
+  const selected = tabs.some(([id]) => id === state.accountSettingsSection) ? state.accountSettingsSection : 'access';
+  const tab = ([id, title]) => h('button', {
+    type: 'button', class: selected === id ? 'primary' : '',
+    'aria-current': selected === id ? 'page' : undefined,
+    onclick: () => { state.accountSettingsSection = id; renderView(); },
+  }, title);
   return h('div', { class: 'stack' },
-    sec('🔑', 'Login do LinkedIn', a.hasLinkedinPassword,
+    h('h2', {}, 'Configurações desta conta LinkedIn'),
+    h('p', { class: 'muted' }, 'Login, horários, limites e proxy são exclusivos desta conta. Configurações globais ficam em uma área separada.'),
+    h('nav', { class: 'row', 'aria-label': 'Abas da conta LinkedIn', style: 'display:flex;gap:8px;flex-wrap:wrap;padding-bottom:12px;border-bottom:1px solid var(--border, #ddd)' },
+      ...tabs.map(tab)),
+    selected === 'access' && sec('🔑', 'Login do LinkedIn', a.hasLinkedinPassword,
       state.loginOpen ? loginPanel(a, () => { state.loginOpen = false; renderView(); })
-        : h('div', { class: 'row' }, h('span', { class: 'muted', style: 'flex:1' }, a.hasLinkedinPassword ? `Entra sozinho como ${a.linkedinEmail}.` : 'Sem login salvo: você entra manualmente na janela do LinkedIn.'),
-            h('button', { onclick: () => { state.loginOpen = true; renderView(); } }, a.hasLinkedinPassword ? 'Trocar' : 'Salvar login'))),
-    sec('🤖', 'Inteligência artificial (comentários e mensagens)', settings.hasAiKey,
-      h('div', { class: 'row' }, h('span', { class: 'muted', style: 'flex:1' }, settings.hasAiKey ? 'Chave configurada.' : 'Sem chave: o app curte, mas não comenta nem escreve mensagens com IA.'),
-        h('button', { class: settings.hasAiKey ? '' : 'primary', onclick: () => { state.tab = 'settings'; renderView(); } }, settings.hasAiKey ? 'Alterar' : 'Configurar a chave'))),
-    sec('🕒', 'Horário de trabalho', null,
+        : h('div', { class: 'row' }, h('span', { class: 'muted', style: 'flex:1' },
+            a.hasLinkedinPassword ? 'Credencial desta conta já configurada.' : 'Sem login salvo: autenticação manual na janela do LinkedIn.'),
+          h('button', { onclick: () => { state.loginOpen = true; renderView(); } },
+            a.hasLinkedinPassword ? 'Trocar login' : 'Configurar login'))),
+    selected === 'schedule' && sec('🕒', 'Horário desta conta', null,
       state.hoursOpen ? hoursPanel(a, () => { state.hoursOpen = false; renderView(); })
-        : h('div', { class: 'row' }, h('span', { class: 'muted', style: 'flex:1' }, `${a.workingHours.start}–${a.workingHours.end} · ${a.workingHours.days.length === 7 ? 'todos os dias' : `${a.workingHours.days.length} dias por semana`} (${a.workingHours.timezone})`),
-            h('button', { onclick: () => { state.hoursOpen = true; renderView(); } }, 'Alterar'))),
-    sec('🚦', 'Ritmo (quanto o app faz por dia)', null,
+        : h('div', { class: 'row' }, h('span', { class: 'muted', style: 'flex:1' },
+            a.workingHours.start + '–' + a.workingHours.end + ' (' + a.workingHours.timezone + ')'),
+          h('button', { onclick: () => { state.hoursOpen = true; renderView(); } }, 'Alterar horário'))),
+    selected === 'limits' && sec('🚦', 'Limites e ritmo desta conta', null,
       h('div', { class: 'stack' },
-        ritmo('safe', 'Conservador — conta nova no LinkedIn', 'Começa devagar e sobe em ~6 semanas.'),
-        ritmo('normal', 'Recomendado', 'O que o Linked Helper recomenda para contas com mais de 1 ano: ~150 perfis e 20 convites por dia, 100 convites por semana.'),
-        ritmo('fast', 'Acelerado', '50% a mais (dentro dos tetos de segurança). Mais risco de bloqueio.'),
-        preset === 'custom' && h('div', { class: 'muted' }, 'Você está com regras personalizadas.'),
+        ritmo('safe', 'Conservador', 'Ritmo restrito, indicado para contas novas.'),
+        ritmo('normal', 'Padrão', 'Respeita os limites internos de segurança configurados no produto.'),
+        ritmo('fast', 'Acelerado', 'Maior volume dentro dos limites internos; exige avaliação de risco.'),
+        preset === 'custom' && h('div', { class: 'muted' }, 'Esta conta utiliza regras personalizadas.'),
         state.limitsOpen ? limitsPanel(a, () => { state.limitsOpen = false; renderView(); })
-          : h('div', {}, h('button', { class: 'link', onclick: () => { state.limitsOpen = true; renderView(); } }, 'Personalizar os limites (avançado)')))),
-    sec('🔗', 'Para onde vão as respostas (webhook / CRM)', integ.webhook.enabled && !!integ.webhook.url,
-      h('div', { class: 'row' }, h('span', { class: 'muted', style: 'flex:1' }, integ.webhook.enabled && integ.webhook.url ? 'Webhook ligado: quem responder é enviado automaticamente.' : 'Sem webhook: as respostas ficam só no app.'),
-        h('button', { onclick: () => { state.tab = 'settings'; renderView(); } }, 'Configurar'))),
-    sec('🌐', 'Proxy', null, h('div', { class: 'row' }, h('span', { class: 'muted', style: 'flex:1' }, a.proxy ? `Usando ${a.proxy.host}` : 'Sem proxy (usa a internet deste computador). Só precisa com várias contas.'),
-      h('button', { onclick: () => goAdvanced() }, 'Configurar'))),
+          : h('button', { class: 'link', onclick: () => { state.limitsOpen = true; renderView(); } }, 'Ajustar limites específicos'))),
+    selected === 'network' && sec('🌐', 'Proxy desta conta', null,
+      h('div', { class: 'row' },
+        h('span', { class: 'muted', style: 'flex:1' }, a.proxy ? 'Proxy configurado nesta conta' : 'Sem proxy nesta conta.'),
+        h('button', { onclick: () => goAdvanced() }, 'Configurar proxy'))),
+    h('div', { class: 'card stack' },
+      h('strong', {}, 'Configurações compartilhadas do LINKLEADS'),
+      h('span', { class: 'muted' }, 'IA, modelos, oferta/ICP, integrações e bloqueios gerais são comuns a todas as contas.'),
+      h('button', { onclick: () => { state.tab = 'settings'; state.settingsSection = 'ai'; renderView(); } }, 'Abrir configurações do sistema')),
   );
 }
 
@@ -445,14 +525,18 @@ async function trackPage(a, camps, stats) {
   const settings = await api.getSettings();
   const need = [
     !settings.hasAiKey && h('button', { class: 'primary', onclick: () => { state.tab = 'settings'; renderView(); } }, '⚠ Configurar a chave da IA (sem ela não há comentários)'),
-    stats.pendingApprovals > 0 && h('button', { class: 'primary', onclick: () => { state.showApprovals = !state.showApprovals; renderView(); } }, `✍ Aprovar ${stats.pendingApprovals} comentário(s)/mensagem(ns)`),
+    stats.pendingApprovals > 0 && h('button', { class: 'primary', onclick: () => { state.showApprovals = state.showApprovals === false ? true : false; renderView(); } }, `${state.showApprovals === false ? 'Mostrar' : 'Ocultar'} ${stats.pendingApprovals} aprovação(ões) pendente(s)`),
     stats.unhandledReplies > 0 && h('button', { class: 'primary', onclick: () => { state.showInbox = !state.showInbox; renderView(); } }, `↩ ${stats.unhandledReplies} resposta(s) para você atender`),
   ].filter(Boolean);
   return h('div', { class: 'stack' },
     need.length ? h('div', { class: 'card stack attention' }, h('strong', {}, 'Precisa de você'), h('div', { class: 'row' }, ...need)) : '',
-    state.showApprovals && stats.pendingApprovals > 0 && h('div', { class: 'card' }, await approvalsView(a)),
+    state.showApprovals !== false && stats.pendingApprovals > 0 && h('section', { class: 'card stack', 'aria-label': 'Aprovações pendentes nesta campanha' }, h('h3', {}, 'Aprovações pendentes — sem pausar a campanha'), h('p', { class: 'muted' }, 'Revise e aprove cada texto aqui mesmo. Aprovar não exige pausar a conta nem abandonar o acompanhamento.'), await approvalsView(a)),
     state.showInbox && stats.unhandledReplies > 0 && h('div', { class: 'card' }, await inboxView(a)),
-    livePanel(a),
+    h('section', { class: 'stack', 'aria-label': 'Execução e eventos da campanha' },
+      h('h3', {}, 'Acompanhamento da execução'),
+      h('p', { class: 'muted' }, 'Veja quem está sendo atendido, a etapa em andamento e o resultado efetivamente confirmado. Eventos sem comprovação não são tratados como sucesso.'),
+      livePanel(a)),
+    active && postAgeNotice(a, active),
     h('div', { class: 'card stack' },
       h('div', { class: 'row' }, h('strong', { style: 'flex:1' }, `Onde estão as ${active.people.length} pessoas de "${active.name}"`),
         h('button', { class: 'link', onclick: () => goAdvanced('campaigns') }, 'ver lista completa')),
