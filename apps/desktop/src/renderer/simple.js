@@ -137,7 +137,7 @@ function intentionPicker() {
   const start = (kind) => {
     state.creating = true;
     state.chooseCampaignType = false;
-    state.wiz = { step: 1, campaignType: kind, approve: true, maxPostAgeDays: 30 };
+    state.wiz = { step: 1, campaignType: kind, approve: true, maxPostAgeDays: 365 };
     state.g = 'campaign';
     renderView();
   };
@@ -176,7 +176,7 @@ async function engagementWizard(a, cols, w) {
         h('button', { onclick: () => { state.g = 'lists'; renderView(); } }, 'Importar lista'),
         h('button', { class: 'primary', disabled: !col, onclick: () => next(2) }, 'Definir parâmetros →')));
   } else if (w.step === 2) {
-    const age = h('input', { type: 'number', min: 1, max: 365, value: String(w.maxPostAgeDays ?? 30) });
+    const age = h('input', { type: 'number', min: 1, max: 365, value: String(w.maxPostAgeDays ?? 365) });
     const instructions = h('textarea', { rows: 3,
       placeholder: 'Qual é o objetivo comercial do comentário?',
       value: w.extraInstructions || '' });
@@ -190,7 +190,7 @@ async function engagementWizard(a, cols, w) {
       h('div', { class: 'row' },
         h('button', { onclick: () => next(1) }, '← Lista'),
         h('button', { class: 'primary', onclick: () => {
-          w.maxPostAgeDays = Math.max(1, Math.min(365, Number(age.value) || 30));
+          w.maxPostAgeDays = Math.max(1, Math.min(365, Number(age.value) || 365));
           w.extraInstructions = instructions.value.trim();
           w.approve = approve.checked;
           next(3);
@@ -215,7 +215,7 @@ async function engagementWizard(a, cols, w) {
             name: name.value.trim() || 'Engajamento', collectionId: w.colId,
             commentMode: w.approve ? 'manual' : 'auto',
             tone: 'profissional', extraInstructions: w.extraInstructions || '',
-            maxPostAgeDays: w.maxPostAgeDays ?? 30,
+            maxPostAgeDays: w.maxPostAgeDays ?? 365,
           }));
           if (!result) { e.target.disabled = false; return; }
           state.creating = false; state.wiz = null;
