@@ -7,7 +7,7 @@ const state = {
   // sessão do LinkedIn falso: loggedOut força a página de login; logins guarda as tentativas (e-mail, senha)
   unrelatedEditor: false,
   loggedOut: false, logins: [], loginEmail: 'ana@empresa.com.br', loginPassword: 'senha-certa',
-  activityDeepPosts: false, modernReaction: false, mixedPostLayout: false, deepAge: '1 a', deepLiked: false, deepLikes: 0, likes: 0,
+  activityDeepPosts: false, modernReaction: false, modernTimeLabels: false, mixedPostLayout: false, deepAge: '1 a', deepLiked: false, deepLikes: 0, likes: 0,
   loginHydrationDelayMs: 0, loginSocialButtons: false, requireSessionCookie: false,
 };
 
@@ -62,7 +62,7 @@ const postHtml = (withEditor, urn = URN) => `
 <div class="${state.modernReaction ? 'new-feed-post' : 'feed-shared-update-v2'}" ${state.modernReaction ? 'data-component-type="feed-update"' : ('data-urn="' + urn + '"')}>
   ${state.modernReaction ? ('<a href="/feed/update/' + urn.replace(/:(\d+)$/, (_, digits) => ':' + digits.padEnd(19, '0')) + '/">Abrir publicação</a>') : ''}
   <div class="update-components-actor"><a class="update-components-actor__meta-link" href="/in/ana-silva/">Ana Silva</a>
-    <span class="update-components-actor__sub-description">${urn === URN ? '2d' : state.deepAge} •</span></div>
+    <span class="update-components-actor__sub-description">${state.modernTimeLabels ? (urn === URN ? 'há 2 d · Editado' : 'há 6 dias · Editado') : ((urn === URN ? '2d' : state.deepAge) + ' •')}</span></div>
   <div class="update-components-text">Concluímos a telemetria de 120 km de rede e reduzimos as perdas de água em 18% no primeiro trimestre.</div>
   <button class="react-button__trigger" aria-label="${state.modernReaction ? ('Situação do botão de reação: ' + ((urn === URN ? state.liked : state.deepLiked) ? 'Gostei' : 'nenhuma reação')) : 'React Like'}" ${state.modernReaction ? '' : ('aria-pressed="' + (urn === URN ? state.liked : state.deepLiked) + '"')}>Like</button>
   <button aria-label="Comment">Comment</button>
