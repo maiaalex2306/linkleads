@@ -189,7 +189,11 @@ ipcMain.handle('accounts:setLogin', (_e, id: string, input: { email: string; pas
   account(id);
   const email = String(input?.email || '').trim();
   if (email && !/^\S+@\S+\.\S+$/.test(email) && !/^\+?\d[\d\s()-]{7,}$/.test(email)) throw new Error('Informe o e-mail (ou telefone) usado para entrar no LinkedIn');
-  if (email && !input.password && !accounts.loginInfo(id).hasLinkedinPassword) throw new Error('Informe a senha do LinkedIn');
+  const savedLogin = accounts.loginInfo(id);
+  const sameIdentity = savedLogin.linkedinEmail?.trim().toLowerCase() === email.toLowerCase();
+  if (email && !input.password && (!savedLogin.hasLinkedinPassword || !sameIdentity)) {
+    throw new Error('Informe a senha do LinkedIn para este e-mail. A senha salva de outra conta não será reutilizada.');
+  }
   accounts.setLogin(id, email, input.password || undefined);
   if (email) void instances.get(id)?.loginNow().catch(() => undefined);
   return accounts.loginInfo(id);
