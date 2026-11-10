@@ -5,6 +5,7 @@ const state = {
   liked: false, comments: [], connection: 'none', inviteNote: null, invites: 0, withdrawals: 0, messages: [], unread: false,
   anaHeadline: 'Diretora de Operações na Águas do Vale', companyVisits: 0,
   // sessão do LinkedIn falso: loggedOut força a página de login; logins guarda as tentativas (e-mail, senha)
+  unrelatedEditor: false,
   loggedOut: false, logins: [], loginEmail: 'ana@empresa.com.br', loginPassword: 'senha-certa',
   activityDeepPosts: false, modernReaction: false, mixedPostLayout: false, deepAge: '1 a', deepLiked: false, deepLikes: 0, likes: 0,
   loginHydrationDelayMs: 0, loginSocialButtons: false, requireSessionCookie: false,
@@ -76,11 +77,11 @@ const likeScript = `document.querySelector('.react-button__trigger').addEventLis
   await fetch('/api/like', { method: 'POST' }); if (e.target.hasAttribute('aria-pressed')) e.target.setAttribute('aria-pressed', 'true'); else e.target.setAttribute('aria-label', 'Situação do botão de reação: Gostei'); });`;
 const commentScript = likeScript + `document.querySelector('.comments-comment-box__submit-button').addEventListener('click', async (e) => {
   if (!e.isTrusted) return;
-  const text = document.querySelector('[contenteditable]').innerText.trim();
+  const text = document.querySelector('.comments-comment-box__form [contenteditable]').innerText.trim();
   await fetch('/api/comment', { method: 'POST', body: text });
   const a = document.createElement('article'); a.className = 'comments-comment-entity';
   a.innerHTML = '<span class="comments-comment-item__main-content"></span>'; a.firstChild.textContent = text;
-  document.getElementById('comments').append(a); document.querySelector('[contenteditable]').innerText = ''; });`;
+  document.getElementById('comments').append(a); document.querySelector('.comments-comment-box__form [contenteditable]').innerText = ''; });`;
 
 const esc = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;');
 const threadHtml = () => `
@@ -220,7 +221,12 @@ export function startFakeSite(port = 0) {
       // Ao misturar layouts, o permalink e o data-urn da página de destino
       // devem representar a MESMA publicação (identidade canônica).
       const postIdentity = state.mixedPostLayout ? urn : (urn.startsWith(DEEP_URN) ? DEEP_URN : URN);
-      return html(postHtml(true, postIdentity), commentScript);
+      // Outro editor visível fora da publicação, representando painéis independentes.
+      // O motor não pode digitar nem enviar nele apenas por estar primeiro no DOM.
+      const other = state.unrelatedEditor
+        ? '<aside data-urn="urn:li:activity:9999999999999999999"><div class="comments-comment-box-comment__text-editor"><div contenteditable="true">Rascunho não relacionado</div></div><button>Post</button></aside>'
+        : '';
+      return html(other + postHtml(true, postIdentity), commentScript);
     }
     if (url === '/in/ana-silva/recent-activity/all/') {
       if (state.activityDeepPosts) {
