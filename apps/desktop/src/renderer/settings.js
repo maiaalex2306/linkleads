@@ -52,36 +52,57 @@ async function settingsView() {
   const icp = h('textarea', { value: dec.icp, placeholder: 'Ex.: diretores e gerentes de operações, engenharia e perdas em companhias de saneamento e indústrias com alto consumo de água, no Brasil.' });
   const threshold = h('input', { type: 'number', min: 0, max: 100, value: String(dec.icpThreshold), style: 'width:80px' });
   const topics = h('input', { value: dec.signalTopics.join(', '), placeholder: 'perdas de água, telemetria, saneamento, eficiência hídrica', style: 'width:100%' });
-  return h('div', { class: 'stack', style: 'max-width:720px' },
-    h('h2', {}, 'Configurações'),
-    h('p', { class: 'muted' }, 'Escolha qual IA interpreta posts, escreve convites e mensagens e classifica respostas. As chaves ficam criptografadas no cofre do sistema operacional, só nesta máquina.'),
-    ...providerCards,
-    h('div', { class: 'card stack' },
-      h('strong', {}, 'Sobre mim'),
-      h('div', { class: 'muted' }, 'A IA usa isto para escrever na sua voz.'),
-      about,
-      h('div', {}, h('button', { class: 'primary', onclick: () => safe(() => api.setAboutMe(about.value), 'Salvo') }, 'Salvar')),
-    ),
-    h('div', { class: 'card stack' },
-      h('strong', {}, 'Oferta, ICP e sinais'),
-      h('label', {}, 'O que você vende', offer),
-      h('label', {}, 'Perfil de cliente ideal (ICP), usado no filtro antes do convite', icp),
-      h('div', { class: 'row' }, h('span', { class: 'muted' }, 'Nota mínima do ICP'), threshold, h('span', { class: 'muted' }, 'de 0 a 100')),
-      h('label', {}, 'Temas que viram sinais (posts e vagas), separados por vírgula', topics),
-      h('div', {}, h('button', { class: 'primary', onclick: () => safe(() => api.setDecision({
-        offer: offer.value, icp: icp.value, icpThreshold: Number(threshold.value), signalTopics: topics.value.split(','),
-      }), 'Salvo') }, 'Salvar')),
-    ),
-    h('div', { class: 'card stack' },
-      h('strong', {}, 'Interruptor geral'),
-      h('div', { class: 'muted' }, 'Desligue um tipo de ação em todas as contas e campanhas de uma vez (ex.: se notar restrições da plataforma). As pessoas continuam na fila.'),
-      ...ACTION_SWITCHES.map(([type, label]) =>
-        h('label', { class: 'row', style: 'display:flex' },
-          h('input', { type: 'checkbox', checked: !disabled.has(type) && !teamOff.has(type), disabled: teamOff.has(type), onchange: (e) => safe(() => api.setActionEnabled(type, e.target.checked), e.target.checked ? `${label}: ligado` : `${label}: desligado`) }),
-          label, teamOff.has(type) && h('span', { class: 'muted' }, ' (desligado pelo gestor da equipe)'))),
-    ),
-    await teamCard(),
-    ...(await integrationsCards()),
-    h('button', { class: 'link', onclick: () => { if (state.screen === 'settings') state.screen = state.backScreen || (state.accountId ? 'workspace' : 'launcher'); state.tab = 'campaigns'; renderAccounts(); renderView(); } }, '← Voltar'),
+  // Navegação horizontal: estas opções são globais e afetam todas as contas.
+  const sections = [
+    ['ai', 'IA e modelos'], ['strategy', 'Oferta e ICP'],
+    ['actions', 'Ações globais'], ['team', 'Equipe'],
+    ['integrations', 'Integrações'],
+  ];
+  const selected = sections.some(([id]) => id === state.settingsSection) ? state.settingsSection : 'ai';
+  const sectionButton = ([id, label]) => h('button', {
+    type: 'button', class: selected === id ? 'primary' : '',
+    'aria-current': selected === id ? 'page' : undefined,
+    onclick: () => { state.settingsSection = id; renderView(); },
+  }, label);
+  const group = (...children) => h('div', { class: 'stack' }, ...children);
+  return h('div', { class: 'stack', style: 'max-width:1080px' },
+    h('h2', {}, 'Configurações do sistema'),
+    h('p', { class: 'muted' }, 'Estas preferências são compartilhadas por todas as contas LinkedIn. Login, horários, proxy e limites são configurados individualmente em cada conta.'),
+    h('nav', { class: 'row', 'aria-label': 'Abas de configurações do sistema', style: 'display:flex;flex-wrap:wrap;gap:8px;border-bottom:1px solid var(--border, #ddd);padding-bottom:12px' },
+      ...sections.map(sectionButton)),
+    selected === 'ai' && group(
+      h('p', { class: 'muted' }, 'Provedores, chaves e modelos são globais; as chaves permanecem no cofre do sistema operacional.'),
+      ...providerCards,
+      h('div', { class: 'card stack' },
+        h('strong', {}, 'Sobre mim — contexto global da IA'),
+        h('div', { class: 'muted' }, 'Texto usado para redigir mensagens. Revise antes de utilizar em outras contas.'),
+        about,
+        h('div', {}, h('button', { class: 'primary', onclick: () => safe(() => api.setAboutMe(about.value), 'Salvo') }, 'Salvar')))),
+    selected === 'strategy' && group(
+      h('div', { class: 'card stack' },
+        h('strong', {}, 'Oferta, ICP e sinais — política global'),
+        h('label', {}, 'O que você vende', offer),
+        h('label', {}, 'Perfil de cliente ideal (ICP)', icp),
+        h('div', { class: 'row' }, h('span', { class: 'muted' }, 'Nota mínima ICP'), threshold, h('span', { class: 'muted' }, 'de 0 a 100')),
+        h('label', {}, 'Temas para sinais (separados por vírgula)', topics),
+        h('div', {}, h('button', { class: 'primary', onclick: () => safe(() => api.setDecision({
+          offer: offer.value, icp: icp.value, icpThreshold: Number(threshold.value), signalTopics: topics.value.split(','),
+        }), 'Salvo') }, 'Salvar estratégia')))),
+    selected === 'actions' && group(
+      h('div', { class: 'card stack' },
+        h('strong', {}, 'Interruptor geral de ações'),
+        h('p', { class: 'muted' }, 'Alterar aqui afeta todas as contas e campanhas, sem apagar filas ou trabalhos pendentes.'),
+        ...ACTION_SWITCHES.map(([type, label]) => h('label', { class: 'row', style: 'display:flex' },
+          h('input', { type: 'checkbox', checked: !disabled.has(type) && !teamOff.has(type),
+            disabled: teamOff.has(type),
+            onchange: (e) => safe(() => api.setActionEnabled(type, e.target.checked),
+              e.target.checked ? label + ': ligado' : label + ': desligado') }),
+          label, teamOff.has(type) && h('span', { class: 'muted' }, ' (bloqueado pelo gestor)'))))),
+    selected === 'team' && await teamCard(),
+    selected === 'integrations' && group(...(await integrationsCards())),
+    h('button', { class: 'link', onclick: () => {
+      if (state.screen === 'settings') state.screen = state.backScreen || (state.accountId ? 'workspace' : 'launcher');
+      state.tab = 'campaigns'; renderAccounts(); renderView();
+    } }, '← Voltar à conta'),
   );
 }
