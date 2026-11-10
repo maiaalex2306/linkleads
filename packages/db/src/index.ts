@@ -668,11 +668,25 @@ export class LocalCrm extends SqliteCampaignStore {
     return Number(result.changes) === 1;
   }
 
-  /** Confirmação posterior não deve apagar o histórico da tentativa. */
+  /** Consolida a confirmação e a marcação do post na mesma transação.
+   * Se o processo cair depois, o estado não volta a pendente.
+   */
   finishCommentSubmission(postUrl: string, status: 'confirmed' | 'uncertain'): void {
-    this.db.prepare(
-      "UPDATE comment_submission_ledger SET status=?, finished_at=datetime('now') WHERE post_url=? AND status IN ('started','uncertain')",
-    ).run(status, postUrl);
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      this.db.prepare(
+        "UPDATE comment_submission_ledger SET status=?, finished_at=datetime('now') WHERE post_url=? AND status IN ('started','uncertain')",
+      ).run(status, postUrl);
+      if (status === 'confirmed') {
+        this.db.prepare(
+          "UPDATE posts SET commented_at=COALESCE(commented_at,datetime('now')) WHERE url=?",
+        ).run(postUrl);
+      }
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
   }
 
   commentSubmissionStatus(postUrl: string): 'started' | 'confirmed' | 'uncertain' | undefined {
