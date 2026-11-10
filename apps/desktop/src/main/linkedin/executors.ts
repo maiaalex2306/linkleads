@@ -343,8 +343,16 @@ export async function publishComment(d: ExecutorDeps, urn: string, text: string)
     message: 'Publicação sem identificador canônico: comentário não enviado',
   };
   return guard(async () => {
-    await d.driver.goto(postUrl(urn), 'postItem');
+    // O permalink pode renderizar um cartão moderno sem o seletor legado
+    // postItem. A prontidão real exige que o URN canônico esteja visível.
+    await d.driver.goto(postUrl(urn));
     const selectorMap = d.driver.sel as unknown as Record<string, readonly string[]>;
+    const postReady = await d.driver.waitUntil(async () => {
+      const posts = await d.driver.read(extractPosts, selectorMap, 80);
+      return posts.some((post) => post.urn === urn);
+    }, 20_000);
+    if (!postReady) return { ok: false, reason: 'NO_REAL_EFFECT',
+      message: 'Publicação canônica não localizada no permalink; nenhum comentário preparado' };
     let editor = await d.driver.read(commentEditorPoint, selectorMap, urn);
     if (!editor) {
       if (!(await d.driver.click('commentButton', { urn, containerKey: 'postItem' })))
