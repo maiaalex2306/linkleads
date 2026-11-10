@@ -181,7 +181,10 @@ export function startFakeSite(port = 0) {
           return res.end(state.loggedOut ? 'denied' : 'ok');
         }
         if (url === '/test/logout') state.loggedOut = true;
-        if (url === '/api/comment') state.comments.push(body.replace(/</g, '&lt;'));
+        if (url === '/api/comment') {
+          state.lastCommentReferrer = req.headers.referer;
+          state.comments.push(body.replace(/</g, '&lt;'));
+        }
         res.end('ok');
       });
       return;
