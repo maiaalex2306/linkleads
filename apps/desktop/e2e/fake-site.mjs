@@ -217,7 +217,10 @@ export function startFakeSite(port = 0) {
     }
     if (url.startsWith('/feed/update/')) {
       const urn = url.split('/')[3];
-      return html(postHtml(true, urn.startsWith(DEEP_URN) ? DEEP_URN : URN), commentScript);
+      // Ao misturar layouts, o permalink e o data-urn da página de destino
+      // devem representar a MESMA publicação (identidade canônica).
+      const postIdentity = state.mixedPostLayout ? urn : (urn.startsWith(DEEP_URN) ? DEEP_URN : URN);
+      return html(postHtml(true, postIdentity), commentScript);
     }
     if (url === '/in/ana-silva/recent-activity/all/') {
       if (state.activityDeepPosts) {
