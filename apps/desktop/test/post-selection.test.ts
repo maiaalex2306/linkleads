@@ -81,6 +81,30 @@ describe('escolha de publicação com confirmação do estado', () => {
       .toBeUndefined();
   });
 
+
+  it('não aceita URN sintética apesar de haver autor, idade e texto', () => {
+    const p = one('ll-idx-0', false);
+    const result = choosePost([p], 'ana-silva', { maxPostAgeDays: 365 }, 'Ana Silva');
+    expect(result.post).toBeUndefined();
+    expect(result.uncertain).toBe(true);
+    expect(result.why).toMatch(/URN provisória/);
+  });
+  it('não aceita data ausente ou ilegível, nem classifica como nenhum post', () => {
+    for (const age of [null, '', 'sem data']) {
+      const p = { ...one('urn:li:activity:999999999999', false), age };
+      const result = choosePost([p], 'ana-silva', { maxPostAgeDays: 365 }, 'Ana Silva');
+      expect(result.post).toBeUndefined();
+      expect(result.uncertain).toBe(true);
+      expect(result.why).toMatch(/data não verificável/);
+    }
+  });
+  it('preserva uma publicação válida mesmo quando outra tem identidade incerta', () => {
+    const broken = { ...one('ll-idx-2', false), age: '2 d' };
+    const valid = { ...one('urn:li:activity:999999999998', false), age: '90 d' };
+    const result = choosePost([broken, valid], 'ana-silva', { maxPostAgeDays: 365 }, 'Ana Silva');
+    expect(result.post?.urn).toBe(valid.urn);
+  });
+
   it('remove o prefixo de Atividades recebido do título do perfil sem perder a identidade', () => {
     const post = { ...one('urn:li:activity:777777777778', false),
       actorHref: null, actorName: 'Ana Silva', age: '150 d' };
