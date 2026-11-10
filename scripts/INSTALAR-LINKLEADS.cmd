@@ -34,7 +34,7 @@ echo Instalador: %LL_INSTALLER%
 echo.
 
 set "LL_STAGE=verificar_integridade"
-powershell.exe -NoProfile -Command "$ErrorActionPreference='Stop';$line=(Get-Content -LiteralPath $env:LL_CHECKSUM -ErrorAction Stop | Select-Object -First 1);$parts=$line -split '\s+';if($parts.Count -ne 3 -or $parts[0] -ne [IO.Path]::GetFileName($env:LL_INSTALLER) -or $parts[1] -ne 'SHA256' -or $parts[2] -notmatch '^[A-Fa-f0-9]{64}$'){throw 'Manifesto SHA256.txt invalido'};$actual=(Get-FileHash -LiteralPath $env:LL_INSTALLER -Algorithm SHA256).Hash;if($actual -ne $parts[2]){throw 'SHA256 DIVERGENTE - NAO EXECUTAR'};Write-Host 'SHA256 conferido com o manifesto do GitHub.' -ForegroundColor Green"
+powershell.exe -NoProfile -Command "$ErrorActionPreference='Stop';$line=(Get-Content -LiteralPath $env:LL_CHECKSUM -ErrorAction Stop | Select-Object -First 1);$parts=$line -split '\s+';if($parts.Count -ne 3 -or $parts[0] -ne [IO.Path]::GetFileName($env:LL_INSTALLER) -or $parts[1] -ne 'SHA256' -or $parts[2] -notmatch '^[A-Fa-f0-9]{64}$'){throw 'Manifesto SHA256.txt invalido'};$stream=[IO.File]::OpenRead($env:LL_INSTALLER);try{$sha=[Security.Cryptography.SHA256]::Create();try{$actual=([BitConverter]::ToString($sha.ComputeHash($stream))).Replace('-','')}finally{$sha.Dispose()}}finally{$stream.Dispose()};if($actual -ne $parts[2]){throw 'SHA256 DIVERGENTE - NAO EXECUTAR'};Write-Host 'SHA256 conferido com o manifesto do GitHub.' -ForegroundColor Green"
 if errorlevel 1 goto :fail
 set "LL_HASH_OK=true"
 if /I "%~1"=="--check-only" (
@@ -112,6 +112,10 @@ pause
 exit /b 2
 
 :fail
+if /I "%~1"=="--check-only" (
+  echo TESTE DE INTEGRIDADE REPROVADO - nenhum dado alterado.
+  exit /b 1
+)
 set "LL_RESULT=nao_concluido"
 call :report
 echo.
