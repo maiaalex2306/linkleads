@@ -1,4 +1,4 @@
-import type { WebContents } from 'electron';
+import { BrowserWindow, type WebContents } from 'electron';
 import { humanDelay, randInt, type Rng } from '@linkleads/core';
 
 /**
@@ -36,6 +36,7 @@ export class HumanInput {
   }
 
   async click(x: number, y: number): Promise<void> {
+    BrowserWindow.fromWebContents(this.wc)?.focus();
     await this.moveTo(x + randInt(this.rng, -3, 3), y + randInt(this.rng, -2, 2));
     await this.sleep(randInt(this.rng, 60, 220));
     this.emit?.('click', { x: this.x, y: this.y });
@@ -46,6 +47,7 @@ export class HumanInput {
 
   /** Digitação com cadência irregular e pausas ocasionais. */
   async type(text: string): Promise<void> {
+    BrowserWindow.fromWebContents(this.wc)?.focus();
     const started = Date.now();
     this.emit?.('type_start', { length: text.length });
     for (const ch of text) {
@@ -58,6 +60,10 @@ export class HumanInput {
   }
 
   async scroll(deltaY: number): Promise<void> {
+    // Electron entrega eventos de input somente ao BrowserWindow em foco.
+    BrowserWindow.fromWebContents(this.wc)?.focus();
+    // No sendInputEvent do Electron, inverter o delta usado na chamada nativa;
+    // este sinal já foi homologado em layouts de atividades existentes.
     this.emit?.('scroll', { deltaY });
     let left = deltaY;
     while (Math.abs(left) > 0) {
