@@ -37,7 +37,7 @@ jobs:
             node --check "$file" || exit 1
           done
       - name: Testar comparador visual e PNG
-        run: node --test apps/desktop/e2e/visual-png.test.mjs
+        run: node --test apps/desktop/e2e/visual-png.check.mjs
 
   e2e:
     name: E2E — ${{ matrix.name }}
