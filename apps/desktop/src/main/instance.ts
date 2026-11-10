@@ -223,6 +223,12 @@ export class AccountInstance {
     this.window.webContents.on('did-finish-load', () => {
       if (LOGIN_PAGE.test(this.window.webContents.getURL())) void this.withBrowser(() => this.ensureLoggedIn()).catch(() => undefined);
     });
+    // Algumas versões do LinkedIn levam o navegador ao login por navegação SPA.
+    // Esse caminho não emite did-finish-load; usa a mesma trava de login para
+    // nunca provocar envios simultâneos.
+    this.window.webContents.on('did-navigate-in-page', (_event, url) => {
+      if (LOGIN_PAGE.test(url)) void this.withBrowser(() => this.ensureLoggedIn()).catch(() => undefined);
+    });
   }
 
   /**
@@ -319,8 +325,19 @@ export class AccountInstance {
     // Nunca forçar uma navegação para /login sobre uma tela de passkey,
     // checkpoint ou desafio. A escolha do método de autenticação é do usuário
     // e do LinkedIn, não do executor.
-    if (!(await d.exists('loginPassword'))) {
-      this.log('Login por senha ainda não está disponível. Se aparecer a janela de chave de acesso, cancele-a e escolha a opção de entrar com senha no LinkedIn. Conclua verificações de segurança manualmente.');
+    // O DOM do LinkedIn pode hidratar o formulário DEPOIS de did-finish-load.
+    // Não desistir de imediato: aguardar o campo de senha sem atualizar a página,
+    // inventar credenciais ou contornar passkeys/checkpoints.
+    const passwordReady = await d.waitFor('loginPassword', 12_000).catch(() => false);
+    if (!LOGIN_PAGE.test(wc.getURL())) return 'not_needed'; // login manual durante a espera
+    if (!passwordReady) {
+      this.log('O formulário de senha não apareceu. Se o LinkedIn solicitar chave de acesso ou verificação, conclua diretamente na janela da conta.');
+      return 'no_credentials';
+    }
+    const emailReady = await d.waitFor('loginEmail', 4_000).catch(() => false);
+    if (!LOGIN_PAGE.test(wc.getURL())) return 'not_needed';
+    if (!emailReady) {
+      this.log('O campo de e-mail não está acessível; conclua o login manualmente na janela do LinkedIn.');
       return 'no_credentials';
     }
     this.loginAttempts.push(Date.now());
@@ -350,7 +367,12 @@ export class AccountInstance {
     if (!(await d.click('loginPassword'))) return 'failed';
     await d.input.type(creds.password);
     await d.input.think(500, 1400);
-    if (!(await d.click('loginSubmit'))) await d.press('Enter');
+    // Não clicar genericamente em "Continuar com Google/Microsoft/Apple".
+    // O seletor loginSubmit só procura o formulário que contém a senha.
+    if (!(await d.click('loginSubmit'))) {
+      await d.click('loginPassword');
+      await d.press('Enter');
+    }
 
     const left = await d.waitUntil(async () => !LOGIN_PAGE.test(wc.getURL()) && !wc.isLoading() && !(await onLogin().catch(() => true)), 25_000, 800);
     const url = wc.getURL();
