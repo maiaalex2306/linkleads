@@ -10,3 +10,4 @@ export * from './import/csv.js';
 export * from './engine/templates.js';
 export * from './import/relative-time.js';
 export * from './signals.js';
+export * from './engine/capability-contracts.js';
