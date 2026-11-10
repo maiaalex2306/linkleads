@@ -168,6 +168,10 @@ jobs:
             & $badCmd --check-only
             if ($LASTEXITCODE -eq 0) { throw 'FALHA DE SEGURANCA: assistente aceitou SHA256 adulterado' }
             Write-Host 'Assistente Windows: manifesto adulterado corretamente bloqueado'
+            # A falha do comando adulterado e o resultado ESPERADO neste teste.
+            # Limpar o codigo nativo somente DEPOIS de comprovar que foi rejeitado;
+            # sem isso o pwsh encerra o job com exit 1, apesar de o teste passar.
+            $global:LASTEXITCODE = 0
           } finally {
             Remove-Item -LiteralPath $badDir -Recurse -Force -ErrorAction SilentlyContinue
           }
