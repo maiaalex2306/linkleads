@@ -19,6 +19,8 @@ $report = [ordered]@{
   nsisExitCode = $null
   executableFound = $false
   appAsarFound = $false
+  desktopShortcutFound = $false
+  desktopShortcutTargetMatches = $false
   runtimeSmoke = $false
   installedVisualPassed = $false
 }
@@ -49,6 +51,19 @@ try {
   if (-not $reportedVersion -or -not $reportedVersion.StartsWith($ExpectedVersion)) {
     throw "Versao instalada '$reportedVersion' diferente da esperada '$ExpectedVersion'"
   }
+  # Exigir um atalho real na area de trabalho com destino ao EXE instalado.
+  $desktopPath = [Environment]::GetFolderPath('DesktopDirectory')
+  $shortcutPath = Join-Path $desktopPath 'LinkLeads.lnk'
+  if (-not (Test-Path -LiteralPath $shortcutPath -PathType Leaf)) {
+    throw "Instalacao sem atalho LinkLeads.lnk na area de trabalho: $shortcutPath"
+  }
+  $report.desktopShortcutFound = $true
+  $shell = New-Object -ComObject WScript.Shell
+  $target = $shell.CreateShortcut($shortcutPath).TargetPath
+  if (-not $target -or ([IO.Path]::GetFullPath($target) -ine [IO.Path]::GetFullPath($binary))) {
+    throw "Atalho aponta para executavel errado: $target"
+  }
+  $report.desktopShortcutTargetMatches = $true
   Write-Host "NSIS P0: executavel instalado; iniciar smoke Electron e persistencia"
   & node 'apps/desktop/e2e/installed-smoke.mjs' --exe $binary --version $ExpectedVersion --out $reportDir
   if ($LASTEXITCODE -ne 0) { throw "Smoke do aplicativo instalado reprovado: exit $LASTEXITCODE" }
