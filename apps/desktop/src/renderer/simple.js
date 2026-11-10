@@ -358,7 +358,8 @@ async function campaignPage(a, cols, camps) {
   if (state.creating) return h('div', { class: 'stack' },
     h('button', { class: 'link', onclick: () => { state.creating = false; state.wiz = null; renderView(); } }, '← Voltar'),
     await wizardPage(a, cols));
-  if (!camps.length && !state.simpleArchived) return intentionPicker();
+  // Mesmo sem campanhas correntes, mostrar as abas para recuperar arquivadas.
+  // O assistente de criação fica disponível no botão + Nova campanha.
   // Uma área por conta; arquivo separado. O backend omite campanhas arquivadas
   // da lista operacional, mas preserva sua estrutura e histórico.
   const archived = Boolean(state.simpleArchived);
@@ -416,7 +417,7 @@ async function campaignPage(a, cols, camps) {
 }
 
 /** Ajusta somente a janela de posts explicitamente para campanha existente.
- * A versão 0.5.5 preserva parâmetros antigos, inclusive 30 dias. */
+ * Preserva parâmetros antigos explicitamente até confirmação do operador. */
 function postAgeNotice(a, campaign) {
   const affected = (campaign?.actions || []).filter((act) =>
     (act.type === 'LikePosts' || act.type === 'LikeAndComment') &&
