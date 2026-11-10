@@ -164,7 +164,7 @@ export function choosePost(posts: PostExtract[], publicId: string, s: LikeSettin
   const norm = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
   // Alguns títulos da tela de atividade chegam como "Atividades | Nome | LinkedIn".
   // A etiqueta de navegação nunca pode se tornar parte da identidade do autor.
-  const cleanPersonName = personName.replace(/^(?:(?:Atividades|Activity|Publicações|Publications|Posts|Comentários|Comments)\\s*[|·–-]\\s*)+/i, '');
+  const cleanPersonName = personName.replace(/^(?:(?:Atividades|Activity|Publicações|Publications|Posts|Comentários|Comments)\s*[|·–-]\s*)+/i, '');
   const expected = norm(cleanPersonName);
   const isOwn = (p: PostExtract) => {
     const actor = p.actorHref ? profileSlug(p.actorHref) : undefined;
