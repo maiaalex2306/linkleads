@@ -103,7 +103,6 @@ function pageStructure() {
 }
 
 /** Somente leitura: não clica, não digita, não navega. */
-declare function __llPostContainers(sel: { postItem: readonly string[]; likeButton: readonly string[] }): Array<{ el: Element; urn: string }>;
 
 export async function diagnosePage(driver: PageDriver, appVersion: string): Promise<DiagnosisReport> {
   const url = driver.wc.getURL();
