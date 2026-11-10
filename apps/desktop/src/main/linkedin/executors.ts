@@ -180,6 +180,7 @@ export function choosePost(posts: PostExtract[], publicId: string, s: LikeSettin
   let reshare = 0;
   let others = 0;
   let uncertainActors = 0;
+  let uncertainPosts = 0;
   let old = 0;
   let newest: number | undefined;
   const eligible = posts.filter((p) => {
@@ -189,9 +190,13 @@ export function choosePost(posts: PostExtract[], publicId: string, s: LikeSettin
     if ((!actor && !p.actorName) || (actor && /^(?:acoaa|acwaa)/i.test(actor) && !p.actorName))
       return (uncertainActors++, false);
     if (!isOwn(p)) return (others++, false);
+    // Qualquer consumidor de choosePost deve receber somente conteúdo verificável.
+    // URNs temporárias e datas ilegíveis servem para diagnóstico, não para interação.
+    if (!isCanonicalPostUrn(p.urn)) return (uncertainPosts++, false);
     const age = p.age ? parseRelativeAgeDays(p.age) : undefined;
-    if (age !== undefined) newest = newest === undefined ? age : Math.min(newest, age);
-    if (age !== undefined && age > maxAge) return (old++, false);
+    if (age === undefined || !Number.isFinite(age) || age < 0) return (uncertainPosts++, false);
+    newest = newest === undefined ? age : Math.min(newest, age);
+    if (age > maxAge) return (old++, false);
     return true;
   });
   // Nunca clicar em publicação já curtida; estado desconhecido exige confirmação
@@ -202,6 +207,7 @@ export function choosePost(posts: PostExtract[], publicId: string, s: LikeSettin
   if (post) return { post, why: '' };
   if (eligible.length) return { why: 'Todas as publicações elegíveis já foram curtidas; nenhuma ação adicional necessária' };
   if (uncertainActors) return { why: 'Não foi possível confirmar a identidade do autor de ' + uncertainActors + ' publicação(ões)', uncertain: true };
+  if (uncertainPosts) return { why: 'Encontrei ' + uncertainPosts + ' publicação(ões) com URN provisória ou data não verificável; não classificar como ausência de posts', uncertain: true };
   if (!posts.length) return { why: 'Não reconheci nenhum post na página de atividade (layout diferente ou a página não carregou)' };
   const parts = [
     old && `${old} com mais de ${maxAge} dias${newest !== undefined ? ` (o mais recente há ${newest} dias)` : ''}`,
