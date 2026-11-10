@@ -72,7 +72,20 @@ export class PageDriver {
       await this.wc.loadURL(url);
       this.onNavigate?.(this.wc.getURL() || url, prev, 'url');
       await this.assertNotBlocked();
-      if (readyKey) await this.waitFor(readyKey, timeoutMs);
+      if (readyKey) {
+        const ready = await this.waitFor(readyKey, timeoutMs);
+        if (!ready) {
+          // Não anunciar navegação concluída se o conteúdo obrigatório não apareceu.
+          // Diferencie timeout de carregamento de "perfil sem publicações".
+          await this.assertNotBlocked();
+          this.emit?.('navigate_readiness_timeout', {
+            location: this.wc.getURL() || url, selector: readyKey,
+            timeoutMs, durationMs: Date.now() - start,
+          });
+          throw new Error(`Página não pronta: seletor obrigatório "${readyKey}" não encontrado após ${timeoutMs} ms`);
+        }
+      }
+      await this.assertNotBlocked();
       await this.input.think(1200, 3500);
       this.emit?.('navigate_done', { location: this.wc.getURL() || url, durationMs: Date.now() - start });
     } catch (error) {
