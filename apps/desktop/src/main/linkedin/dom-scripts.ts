@@ -56,8 +56,8 @@ declare function __llIsReact(el: Element): boolean;
 export function llIsReact(el: Element): boolean {
   const lab = [el.getAttribute('aria-label'), el.getAttribute('title'), (el as HTMLElement).innerText,
     ...Array.from(el.querySelectorAll('[aria-label],[title],[data-test-icon],[type]')).map((x) => `${x.getAttribute('aria-label') ?? ''} ${x.getAttribute('title') ?? ''} ${x.getAttribute('data-test-icon') ?? ''} ${x.getAttribute('type') ?? ''}`)].join(' ');
-  if (/(coment|comment|repost|compart|share|enviar|send|salvar|save|seguir|follow|mensagem|message|conectar|connect)/i.test(lab)) return false;
-  return /(gostei|gostar|like|reagir|react|curtir|curtida|thumbs-up|thumbsup)/i.test(lab);
+  if (/(coment|comment|repost|compart|share|enviar|send|salvar|save|seguir|follow|mensagem|message|conectar|connect|abrir menu de rea[cç][oõ]es|open reactions menu)/i.test(lab)) return false;
+  return /(gostei|gostar|like|reagir|react|curtir|curtida|thumbs-up|thumbsup|situa[cç][aã]o do bot[aã]o de rea[cç][aã]o|reaction button state)/i.test(lab);
 }
 
 /**
@@ -153,7 +153,10 @@ export function extractPosts(sel: Record<string, readonly string[]>, limit: numb
     }
     let like = first(it, sel.likeButton!) as HTMLElement | null;
     if (!like) like = (Array.from(it.querySelectorAll('button, [role="button"]')) as HTMLElement[]).find((b) => __llIsReact(b)) ?? null;
-    const pressed = like?.getAttribute('aria-pressed') ?? (like && /(desfazer|remover|undo|unlike|reagiu|reacted)/i.test(`${like.getAttribute('aria-label') ?? ''}`) ? 'true' : null);
+    const label = like?.getAttribute('aria-label') ?? '';
+    const pressed = like?.getAttribute('aria-pressed') ??
+      (/situa[cç][aã]o do bot[aã]o de rea[cç][aã]o:\s*nenhuma rea[cç][aã]o|reaction button state:\s*no reaction/i.test(label) ? 'false' :
+      (/situa[cç][aã]o do bot[aã]o de rea[cç][aã]o:\s*(?!nenhuma rea[cç][aã]o)\S|reaction button state:\s*(?!no reaction)\S|desfazer|remover|undo|unlike|reagiu|reacted/i.test(label) ? 'true' : null));
     const head = ((it as HTMLElement).innerText || '').slice(0, 400);
     const ageEl = first(it, sel.postAge!);
     const ageTxt = ageEl?.textContent?.replace(/\s+/g, ' ').trim() || head.match(AGE)?.[1] || null;
@@ -183,6 +186,9 @@ export function likeState(sel: Record<string, readonly string[]>, urn: string): 
   }
   const b = (Array.from(container.querySelectorAll('button, [role="button"]')) as HTMLElement[]).find((x) => __llIsReact(x));
   if (b && b.hasAttribute('aria-pressed')) return b.getAttribute('aria-pressed') === 'true';
+  const label = b?.getAttribute('aria-label') ?? '';
+  if (/situa[cç][aã]o do bot[aã]o de rea[cç][aã]o:\s*nenhuma rea[cç][aã]o|reaction button state:\s*no reaction/i.test(label)) return false;
+  if (/situa[cç][aã]o do bot[aã]o de rea[cç][aã]o:\s*(?!nenhuma rea[cç][aã]o)\S|reaction button state:\s*(?!no reaction)\S/i.test(label)) return true;
   return null;
 }
 
