@@ -160,7 +160,7 @@ export function pickPost(posts: PostExtract[], publicId: string, s: LikeSettings
 
 /** Como pickPost, mas explica por que nenhum post serviu (para a tela). */
 export function choosePost(posts: PostExtract[], publicId: string, s: LikeSettings, personName = ''): { post?: PostExtract; why: string; uncertain?: boolean } {
-  const maxAge = s.maxPostAgeDays ?? 30;
+  const maxAge = s.maxPostAgeDays ?? 365;
   const norm = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
   const expected = norm(personName);
   const isOwn = (p: PostExtract) => {
