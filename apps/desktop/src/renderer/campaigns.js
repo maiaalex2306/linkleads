@@ -114,7 +114,7 @@ function sequenceForm(a, cols, settings, integ) {
     h('div', { class: 'head' }, h('span', { class: 'num' }, '1'), h('strong', { style: 'flex:1' }, 'Curtir e comentar o post mais recente ainda não curtido'),
       h('label', { class: 'row', style: 'display:flex' }, engage, 'começar engajando')),
     h('div', { class: 'row' }, h('span', { class: 'muted' }, 'Comentário com IA:'), commentMode),
-    h('div', { class: 'muted' }, 'Abre o perfil pela busca, curte o post mais recente que você ainda não curtiu (até 30 dias) e comenta com IA, profissional, mostrando interesse no trabalho da pessoa. Sem post recente, segue direto para o convite. Tudo com a mesma pessoa antes de passar para a próxima.'));
+    h('div', { class: 'muted' }, 'Abre o perfil pela busca, curte o post mais recente que você ainda não curtiu (até 365 dias em campanhas novas) e prepara um comentário com IA, profissional, mostrando interesse no trabalho da pessoa. Sem post recente, segue direto para o convite. Tudo com a mesma pessoa antes de passar para a próxima.'));
   const syncNums = () => {
     commentMode.disabled = !engage.checked;
     engageBox.querySelector('.num').textContent = engage.checked ? '1' : '—';
@@ -236,8 +236,13 @@ function campaignEditor(a, c, onDone) {
       const age = h('input', { type: 'number', min: 1, max: 365,
         value: String(Math.max(1, Math.min(365, Number(s.maxPostAgeDays ?? 365)))),
         style: 'width:85px' });
-      extraEl = h('label', { class: 'row', style: 'display:flex;align-items:center;gap:8px' },
-        'Buscar publicações de até', age, 'dias (máximo 365)');
+      extraEl = h('div', { class: 'stack' },
+        h('label', { class: 'row', style: 'display:flex;align-items:center;gap:8px' },
+          'Buscar publicações de até', age, 'dias (máximo 365)'),
+        Number(s.maxPostAgeDays) > 0 && Number(s.maxPostAgeDays) < 365 &&
+          h('div', { class: 'muted', style: 'color:var(--warn)' },
+            'Esta campanha possui um limite antigo de ' + s.maxPostAgeDays +
+            ' dias. Para incluir publicações de até 1 ano, altere para 365 e salve as etapas.'));
       readExtra = () => ({
         maxPostAgeDays: Math.max(1, Math.min(365, Math.round(Number(age.value) || 365))),
       });
