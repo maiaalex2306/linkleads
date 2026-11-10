@@ -162,7 +162,10 @@ export function pickPost(posts: PostExtract[], publicId: string, s: LikeSettings
 export function choosePost(posts: PostExtract[], publicId: string, s: LikeSettings, personName = ''): { post?: PostExtract; why: string; uncertain?: boolean } {
   const maxAge = s.maxPostAgeDays ?? 365;
   const norm = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
-  const expected = norm(personName);
+  // Alguns títulos da tela de atividade chegam como "Atividades | Nome | LinkedIn".
+  // A etiqueta de navegação nunca pode se tornar parte da identidade do autor.
+  const cleanPersonName = personName.replace(/^(?:(?:Atividades|Activity|Publicações|Publications|Posts|Comentários|Comments)\\s*[|·–-]\\s*)+/i, '');
+  const expected = norm(cleanPersonName);
   const isOwn = (p: PostExtract) => {
     const actor = p.actorHref ? profileSlug(p.actorHref) : undefined;
     if (actor && actor === publicId.toLowerCase()) return true;
