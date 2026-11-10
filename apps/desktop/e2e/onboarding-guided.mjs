@@ -42,6 +42,9 @@ try {
   }, csv);
   await ui.reload();
   await ui.locator('.account-list .acc').first().click();
+  // A biblioteca permanece disponível, inclusive para restaurar campanhas.
+  await ui.getByRole('heading', { name: 'Campanhas desta conta' }).waitFor();
+  await ui.getByRole('button', { name: '+ Nova campanha' }).click();
   await ui.getByRole('heading', { name: 'O que você quer fazer hoje?' }).waitFor();
   await ui.getByRole('button', { name: 'Curtir e comentar posts' }).click();
   await ui.getByRole('heading', { name: '1. Escolha a lista de leads' }).waitFor();

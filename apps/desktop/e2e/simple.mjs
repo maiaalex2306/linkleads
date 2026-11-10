@@ -38,7 +38,15 @@ try {
   await ui.reload();
   await ui.locator('.account-list .acc').first().click();
   await ui.locator('.gsteps').waitFor();
-  check(await ui.getByRole('heading', { name: 'O que você quer fazer hoje?' }).isVisible(), 'entrada começa pela escolha de campanha');
+  // A biblioteca de campanhas deve continuar acessível mesmo quando a lista
+  // operacional está vazia; isso permite restaurar campanhas arquivadas.
+  await ui.getByRole('heading', { name: 'Campanhas desta conta' }).waitFor();
+  await ui.getByRole('button', { name: 'Arquivadas' }).click();
+  await ui.getByText('Nenhuma campanha arquivada nesta conta.').waitFor();
+  check(true, 'aba Arquivadas acessível sem campanhas ativas');
+  await ui.getByRole('button', { name: /Campanhas \(0\)/ }).click();
+  await ui.getByRole('button', { name: '+ Nova campanha' }).click();
+  check(await ui.getByRole('heading', { name: 'O que você quer fazer hoje?' }).isVisible(), 'assistente acessível por Nova campanha');
   check(await ui.locator('.tabs').count() === 0, 'tela guiada: 4 etapas numeradas, sem a barra de abas');
   await ui.getByRole('button', { name: 'Prospecção e mensagens' }).click();
   check(true, 'assistente de objetivo abre campanha de prospecção');
@@ -72,7 +80,8 @@ try {
 
   // ③ Configurações: ritmo em linguagem simples
   await ui.locator('.gstep', { hasText: 'Configurações' }).click();
-  await ui.getByText('Conservador — conta nova no LinkedIn').click();
+  await ui.getByRole('button', { name: 'Limites e ritmo' }).click();
+  await ui.getByText('Conservador', { exact: true }).click();
   await ui.waitForTimeout(800);
   check((await call('accountLimits', acc.id)).linkedinAge === 'new', 'ritmo "Conservador" liga o aquecimento de conta nova');
   await ui.screenshot({ path: join(shots, 'guiada-6-config.png'), fullPage: true });

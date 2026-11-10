@@ -128,7 +128,8 @@ try {
   await ui.screenshot({ path: join(shots, 'fase2-campanhas.png'), fullPage: true });
   await ui.locator('.top-menu > summary').click();
   await ui.getByRole('button', { name: 'Configurações gerais' }).click();
-  await ui.getByText('Interruptor geral').waitFor();
+  await ui.getByRole('button', { name: 'Ações globais' }).click();
+  await ui.getByText('Interruptor geral de ações').waitFor();
   await ui.screenshot({ path: join(shots, 'fase2-configuracoes.png'), fullPage: true });
 } catch (e) {
   fail(e.stack ?? e);
