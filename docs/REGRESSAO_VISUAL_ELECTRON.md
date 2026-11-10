@@ -34,7 +34,7 @@ Não há login real, uso de LinkedIn, credenciais, envios, convites ou campanhas
 
 Instale Node 22+, dependências, Playwright, Electron, Xvfb (em Linux) e compile ambas as versões.
 
-1. Teste o codificador e o comparador: node --test apps/desktop/e2e/visual-png.test.mjs
+1. Teste o codificador e o comparador: node --test apps/desktop/e2e/visual-png.check.mjs
 2. Capture a referência com visual-snapshots.mjs, passando --app-dir e --out.
 3. Capture a candidata com o mesmo roteiro e viewport.
 4. Use compare-visual-snapshots.mjs com --baseline, --candidate e --diff.
