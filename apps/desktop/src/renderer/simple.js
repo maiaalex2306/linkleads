@@ -346,6 +346,13 @@ async function wizardPage(a, cols) {
   return h('div', { class: 'card stack wizard' }, dots, body);
 }
 
+async function openSimpleCampaignEditor(campaignId) {
+  await openCampaignWorkspace(campaignId);
+  state.campaignTab = 'workflow';
+  state.editCampaign = true;
+  renderView();
+}
+
 async function campaignPage(a, cols, camps) {
   if (state.chooseCampaignType) return intentionPicker();
   if (state.creating) return h('div', { class: 'stack' },
@@ -369,13 +376,13 @@ async function campaignPage(a, cols, camps) {
       h('strong', { style: 'flex:1;min-width:200px' }, c.name),
       h('span', { class: 'muted' }, c.contacts + ' contato(s) · ' + c.actions + ' etapa(s)')),
     h('div', { class: 'row', style: 'flex-wrap:wrap;gap:8px' },
-      !c.archived && h('button', { class: 'primary', onclick: () => openCampaignWorkspace(c.id) }, 'Abrir e editar fluxo'),
-      !c.archived && h('button', { onclick: () => openCampaignWorkspace(c.id) }, 'Configurar etapas'),
+      !c.archived && h('button', { class: 'primary', onclick: () => openSimpleCampaignEditor(c.id) }, 'Abrir e editar fluxo'),
+      !c.archived && h('button', { onclick: () => openSimpleCampaignEditor(c.id) }, 'Configurar etapas'),
       !c.archived && h('button', { title: 'Abre o editor existente; ações com histórico não podem ser removidas ou reordenadas', onclick: () => openCampaignWorkspace(c.id) }, 'Ver pessoas e histórico'),
       !c.archived && h('button', {
         onclick: async () => {
           const copy = await safe(() => api.duplicateCampaign(a.id, c.id));
-          if (copy?.campaignId) { toast('Cópia criada sem contatos ou histórico. Edite livremente o fluxo duplicado.'); await openCampaignWorkspace(copy.campaignId); }
+          if (copy?.campaignId) { toast('Cópia criada sem contatos ou histórico. Edite livremente o fluxo duplicado.'); await openSimpleCampaignEditor(copy.campaignId); }
         },
       }, 'Duplicar para modificar etapas'),
       h('button', {
@@ -400,7 +407,7 @@ async function campaignPage(a, cols, camps) {
       h('p', { class: 'muted' }, 'Edite parâmetros no construtor visual. Para adicionar, remover ou reorganizar etapas em fluxos com histórico, duplique a campanha antes.'),
       h('div', { class: 'row' },
         h('button', { onclick: () => goStep('track') }, 'Acompanhar e aprovar'),
-        h('button', { onclick: () => openCampaignWorkspace(active.id) }, 'Abrir editor visual'))),
+        h('button', { onclick: () => openSimpleCampaignEditor(active.id) }, 'Abrir editor visual'))),
     ...list,
     !summaries.length && h('div', { class: 'card muted' },
       archived ? 'Nenhuma campanha arquivada nesta conta.' : 'Nenhuma campanha nesta conta. Crie uma nova campanha ou restaure uma arquivada.'),
