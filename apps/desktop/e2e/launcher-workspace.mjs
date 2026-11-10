@@ -65,7 +65,7 @@ try {
 
   await ui.locator('.launcher-account', { hasText: 'Conta Alfa' }).getByRole('button', { name: 'Abrir campanhas' }).click();
   await ui.locator('#work-nav').getByText('Monitoramento industrial').waitFor();
-  check(await ui.getByRole('heading', { name: 'O que você quer fazer hoje?' }).isVisible(), 'conta abre no assistente de campanhas');
+  check(await ui.getByRole('heading', { name: 'Campanhas desta conta' }).isVisible(), 'conta com campanha pausada abre biblioteca de campanhas da própria conta');
   await ui.getByRole('button', { name: 'Tela completa' }).click();
   const before = (await call('listAccounts')).find((x) => x.id === a.id);
   check(!before.running && !before.runnerEnabled, 'selecionar conta não abre navegador nem inicia campanhas');
