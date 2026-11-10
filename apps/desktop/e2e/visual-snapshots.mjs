@@ -15,21 +15,24 @@ const opts = Object.fromEntries(process.argv.slice(2).reduce((acc, value, i, val
   }
   return acc;
 }, []));
-if (!opts['app-dir'] || !opts.out) throw Error('Uso: visual-snapshots.mjs --app-dir <desktop> --out <pasta>');
-const appDir = resolve(opts['app-dir']);
+if ((!opts['app-dir'] && !opts.exe) || (opts['app-dir'] && opts.exe) || !opts.out)
+  throw Error('Uso: visual-snapshots.mjs --app-dir <desktop> | --exe <LinkLeads.exe> --out <pasta>');
+const appDir = opts['app-dir'] ? resolve(opts['app-dir']) : undefined;
+const installedExe = opts.exe ? resolve(opts.exe) : undefined;
 const out = resolve(opts.out);
 mkdirSync(out, { recursive: true });
 const tmp = mkdtempSync(join(tmpdir(), 'linkleads-visual-'));
 const site = await startFakeSite();
 const { _electron: electron } = require('playwright');
-const binary = require(join(here, '../../../node_modules/electron'));
+const binary = installedExe ?? require(join(here, '../../../node_modules/electron'));
 const pages = [];
 let app;
 try {
   app = await electron.launch({
     executablePath: binary,
-    args: [appDir],
+    args: installedExe ? [] : [appDir],
     env: { ...process.env, XDG_CONFIG_HOME: tmp,
+      LINKLEADS_TEST_USER_DATA: join(tmp, 'userData'),
       LINKLEADS_TEST_BASE_URL: site.url, LINKLEADS_TEST_AI_STUB: '1',
       TZ: 'America/Sao_Paulo' },
   });
