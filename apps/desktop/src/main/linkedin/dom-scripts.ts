@@ -26,7 +26,9 @@ export function extractProfile(sel: Record<string, readonly string[]>): ProfileE
     if (!/^\/in\//.test(location.pathname)) return null;
     const t = document.title.replace(/^\(\d+\+?\)\s*/, '').replace(/\s*[|·–-]\s*LinkedIn\s*$/i, '').trim();
     if (!t || /^linkedin$/i.test(t) || /not found|não encontrad|indisponível|unavailable/i.test(t)) return null;
-    return t;
+    // Evitar que a aba "Atividades | Nome | LinkedIn" contamine o nome do contato.
+    const cleanTitle = t.replace(/^(?:(?:Atividades|Activity|Publicações|Publications|Posts|Comentários|Comments)\s*[|·–-]\s*)+/i, '').trim();
+    return cleanTitle || null;
   };
   return {
     name: pick(sel.profileName!) ?? fromTitle(),
