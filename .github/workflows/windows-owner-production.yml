@@ -1,0 +1,111 @@
+name: Windows - LinkLeads producao para teste do proprietario
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/windows-owner-production.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: owner-windows-\${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-owner:
+    name: Validar e gerar instalador Windows do app de producao
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Instalar dependencias de forma reproduzivel
+        run: npm ci
+      - name: Auditar dependencias de runtime
+        run: npm audit --omit=dev --audit-level=high
+      - name: Testar, tipar e compilar
+        shell: pwsh
+        run: |
+          npm test
+          if ($LASTEXITCODE -ne 0) { throw 'Testes unitarios reprovados' }
+          npm run typecheck
+          if ($LASTEXITCODE -ne 0) { throw 'Typecheck reprovado' }
+          npm run build
+          if ($LASTEXITCODE -ne 0) { throw 'Build reprovado' }
+      - name: Empacotar canal de producao (testes do proprietario)
+        shell: pwsh
+        env:
+          LINKLEADS_OWNER_TEST_BUILD: '1'
+        run: |
+          if ($env:LINKLEADS_PREVIEW_BUILD -eq '1') { throw 'Nao empacotar versao de avaliacao' }
+          npm run bundle -w @linkleads/desktop
+          if ($LASTEXITCODE -ne 0) { throw 'Falha ao gerar bundle de producao' }
+          $info = Get-Content 'apps/desktop/app-dist/build-info.json' -Raw | ConvertFrom-Json
+          $expected = (git rev-parse --short HEAD).Trim()
+          if ($info.channel -ne 'production') { throw "Canal inesperado: $($info.channel)" }
+          if ($info.distribution -ne 'owner-production-test') { throw 'Bundle fora da distribuicao do proprietario' }
+          if ($info.commit -ne $expected) { throw "Commit inesperado: $($info.commit)" }
+          $app = Get-Content 'apps/desktop/app-dist/package.json' -Raw | ConvertFrom-Json
+          if ($app.productName -ne 'LinkLeads') { throw 'Produto diferente da versao normal' }
+          Write-Host "PRODUCAO | commit $expected | atualizacao automatica temporariamente desativada para teste"
+      - name: Validar bundle Electron no Windows
+        shell: pwsh
+        run: |
+          $env:LINKLEADS_E2E_APP = Join-Path $env:GITHUB_WORKSPACE 'apps/desktop/app-dist'
+          foreach ($suite in @('onboarding-guided','session-persistence','login','unified-engagement')) {
+            Write-Host "E2E Windows (bundle de producao): $suite"
+            node "apps/desktop/e2e/$suite.mjs"
+            if ($LASTEXITCODE -ne 0) { throw "E2E reprovado: $suite" }
+          }
+      - name: Gerar instalador Windows NSIS (identidade de producao)
+        shell: pwsh
+        working-directory: apps/desktop
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          LINKLEADS_UPDATE_URL: https://github.com/maiaalex2306/linkleads/releases/latest/download
+        run: |
+          npx electron-builder --win nsis --x64 --publish never -c electron-builder.yml
+          if ($LASTEXITCODE -ne 0) { throw 'Falha no empacotamento Windows' }
+      - name: Validar artefato e registrar SHA-256
+        shell: pwsh
+        run: |
+          $dir = 'apps/desktop/release'
+          $files = @(Get-ChildItem $dir -Filter 'LinkLeads-Setup-*.exe' -File)
+          if ($files.Count -ne 1) { throw "Esperado um instalador de producao: obtidos $($files.Count)" }
+          if ($files[0].Length -lt 1000000) { throw 'Instalador incompleto' }
+          $hash = Get-FileHash $files[0].FullName -Algorithm SHA256
+          $hashLine = "$($files[0].Name) SHA256 $($hash.Hash)"
+          Set-Content -Path (Join-Path $dir 'SHA256.txt') -Value $hashLine -Encoding utf8
+          $signature = Get-AuthenticodeSignature -FilePath $files[0].FullName
+          $notes = @(
+            'LinkLeads - instalador Windows do canal de producao para testes exclusivos do proprietario'
+            "Commit: $env:GITHUB_SHA"
+            "Arquivo: $($files[0].Name)"
+            $hashLine
+            'AppId: br.com.linkleads.app (mesma identidade da instalacao normal)'
+            'Dados locais: utiliza contas, sessoes e SQLite da instalacao normal'
+            'ANTES DE INSTALAR: fechar o LinkLeads e fazer backup completo dos dados locais.'
+            "Assinatura Windows: $($signature.Status). Se nao estiver Valid, NAO distribuir a clientes."
+            'Atualizacao automatica desativada SOMENTE neste bundle, ate configurar feed HTTPS e assinatura.'
+            'NAO e uma Release comercial publica. O instalador fica como artefato do GitHub Actions.'
+            'Alertas de dependencias de desenvolvimento, incluindo Electron, ainda precisam de tratamento antes de distribuicao comercial.'
+          )
+          Set-Content -Path (Join-Path $dir 'LEIA-ME-INSTALACAO.txt') -Value $notes -Encoding utf8
+          Write-Host $hashLine
+          Write-Host "Assinatura: $($signature.Status) | teste do proprietario, nao distribuicao a clientes."
+      - name: Disponibilizar instalador com hash e instrucoes
+        uses: actions/upload-artifact@v4
+        with:
+          name: LinkLeads-Producao-Windows-\${{ github.sha }}
+          path: |
+            apps/desktop/release/LinkLeads-Setup-*.exe
+            apps/desktop/release/SHA256.txt
+            apps/desktop/release/LEIA-ME-INSTALACAO.txt
+          if-no-files-found: error
+          retention-days: 30
