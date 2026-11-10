@@ -193,7 +193,7 @@ export function startFakeSite(port = 0) {
       const ms = state.loginHydrationDelayMs || 0;
       if (ms) return html(social + '<div id="login-slot">Carregando formulário...</div>',
         'setTimeout(() => { document.querySelector("#login-slot").innerHTML = ' +
-        JSON.stringify(loginHtml) + ';' + loginScript + ' }, ' + ms + ');');
+        JSON.stringify(loginHtml) + ';' + loginScript.replace("document.querySelector('form')", "document.querySelector('form.login__form')") + ' }, ' + ms + ');');
       return html(social + loginHtml, loginScript.replace("document.querySelector('form')", "document.querySelector('form.login__form')"));
     }
     if (state.loggedOut && !url.startsWith('/api')) { res.writeHead(302, { location: '/login' }); return res.end(); }
