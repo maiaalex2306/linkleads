@@ -79,8 +79,21 @@ try {
   await browser.waitForLoadState('domcontentloaded');
   await call('runNow', acc.id);
   check(site.state.liked === true && site.state.likes === 0, 'primeiro post ja curtido foi ignorado (0 clicks)');
+  const activityDebug = site.state.deepLikes !== 1 ? {
+    deepLikes: site.state.deepLikes, likes: site.state.likes,
+    campaign: (await call('listCampaigns', acc.id)).find((c) => c.id === campaignId)?.people,
+    page: await browser.evaluate(() => ({
+      pathname: location.pathname,
+      posts: [...document.querySelectorAll('.new-feed-post,.feed-shared-update-v2')].map((e) => ({
+        attr: e.getAttribute('data-urn'), link: e.querySelector('a[href*="urn:li:"]')?.getAttribute('href'),
+        age: e.querySelector('.update-components-actor__sub-description')?.textContent,
+        reaction: e.querySelector('button.react-button__trigger')?.getAttribute('aria-label'),
+        rect: e.getBoundingClientRect().toJSON(),
+      })),
+    })),
+  } : undefined;
   check(site.state.deepLiked === true && site.state.deepLikes === 1,
-    'rolou a timeline ate o post de 365 dias e clicou somente nele');
+    'rolou a timeline ate o post de 365 dias e clicou somente nele', activityDebug);
   check(site.state.comments.length === 1, 'o comentario foi publicado uma unica vez', site.state.comments);
   check(site.state.lastCommentReferrer?.includes('urn:li:activity:7002'),
     'comentario publicado no mesmo post de 365 dias que recebeu a curtida', site.state.lastCommentReferrer);
