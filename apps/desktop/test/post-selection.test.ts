@@ -81,4 +81,12 @@ describe('escolha de publicação com confirmação do estado', () => {
       .toBeUndefined();
   });
 
+  it('remove o prefixo de Atividades recebido do título do perfil sem perder a identidade', () => {
+    const post = { ...one('urn:li:activity:777777777778', false),
+      actorHref: null, actorName: 'Ana Silva', age: '150 d' };
+    const result = choosePost([post], 'ana-silva',
+      { maxPostAgeDays: 365 }, 'Atividades | Ana Silva');
+    expect(result.post?.urn).toBe(post.urn);
+  });
+
 });
