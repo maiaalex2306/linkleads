@@ -53,7 +53,7 @@ jobs:
           - name: Equipe e diagnóstico
             suite: "team diagnostics"
           - name: Prospecção e Sales Navigator
-            suite: "prospecting salesnav comment-duplicate"
+            suite: "prospecting salesnav comment-duplicate profile-visit-scroll"
           - name: Curtir e comentar — ação única
             suite: "unified-engagement engagement-scroll"
           - name: Login e limites
@@ -131,7 +131,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          foreach ($suite in @('onboarding-guided', 'session-persistence', 'unified-engagement', 'login', 'limits', 'decision')) {
+          foreach ($suite in @('onboarding-guided', 'session-persistence', 'unified-engagement', 'profile-visit-scroll', 'login', 'limits', 'decision')) {
             Write-Host "E2E Windows: $suite"
             & node "apps/desktop/e2e/$suite.mjs"
             if ($LASTEXITCODE -ne 0) { throw "E2E Windows reprovado: $suite (exit $LASTEXITCODE)" }
