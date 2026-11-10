@@ -41,6 +41,9 @@ nsis:
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: LinkLeads
   artifactName: LinkLeads-Setup-${version}.${ext}
 linux:
   target: [AppImage]
