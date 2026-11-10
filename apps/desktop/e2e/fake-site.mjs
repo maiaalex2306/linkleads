@@ -6,7 +6,7 @@ const state = {
   anaHeadline: 'Diretora de Operações na Águas do Vale', companyVisits: 0,
   // sessão do LinkedIn falso: loggedOut força a página de login; logins guarda as tentativas (e-mail, senha)
   loggedOut: false, logins: [], loginEmail: 'ana@empresa.com.br', loginPassword: 'senha-certa',
-  activityDeepPosts: false, modernReaction: false, deepAge: '1 a', deepLiked: false, deepLikes: 0, likes: 0,
+  activityDeepPosts: false, modernReaction: false, mixedPostLayout: false, deepAge: '1 a', deepLiked: false, deepLikes: 0, likes: 0,
   loginHydrationDelayMs: 0, loginSocialButtons: false, requireSessionCookie: false,
 };
 
@@ -223,13 +223,14 @@ export function startFakeSite(port = 0) {
       if (state.activityDeepPosts) {
         // O segundo post só aparece após o scroll: simula carregamento incremental
         // da timeline e exige que o executor pule o primeiro, já curtido.
-        const deepHtml = `<div class="${state.modernReaction ? 'new-feed-post' : 'feed-shared-update-v2'}" ${state.modernReaction ? 'data-component-type="feed-update"' : ('data-urn="' + DEEP_URN + '"')}>
-          ${state.modernReaction ? ('<a href="/feed/update/' + DEEP_URN.replace(/:(\d+)$/, (_, digits) => ':' + digits.padEnd(19, '0')) + '/">Abrir publicação</a>') : ''}
+        const deepModern = state.modernReaction || state.mixedPostLayout;
+        const deepHtml = `<div class="${deepModern ? 'new-feed-post' : 'feed-shared-update-v2'}" ${deepModern ? 'data-component-type="feed-update"' : ('data-urn="' + DEEP_URN + '"')}>
+          ${deepModern ? ('<a href="/feed/update/' + DEEP_URN.replace(/:(\d+)$/, (_, digits) => ':' + digits.padEnd(19, '0')) + '/">Abrir publicação</a>') : ''}
           <div class="update-components-actor"><a class="update-components-actor__meta-link" href="/in/ana-silva/">Ana Silva</a>
           <span class="update-components-actor__sub-description">${state.deepAge} •</span></div>
           <div class="update-components-text">Publicação histórica elegível para análise contextual.</div>
-          <button class="react-button__trigger" data-deep-like="1" aria-label="${state.modernReaction ? (state.deepLiked ? 'Situação do botão de reação: Gostei' : 'Situação do botão de reação: nenhuma reação') : 'React Like'}"
-             ${state.modernReaction ? '' : ('aria-pressed="' + state.deepLiked + '"')}>Like</button><button aria-label="Comment">Comment</button>
+          <button class="react-button__trigger" data-deep-like="1" aria-label="${deepModern ? (state.deepLiked ? 'Situação do botão de reação: Gostei' : 'Situação do botão de reação: nenhuma reação') : 'React Like'}"
+             ${deepModern ? '' : ('aria-pressed="' + state.deepLiked + '"')}>Like</button><button aria-label="Comment">Comment</button>
           </div>`;
         const loader = `window.addEventListener('scroll', () => {
           if (window.scrollY < 900 || document.querySelector('[data-deep-like]')) return;
