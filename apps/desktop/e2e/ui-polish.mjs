@@ -65,7 +65,8 @@ try {
     layout.withinInput, 'ícone dentro do campo sem cobrir o texto', layout);
   check(layout.titleWeight >= 700, 'cabeçalho do painel com negrito consistente', layout.titleWeight);
   const field = ui.locator('#ui-polish-e2e-fixture');
-  const input = field.getByRole('textbox', { name: 'Senha' });
+  // input[type=password] não possui papel ARIA textbox implícito no Chromium.
+  const input = field.locator('input[name="fake-password"]');
   await field.getByRole('button', { name: 'Mostrar senha' }).click();
   check(await input.getAttribute('type') === 'text' &&
     await input.inputValue() === 'senha-ficticia-e2e',
