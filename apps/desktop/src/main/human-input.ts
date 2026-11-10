@@ -62,12 +62,13 @@ export class HumanInput {
   async scroll(deltaY: number): Promise<void> {
     // Electron entrega eventos de input somente ao BrowserWindow em foco.
     BrowserWindow.fromWebContents(this.wc)?.focus();
-    // Positivo = descer a página, negativo = subir (DOM WheelEvent.deltaY).
+    // No sendInputEvent do Electron, inverter o delta usado na chamada nativa;
+    // este sinal já foi homologado em layouts de atividades existentes.
     this.emit?.('scroll', { deltaY });
     let left = deltaY;
     while (Math.abs(left) > 0) {
       const step = Math.sign(left) * Math.min(Math.abs(left), randInt(this.rng, 60, 140));
-      this.wc.sendInputEvent({ type: 'mouseWheel', x: this.x, y: this.y, deltaX: 0, deltaY: step });
+      this.wc.sendInputEvent({ type: 'mouseWheel', x: this.x, y: this.y, deltaX: 0, deltaY: -step });
       left -= step;
       await this.sleep(randInt(this.rng, 30, 90));
     }
