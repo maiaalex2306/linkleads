@@ -264,7 +264,11 @@ export function matchingCommentCount(
   const norm = (t: string) => t.replace(/\s+/g, ' ').trim().toLocaleLowerCase();
   const target = norm(commentText);
   if (!target) return 0;
-  const container = __llPostContainers({ postItem: sel.postItem!, likeButton: sel.likeButton! })
+  // Priorizar a identidade exata declarada no próprio cartão. Reexecutar
+  // heurísticas estruturais após abrir comentários pode alterar os ancestrais.
+  const direct = Array.from(document.querySelectorAll('[data-urn]'))
+    .find((el) => el.getAttribute('data-urn') === urn);
+  const container = direct ?? __llPostContainers({ postItem: sel.postItem!, likeButton: sel.likeButton! })
     .find((item) => item.urn === urn)?.el;
   if (!container) return 0;
   const seen = new Set<Element>();
