@@ -4,8 +4,6 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths:
-      - .github/workflows/windows-owner-production.yml
 
 permissions:
   contents: read
@@ -83,6 +81,29 @@ jobs:
         run: |
           npx electron-builder --win nsis --x64 --publish never -c electron-builder.yml
           if ($LASTEXITCODE -ne 0) { throw 'Falha no empacotamento Windows' }
+      - name: P0 — instalar NSIS, abrir EXE, reiniciar e comparar 8 telas
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = (Get-Content 'apps/desktop/package.json' -Raw | ConvertFrom-Json).version
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-installed-linkleads.ps1 `
+            -InstallerPath "apps/desktop/release/LinkLeads-Setup-$version.exe" `
+            -ExpectedVersion $version `
+            -ReportDirectory "nsis-smoke" `
+            -VisualBaselineDirectory "visual-windows"
+          if ($LASTEXITCODE -ne 0) { throw "NSIS nao instalado ou nao abriu corretamente (exit $LASTEXITCODE)" }
+          $installed = Get-Content 'nsis-smoke/nsis-install-report.json' -Raw | ConvertFrom-Json
+          if ($installed.status -ne 'passed' -or -not $installed.runtimeSmoke -or -not $installed.installedVisualPassed) {
+            throw 'Faltam provas obrigatorias da instalacao NSIS'
+          }
+      - name: Salvar diagnosticos de instalacao mesmo se falhar
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: LinkLeads-NSIS-Install-Smoke-${{ github.sha }}
+          path: nsis-smoke/
+          if-no-files-found: warn
+          retention-days: 14
       - name: Validar artefato e registrar SHA-256
         shell: pwsh
         run: |
@@ -120,5 +141,9 @@ jobs:
             apps/desktop/release/LEIA-ME-INSTALACAO.txt
             visual-windows/*.png
             visual-windows/manifest.json
+            nsis-smoke/nsis-install-report.json
+            nsis-smoke/smoke-report.json
+            nsis-smoke/installed-launcher.png
+            nsis-smoke/visual-differences/report.json
           if-no-files-found: error
           retention-days: 30
