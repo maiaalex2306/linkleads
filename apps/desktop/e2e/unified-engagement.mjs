@@ -14,6 +14,7 @@ const temp = mkdtempSync(join(tmpdir(), 'linkleads-unified-like-comment-'));
 const csv = join(temp, 'leads.csv');
 writeFileSync(csv, 'firstName,lastName,profileUrl\nAna,Silva,https://www.linkedin.com/in/ana-silva/\n');
 const site = await startFakeSite();
+site.state.unrelatedEditor = true; // outro editor visível não pode ser selecionado
 const app = await electron.launch({
   executablePath: require(join(appDir, '../../node_modules/electron')),
   args: [process.env.LINKLEADS_E2E_APP ?? appDir],
