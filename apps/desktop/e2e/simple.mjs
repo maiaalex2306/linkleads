@@ -72,7 +72,8 @@ try {
 
   // ③ Configurações: ritmo em linguagem simples
   await ui.locator('.gstep', { hasText: 'Configurações' }).click();
-  await ui.getByText('Conservador — conta nova no LinkedIn').click();
+  await ui.getByRole('button', { name: 'Limites e ritmo' }).click();
+  await ui.getByText('Conservador', { exact: true }).click();
   await ui.waitForTimeout(800);
   check((await call('accountLimits', acc.id)).linkedinAge === 'new', 'ritmo "Conservador" liga o aquecimento de conta nova');
   await ui.screenshot({ path: join(shots, 'guiada-6-config.png'), fullPage: true });
