@@ -17,7 +17,7 @@ describe('instalacao assistida Windows', () => {
   });
   it('instalador com duplo clique protege integridade e dados', () => {
     const cmd = source('scripts/INSTALAR-LINKLEADS.cmd');
-    expect(cmd).toContain('[Security.Cryptography.SHA256]::Create()');
+    expect(cmd).toContain('[System.Security.Cryptography.SHA256]::Create()');
     expect(cmd).not.toContain('Get-FileHash');
     expect(cmd).toContain('SHA256.txt');
     expect(cmd).toContain('LL_BACKUP_ROOT');
