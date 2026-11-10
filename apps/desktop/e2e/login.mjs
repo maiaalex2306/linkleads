@@ -19,6 +19,7 @@ site.state.loggedOut = true;
 // formulário de senha carregado com atraso (não disponível em did-finish-load).
 site.state.loginSocialButtons = true;
 site.state.loginHydrationDelayMs = 1800;
+site.state.requireSessionCookie = true;
 const app = await electron.launch({
   executablePath: require(join(appDir, '../../node_modules/electron')),
   args: [process.env.LINKLEADS_E2E_APP ?? appDir],
