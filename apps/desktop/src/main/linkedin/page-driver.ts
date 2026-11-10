@@ -219,6 +219,45 @@ export class PageDriver {
     return true;
   }
 
+  /**
+   * Visita do perfil: deslocar a janela e VERIFICAR a rolagem real.
+   * O envio de mouseWheel por si só não comprova que o documento moveu.
+   * Páginas curtas continuam válidas: nelas não há espaço para rolar.
+   */
+  async browseProfile(minPx = 280, maxPx = 520): Promise<{ scrollable: boolean; movedPx: number }> {
+    const position = () => this.read(() => {
+      const doc = document.scrollingElement ?? document.documentElement;
+      return { y: doc.scrollTop, max: Math.max(0, doc.scrollHeight - doc.clientHeight) };
+    });
+    const before = await position();
+    if (before.max <= 12) {
+      this.emit?.('profile_scroll', { scrollable: false, movedPx: 0 });
+      return { scrollable: false, movedPx: 0 };
+    }
+    // A janela abre normalmente no topo. Se foi reutilizada e ficou no fim,
+    // subir primeiro permite observar um novo movimento de leitura.
+    if (before.max - before.y < 20 && before.y > 24) {
+      await this.input.scroll(-Math.min(260, before.y));
+      await new Promise((r) => setTimeout(r, 280));
+    }
+    const start = await position();
+    await this.input.scroll(Math.round(minPx + Math.random() * (maxPx - minPx)));
+    await new Promise((r) => setTimeout(r, 450));
+    let after = await position();
+    let movedPx = Math.max(0, after.y - start.y);
+    // Um componente flutuante pode capturar a primeira roda; uma única
+    // repetição curta é permitida, sem deixar o fluxo preso na mesma pessoa.
+    if (movedPx < 20 && start.max - start.y > 20) {
+      await this.input.scroll(240);
+      await new Promise((r) => setTimeout(r, 450));
+      after = await position();
+      movedPx = Math.max(0, after.y - start.y);
+    }
+    const scrolled = { scrollable: true, movedPx };
+    this.emit?.('profile_scroll', scrolled);
+    return scrolled;
+  }
+
   /** Rolagem "de leitura" para não ir direto ao alvo. */
   async browse(minPx = 300, maxPx = 1200): Promise<void> {
     await this.input.scroll(Math.round(minPx + Math.random() * (maxPx - minPx)));
