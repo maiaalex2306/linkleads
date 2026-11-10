@@ -80,7 +80,9 @@ export function llPostContainers(sel: { postItem: readonly string[]; likeButton:
   }
   // Continuar a descoberta: o feed pode misturar cartões antigos com cartões modernos sem data-urn.
   const root = document.querySelector('main') || document.body;
-  const TIME = /^(h[áa]\s+)?\d+\s*(min|h|d|sem|m|a|mo|w|y|s)\b\.?\s*(•.*)?$/i;
+  // As atividades atuais podem mostrar "há 6 d · Editado", "2 semanas" ou "3 days".
+  // Reconhecer o horário do post sem tratar a legenda "Editado" como outro post.
+  const TIME = /^(?:h[áa]\s+)?\d+\s*(?:min(?:utos?)?|h(?:oras?|rs?)?|d(?:ias?|ays?)?|sem(?:anas?)?|w(?:eeks?)?|mo(?:nths?)?|m[eê]s(?:es)?|mes(?:es)?|a(?:nos?)?|y(?:ears?|rs?)?|s(?:egundos?)?)\b(?:\s*[•·]\s*.*)?$/i;
   const timeEls = (Array.from(root.querySelectorAll('span, time, a, div, p')) as HTMLElement[]).filter((e) => {
     if (e.children.length > 3) return false;
     const t = (e.innerText || e.textContent || '').replace(/\s+/g, ' ').trim();
