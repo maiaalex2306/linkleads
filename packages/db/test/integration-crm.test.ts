@@ -17,8 +17,13 @@ describe('registro durável de envio de comentários', () => {
     reopened.finishCommentSubmission(urn, 'uncertain');
     expect(first.commentSubmissionStatus(urn)).toBe('uncertain');
     expect(reopened.beginCommentSubmission(urn, 'outro-hash')).toBe(false);
+    // O post comprovadamente publicado não pode voltar como pendente após crash.
+    first.upsertPerson({ id: 'ana', firstName: 'Ana' });
+    first.savePost('ana', { url: urn, text: 'Texto', hasMedia: false });
+    first.markPostLiked(urn);
     reopened.finishCommentSubmission(urn, 'confirmed');
     expect(first.commentSubmissionStatus(urn)).toBe('confirmed');
+    expect(new IntegrationCrm(db, 'UTC').lastLikedPost('ana', urn)?.commented).toBe(true);
   });
 });
 
