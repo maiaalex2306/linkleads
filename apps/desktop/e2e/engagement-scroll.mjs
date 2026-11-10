@@ -99,7 +99,16 @@ try {
   check(site.state.lastCommentReferrer?.includes('urn:li:activity:7002'),
     'comentario publicado no mesmo post de 365 dias que recebeu a curtida', site.state.lastCommentReferrer);
   const rows = (await call('listCampaigns', acc.id)).find((c) => c.id === campaignId).people;
-  check(rows.length === 1 && rows[0].status === 'successful', 'etapa composta concluída uma vez', rows);
+  const verificationDebug = rows[0]?.status === 'successful' ? undefined : {
+    rows,
+    url: browser.url(),
+    postEvidence: await browser.evaluate(() => ({
+      cards: [...document.querySelectorAll('[data-urn]')].map((el) => el.getAttribute('data-urn')),
+      comments: [...document.querySelectorAll('.comments-comment-item__main-content')].map((el) => el.textContent),
+      editors: document.querySelectorAll('[contenteditable="true"]').length,
+    })),
+  };
+  check(rows.length === 1 && rows[0].status === 'successful', 'etapa composta concluída uma vez', verificationDebug);
   const stats = await call('accountStats', acc.id);
   const used = (key) => stats.meters.find((m) => m.key === key)?.used;
   check(used('likes') === 1 && used('comments') === 1, 'contagem independente: 1 curtida, 1 comentário');
