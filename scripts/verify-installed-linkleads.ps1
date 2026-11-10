@@ -4,7 +4,8 @@
 param(
   [Parameter(Mandatory=$true)][string]$InstallerPath,
   [Parameter(Mandatory=$true)][string]$ExpectedVersion,
-  [Parameter(Mandatory=$true)][string]$ReportDirectory
+  [Parameter(Mandatory=$true)][string]$ReportDirectory,
+  [string]$VisualBaselineDirectory
 )
 $ErrorActionPreference = 'Stop'
 $reportDir = [IO.Path]::GetFullPath($ReportDirectory)
@@ -19,6 +20,7 @@ $report = [ordered]@{
   executableFound = $false
   appAsarFound = $false
   runtimeSmoke = $false
+  installedVisualPassed = $false
 }
 $installationRoot = Join-Path $env:RUNNER_TEMP ('linkleads-installed-smoke-' + [guid]::NewGuid().ToString('N'))
 try {
@@ -56,6 +58,21 @@ try {
     throw 'Smoke do executavel instalado nao comprovou inicializacao e persistencia'
   }
   $report.runtimeSmoke = $true
+  if ($VisualBaselineDirectory) {
+    $baseline = [IO.Path]::GetFullPath($VisualBaselineDirectory)
+    $installedImages = Join-Path $reportDir 'visual-installed'
+    $diffImages = Join-Path $reportDir 'visual-differences'
+    Write-Host 'NSIS P0: comparar as oito telas da instalacao real ao bundle'
+    & node 'apps/desktop/e2e/visual-snapshots.mjs' --exe $binary --out $installedImages
+    if ($LASTEXITCODE -ne 0) { throw 'Capturas da instalacao NSIS reprovaram' }
+    & node 'apps/desktop/e2e/compare-visual-snapshots.mjs' --baseline $baseline --candidate $installedImages --diff $diffImages --threshold 0.006 --channel-tolerance 25
+    if ($LASTEXITCODE -ne 0) { throw 'Instalador diverge visualmente do bundle aprovado' }
+    $visual = Get-Content (Join-Path $diffImages 'report.json') -Raw | ConvertFrom-Json
+    if ($visual.status -ne 'passed' -or @($visual.cases).Count -ne 8) {
+      throw 'A comparacao nao aprovou todas as oito telas do programa instalado'
+    }
+    $report.installedVisualPassed = $true
+  }
   $report.status = 'passed'
   Write-Host "NSIS INSTALADO E ABERTO COM SUCESSO: $ExpectedVersion"
 } catch {
