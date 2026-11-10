@@ -96,6 +96,18 @@ jobs:
           if ($installed.status -ne 'passed' -or -not $installed.runtimeSmoke -or -not $installed.installedVisualPassed) {
             throw 'Faltam provas obrigatorias da instalacao NSIS'
           }
+      - name: Preparar atalho de instalacao assistida (duplo clique)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $script = 'scripts/INSTALAR-LINKLEADS.cmd'
+          if (-not (Test-Path -LiteralPath $script -PathType Leaf)) { throw 'Assistente CMD ausente' }
+          $raw = Get-Content -LiteralPath $script -Raw
+          if ($raw -match '(?i)Set-ExecutionPolicy|ExecutionPolicy\s+Bypass|DisableRealtimeMonitoring') {
+            throw 'Assistente contem instrucao de enfraquecimento das protecoes Windows'
+          }
+          Copy-Item -LiteralPath $script -Destination 'apps/desktop/release/INSTALAR-LINKLEADS.cmd' -Force
+          Write-Host 'Assistente Windows incluido ao lado do Setup e SHA256.txt'
       - name: Salvar diagnosticos de instalacao mesmo se falhar
         if: always()
         uses: actions/upload-artifact@v4
@@ -111,6 +123,7 @@ jobs:
           $files = @(Get-ChildItem $dir -Filter 'LinkLeads-Setup-*.exe' -File)
           if ($files.Count -ne 1) { throw "Esperado um instalador de producao: obtidos $($files.Count)" }
           if ($files[0].Length -lt 1000000) { throw 'Instalador incompleto' }
+          if (-not (Test-Path -LiteralPath (Join-Path $dir 'INSTALAR-LINKLEADS.cmd'))) { throw 'Assistente de instalacao nao foi empacotado' }
           $hash = Get-FileHash $files[0].FullName -Algorithm SHA256
           $hashLine = "$($files[0].Name) SHA256 $($hash.Hash)"
           Set-Content -Path (Join-Path $dir 'SHA256.txt') -Value $hashLine -Encoding utf8
@@ -122,6 +135,9 @@ jobs:
             $hashLine
             'AppId: br.com.linkleads.app (mesma identidade da instalacao normal)'
             'Dados locais: utiliza contas, sessoes e SQLite da instalacao normal'
+            'INSTALACAO SIMPLIFICADA: apos extrair o ZIP, abra INSTALAR-LINKLEADS.cmd por duplo clique.'
+            'O assistente verifica SHA256, preserva backup, solicita Defender, abre o setup e grava resultado-instalacao.json.'
+            'O instalador cria automaticamente um atalho LinkLeads na area de trabalho e no Menu Iniciar.'
             'ANTES DE INSTALAR: fechar o LinkLeads e fazer backup completo dos dados locais.'
             "Assinatura Windows: $($signature.Status). Se nao estiver Valid, NAO distribuir a clientes."
             'Atualizacao automatica desativada SOMENTE neste bundle, ate configurar feed HTTPS e assinatura.'
@@ -138,6 +154,7 @@ jobs:
           path: |
             apps/desktop/release/LinkLeads-Setup-*.exe
             apps/desktop/release/SHA256.txt
+            apps/desktop/release/INSTALAR-LINKLEADS.cmd
             apps/desktop/release/LEIA-ME-INSTALACAO.txt
             visual-windows/*.png
             visual-windows/manifest.json
