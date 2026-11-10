@@ -4,6 +4,24 @@ import { IntegrationCrm, openAccountDb } from '../src/index.js';
 
 const now = new Date('2026-11-09T13:00:00Z');
 
+describe('registro durável de envio de comentários', () => {
+  it('reserva uma única tentativa por post e mantém incerteza até após reiniciar', () => {
+    const db = openAccountDb(':memory:');
+    const first = new IntegrationCrm(db, 'UTC');
+    const urn = 'urn:li:activity:7777777777777777777';
+    expect(first.beginCommentSubmission(urn, 'hash-do-texto')).toBe(true);
+    expect(first.beginCommentSubmission(urn, 'outro-hash')).toBe(false);
+    expect(first.commentSubmissionStatus(urn)).toBe('started');
+    const reopened = new IntegrationCrm(db, 'UTC');
+    expect(reopened.beginCommentSubmission(urn, 'hash-do-texto')).toBe(false);
+    reopened.finishCommentSubmission(urn, 'uncertain');
+    expect(first.commentSubmissionStatus(urn)).toBe('uncertain');
+    expect(reopened.beginCommentSubmission(urn, 'outro-hash')).toBe(false);
+    reopened.finishCommentSubmission(urn, 'confirmed');
+    expect(first.commentSubmissionStatus(urn)).toBe('confirmed');
+  });
+});
+
 describe('IntegrationCrm', () => {
   it('fila de entregas com re-tentativa exponencial e desistência', () => {
     const crm = new IntegrationCrm(openAccountDb(':memory:'), 'UTC');
