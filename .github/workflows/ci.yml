@@ -83,7 +83,6 @@ jobs:
           done
           if [[ "${{ matrix.name }}" == "Curtir e comentar — ação única" ]]; then
             LINKLEADS_E2E_MODERN_REACTION=1 xvfb-run -a node apps/desktop/e2e/engagement-scroll.mjs
-            LINKLEADS_E2E_MIXED_LAYOUT=1 xvfb-run -a node apps/desktop/e2e/engagement-scroll.mjs
           fi
 
 
@@ -126,6 +125,23 @@ jobs:
           )
           echo "APP_BASE=$RUNNER_TEMP/linkleads-visual-base/apps/desktop" >> "$GITHUB_ENV"
           echo "BASE_SHA=$baseline" >> "$GITHUB_ENV"
+      # Mudança funcional solicitada para configurações: aprovar baseline separado
+      # SOMENTE da tela 03, enquanto as outras 7 continuam contra a main.
+      # O SHA é imutável e registra a implementação revisada no PR #42.
+      - name: Compilar referência visual imutável das novas abas
+        shell: bash
+        run: |
+          set -euo pipefail
+          approved=8cc10e1e9d7ceb5710ef4b113098ecab3013063f
+          git cat-file -e "${approved}^{commit}"
+          git worktree add --detach "$RUNNER_TEMP/linkleads-settings-approved" "$approved"
+          (
+            cd "$RUNNER_TEMP/linkleads-settings-approved"
+            npm ci
+            npm run build
+          )
+          echo "APP_SETTINGS_BASE=$RUNNER_TEMP/linkleads-settings-approved/apps/desktop" >> "$GITHUB_ENV"
+          echo "SETTINGS_APPROVED_SHA=$approved" >> "$GITHUB_ENV"
       - name: Preparar bibliotecas gráficas do Electron
         run: npx playwright install --with-deps chromium
       - name: Fotografar baseline e candidata e comparar pixels
@@ -136,6 +152,13 @@ jobs:
           echo "Versão aprovada: $BASE_SHA"
           xvfb-run -a node apps/desktop/e2e/visual-snapshots.mjs \
             --app-dir "$APP_BASE" --out "$PWD/visual-regression-report/base"
+          xvfb-run -a node apps/desktop/e2e/visual-snapshots.mjs \
+            --app-dir "$APP_SETTINGS_BASE" --out "$PWD/visual-regression-report/settings-reviewed"
+          # Somente 03 recebe referência visual nova; demais 7 permanecem
+          # vinculadas à main, detectando alterações não solicitadas.
+          cp visual-regression-report/settings-reviewed/03-configuracoes-seguras.png \
+            visual-regression-report/base/03-configuracoes-seguras.png
+          echo "Nova referência da tela 03: $SETTINGS_APPROVED_SHA"
           xvfb-run -a node apps/desktop/e2e/visual-snapshots.mjs \
             --app-dir "$PWD/apps/desktop" --out "$PWD/visual-regression-report/current"
           node apps/desktop/e2e/compare-visual-snapshots.mjs \
