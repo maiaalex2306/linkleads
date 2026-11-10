@@ -82,6 +82,11 @@ try {
 
   await ui.locator('.launcher-account', { hasText: 'Conta Alfa' })
     .getByRole('button', { name: 'Abrir campanhas' }).click();
+  // A biblioteca é a nova entrada de contas com campanhas; o assistente
+  // permanece acessível pelo botão Nova campanha.
+  if (await ui.getByRole('heading', { name: 'Campanhas desta conta' }).count()) {
+    await ui.getByRole('button', { name: '+ Nova campanha' }).click();
+  }
   await ui.getByRole('heading', { name: 'O que você quer fazer hoje?' }).waitFor();
   await shot('04-assistente-de-campanhas', '.intent-card');
 
