@@ -1,9 +1,10 @@
+import { createHash } from 'node:crypto';
 import type { ActionExecutor, BudgetKey, ExecutionContext, ExecutionResult, Person, PostSnapshot } from '@linkleads/core';
 import { detectJobChange, getActionDefinition, parseRelativeAgeDays, publicIdFromUrl } from '@linkleads/core';
 import type { CommentSettings, LlmClient, PostInterpreter } from '@linkleads/ai';
 import type { IntegrationCrm } from '@linkleads/db';
 import type { EnrichmentProvider } from '@linkleads/integrations';
-import { commentSubmitPoint, matchingCommentCount, editorText, extractPosts, extractProfile, likeState, profileReady, type PostExtract } from './dom-scripts.js';
+import { commentEditorPoint, commentSubmitPoint, matchingCommentCount, editorText, extractPosts, extractProfile, likeState, profileReady, type PostExtract } from './dom-scripts.js';
 import { BlockedError, type PageDriver } from './page-driver.js';
 import { isCanonicalPostUrn } from './post-identity.js';
 
@@ -342,18 +343,36 @@ export async function publishComment(d: ExecutorDeps, urn: string, text: string)
     message: 'Publicação sem identificador canônico: comentário não enviado',
   };
   return guard(async () => {
-    await d.driver.goto(postUrl(urn), 'postItem');
-    if (!(await d.driver.exists('commentEditor'))) {
+    // O permalink pode renderizar um cartão moderno sem o seletor legado
+    // postItem. A prontidão real exige que o URN canônico esteja visível.
+    await d.driver.goto(postUrl(urn));
+    const selectorMap = d.driver.sel as unknown as Record<string, readonly string[]>;
+    const postReady = await d.driver.waitUntil(async () => {
+      const posts = await d.driver.read(extractPosts, selectorMap, 80);
+      return posts.some((post) => post.urn === urn);
+    }, 20_000);
+    if (!postReady) return { ok: false, reason: 'NO_REAL_EFFECT',
+      message: 'Publicação canônica não localizada no permalink; nenhum comentário preparado' };
+    let editor = await d.driver.read(commentEditorPoint, selectorMap, urn);
+    if (!editor) {
       if (!(await d.driver.click('commentButton', { urn, containerKey: 'postItem' })))
-        return { ok: false, reason: 'NO_REAL_EFFECT', message: 'Botão de comentar não encontrado' };
-      await d.driver.waitFor('commentEditor', 8_000);
+        return { ok: false, reason: 'NO_REAL_EFFECT',
+          message: 'Botão de comentar não encontrado na publicação identificada' };
+      const ready = await d.driver.waitUntil(async () => {
+        editor = await d.driver.read(commentEditorPoint, selectorMap, urn);
+        return editor !== null;
+      }, 8_000);
+      if (!ready || !editor) return { ok: false, reason: 'NO_REAL_EFFECT',
+        message: 'Editor da publicação não identificado; nenhuma digitação realizada' };
     }
-    if (!(await d.driver.click('commentEditor'))) return { ok: false, reason: 'NO_REAL_EFFECT', message: 'Caixa de comentário não encontrada' };
+    // Coordenadas derivadas exclusivamente do editor dentro do post canônico.
+    // Evitar o click genérico que pode selecionar o editor de outro post.
+    await d.driver.input.click(editor.x, editor.y);
     await d.driver.input.think(600, 1800);
     await d.driver.input.type(text);
     await d.driver.input.think(1200, 3500); // revisa antes de enviar
 
-    const typed = await d.driver.read(editorText, d.driver.sel as unknown as Record<string, readonly string[]>);
+    const typed = await d.driver.read(editorText, selectorMap, urn);
     const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
     if (norm(typed) !== norm(text)) return { ok: false, reason: 'NO_REAL_EFFECT', message: 'O texto digitado não confere com o comentário' };
 
@@ -361,18 +380,34 @@ export async function publishComment(d: ExecutorDeps, urn: string, text: string)
       d.driver.sel as unknown as Record<string, readonly string[]>, urn, text);
     if (before > 0) return { ok: false, reason: 'NO_REAL_EFFECT',
       message: 'Texto idêntico já presente: envio interrompido para evitar duplicidade' };
-    const send = await d.driver.read(commentSubmitPoint, d.driver.sel as unknown as Record<string, readonly string[]>);
+    const send = await d.driver.read(commentSubmitPoint, selectorMap, urn);
     if (!send) return { ok: false, reason: 'NO_REAL_EFFECT',
       message: 'Botão de publicar não identificado no mesmo editor; comentário preservado sem envio' };
-    await d.driver.input.click(send.x, send.y);
-    const published = await d.driver.waitUntil(async () => {
-      const after = await d.driver.read(matchingCommentCount,
-        d.driver.sel as unknown as Record<string, readonly string[]>, urn, text);
-      return after > before;
-    }, 12_000);
-    return published ? { ok: true, data: { post: urn } }
-      : { ok: false, reason: 'NO_REAL_EFFECT',
-        message: 'Nenhum novo comentário confirmado no post identificado' };
+    // A reserva é atômica e persistida antes de qualquer possibilidade de envio.
+    // Em reinicialização, 'started' é considerado resultado incerto.
+    const textHash = createHash('sha256').update(text).digest('hex');
+    if (!d.crm.beginCommentSubmission(urn, textHash)) return {
+      ok: false, reason: 'NO_REAL_EFFECT',
+      message: 'Existe uma tentativa anterior para esta publicação (' +
+        (d.crm.commentSubmissionStatus(urn) ?? 'desconhecida') +
+        '). Concilie manualmente antes de qualquer novo envio.',
+    };
+    try {
+      await d.driver.input.click(send.x, send.y);
+      const published = await d.driver.waitUntil(async () => {
+        const after = await d.driver.read(matchingCommentCount, selectorMap, urn, text);
+        return after > before;
+      }, 12_000);
+      d.crm.finishCommentSubmission(urn, published ? 'confirmed' : 'uncertain');
+      return published ? { ok: true, data: { post: urn } }
+        : { ok: false, reason: 'NO_REAL_EFFECT',
+          message: 'Envio possivelmente realizado, mas não confirmado. Reconciliação manual obrigatória; não repetir automaticamente.' };
+    } catch (error) {
+      d.crm.finishCommentSubmission(urn, 'uncertain');
+      return { ok: false, reason: 'NO_REAL_EFFECT',
+        message: 'A confirmação foi interrompida após reservar o envio; resultado incerto, não repetir. ' +
+          (error instanceof Error ? error.message : String(error)) };
+    }
   });
 }
 

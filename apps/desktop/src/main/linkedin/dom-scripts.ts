@@ -203,53 +203,82 @@ export function likeState(sel: Record<string, readonly string[]>, urn: string): 
   return null;
 }
 
-/**
- * Encontra o botão de envio pertencente ao editor de comentário ativo.
- * Não confunde o "Comentar" que abre o editor com o "Comentar" que envia o texto.
- * Falha fechado se não há associação estrutural inequívoca.
+/** Encontra um único editor visível dentro da publicação identificada.
+ * Nunca utiliza o primeiro editor global; outros posts podem estar abertos.
+ * Retorna null se a identidade do contêiner ou o editor não forem inequívocos.
  */
-export function commentSubmitPoint(sel: Record<string, readonly string[]>): { x: number; y: number } | null {
-  const visibleEditors = new Set<HTMLElement>();
+export function commentEditorPoint(
+  sel: Record<string, readonly string[]>, urn: string,
+): { x: number; y: number } | null {
+  const root = __llPostContainers({ postItem: sel.postItem!, likeButton: sel.likeButton! })
+    .find((item) => item.urn === urn)?.el;
+  if (!root) return null;
+  const editors = new Set<HTMLElement>();
   for (const selector of sel.commentEditor ?? []) {
-    for (const e of Array.from(document.querySelectorAll(selector)) as HTMLElement[]) {
-      const rect = e.getBoundingClientRect();
-      if (rect.width > 0 && rect.height > 0 && e.getAttribute('contenteditable') === 'true') visibleEditors.add(e);
+    for (const editor of Array.from(root.querySelectorAll(selector)) as HTMLElement[]) {
+      const rect = editor.getBoundingClientRect();
+      if (editor.getAttribute('contenteditable') === 'true' && rect.width > 0 && rect.height > 0)
+        editors.add(editor);
     }
   }
-  // Falhar fechado: sem escopo de publicação, mais de um editor é ambíguo.
-  if (visibleEditors.size !== 1) return null;
-  const editor = [...visibleEditors][0]!;
+  if (editors.size !== 1) return null;
+  const rect = [...editors][0]!.getBoundingClientRect();
+  return { x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2) };
+}
+
+/** Localiza o botão de envio vinculado ao editor e à publicação corretos.
+ * A busca nunca ultrapassa o contêiner da publicação identificada.
+ */
+export function commentSubmitPoint(
+  sel: Record<string, readonly string[]>, urn: string,
+): { x: number; y: number } | null {
+  const root = __llPostContainers({ postItem: sel.postItem!, likeButton: sel.likeButton! })
+    .find((item) => item.urn === urn)?.el;
+  if (!root) return null;
+  const editors = new Set<HTMLElement>();
+  for (const selector of sel.commentEditor ?? []) {
+    for (const editor of Array.from(root.querySelectorAll(selector)) as HTMLElement[]) {
+      const rect = editor.getBoundingClientRect();
+      if (editor.getAttribute('contenteditable') === 'true' && rect.width > 0 && rect.height > 0)
+        editors.add(editor);
+    }
+  }
+  if (editors.size !== 1) return null;
+  const editor = [...editors][0]!;
   let ancestor: Element | null = editor.parentElement;
-  for (let depth = 0; ancestor && depth < 8; depth++, ancestor = ancestor.parentElement) {
-    const buttons = Array.from(ancestor.querySelectorAll('button')) as HTMLButtonElement[];
-    const candidates = buttons.filter((b) => {
-      if (b.disabled) return false;
-      const label = (b.getAttribute('aria-label') || b.innerText || '').replace(/\\s+/g, ' ').trim();
-      if (!/^(comentar|publicar|comment|post)$/i.test(label) &&
-        !b.matches('button.comments-comment-box__submit-button, button.comments-comment-box__submit-button--cr, form.comments-comment-box__form button[type="submit"]')) return false;
-      if (!(editor!.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)) return false;
-      const rect = b.getBoundingClientRect();
-      return rect.width > 0 && rect.height > 0;
-    });
-    if (candidates.length === 1) {
-      const rect = candidates[0]!.getBoundingClientRect();
+  for (let depth = 0; ancestor && (ancestor === root || root.contains(ancestor)) && depth < 12; depth++, ancestor = ancestor.parentElement) {
+    const matches = (Array.from(ancestor.querySelectorAll('button')) as HTMLButtonElement[])
+      .filter((button) => {
+        if (button.disabled) return false;
+        const rect = button.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return false;
+        const label = (button.getAttribute('aria-label') || button.innerText || '').replace(/\s+/g, ' ').trim();
+        if (!/^(comentar|publicar|comment|post)$/i.test(label) &&
+          !button.matches('button.comments-comment-box__submit-button, button.comments-comment-box__submit-button--cr, form.comments-comment-box__form button[type="submit"]')) return false;
+        return Boolean(editor.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING);
+      });
+    if (matches.length > 1) return null;
+    if (matches.length === 1) {
+      const rect = matches[0]!.getBoundingClientRect();
       return { x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2) };
     }
-    if (candidates.length > 1) return null;
   }
   return null;
 }
 
-/** O editor de comentário contém exatamente o texto esperado? */
-export function editorText(sel: Record<string, readonly string[]>): string {
+/** Confere o texto do único editor da publicação, nunca de outro post. */
+export function editorText(sel: Record<string, readonly string[]>, urn: string): string {
+  const root = __llPostContainers({ postItem: sel.postItem!, likeButton: sel.likeButton! })
+    .find((item) => item.urn === urn)?.el;
+  if (!root) return '';
   const editors = new Set<HTMLElement>();
   for (const selector of sel.commentEditor ?? []) {
-    for (const el of Array.from(document.querySelectorAll(selector)) as HTMLElement[]) {
-      const r = el.getBoundingClientRect();
-      if (el.getAttribute('contenteditable') === 'true' && r.width > 0 && r.height > 0) editors.add(el);
+    for (const editor of Array.from(root.querySelectorAll(selector)) as HTMLElement[]) {
+      const rect = editor.getBoundingClientRect();
+      if (editor.getAttribute('contenteditable') === 'true' && rect.width > 0 && rect.height > 0)
+        editors.add(editor);
     }
   }
-  // Nunca comparar o texto de outro editor quando houver vários comentários abertos.
   if (editors.size !== 1) return '';
   return [...editors][0]!.innerText.replace(/\s+/g, ' ').trim();
 }
