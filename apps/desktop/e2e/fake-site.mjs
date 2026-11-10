@@ -6,7 +6,7 @@ const state = {
   anaHeadline: 'Diretora de Operações na Águas do Vale', companyVisits: 0,
   // sessão do LinkedIn falso: loggedOut força a página de login; logins guarda as tentativas (e-mail, senha)
   loggedOut: false, logins: [], loginEmail: 'ana@empresa.com.br', loginPassword: 'senha-certa',
-  activityDeepPosts: false, deepAge: '1 a', deepLiked: false, deepLikes: 0, likes: 0,
+  activityDeepPosts: false, modernReaction: false, deepAge: '1 a', deepLiked: false, deepLikes: 0, likes: 0,
   loginHydrationDelayMs: 0, loginSocialButtons: false, requireSessionCookie: false,
 };
 
@@ -62,17 +62,17 @@ const postHtml = (withEditor, urn = URN) => `
   <div class="update-components-actor"><a class="update-components-actor__meta-link" href="/in/ana-silva/">Ana Silva</a>
     <span class="update-components-actor__sub-description">${urn === URN ? '2d' : state.deepAge} •</span></div>
   <div class="update-components-text">Concluímos a telemetria de 120 km de rede e reduzimos as perdas de água em 18% no primeiro trimestre.</div>
-  <button class="react-button__trigger" aria-label="React Like" aria-pressed="${urn === URN ? state.liked : state.deepLiked}">Like</button>
+  <button class="react-button__trigger" aria-label="${state.modernReaction ? ('Situação do botão de reação: ' + ((urn === URN ? state.liked : state.deepLiked) ? 'Gostei' : 'nenhuma reação')) : 'React Like'}" ${state.modernReaction ? '' : ('aria-pressed="' + (urn === URN ? state.liked : state.deepLiked) + '"')}>Like</button>
   <button aria-label="Comment">Comment</button>
   ${withEditor ? `<form class="comments-comment-box__form" onsubmit="return false">
-    <div class="comments-comment-box-comment__text-editor"><div contenteditable="true"></div></div>
+    <div class="comments-comment-box-comment__text-editor"><div class="${state.modernReaction ? 'tiptap ProseMirror' : ''}" contenteditable="true"></div></div>
     <button type="submit" class="comments-comment-box__submit-button">Post</button></form>` : ''}
   <div id="comments">${state.comments.map((c) => `<article class="comments-comment-entity"><span class="comments-comment-item__main-content">${c}</span></article>`).join('')}</div>
 </div>`;
 
 const likeScript = `document.querySelector('.react-button__trigger').addEventListener('click', async (e) => {
   if (!e.isTrusted) return; // como o site real, ignora cliques sintéticos
-  await fetch('/api/like', { method: 'POST' }); e.target.setAttribute('aria-pressed', 'true'); });`;
+  await fetch('/api/like', { method: 'POST' }); if (e.target.hasAttribute('aria-pressed')) e.target.setAttribute('aria-pressed', 'true'); else e.target.setAttribute('aria-label', 'Situação do botão de reação: Gostei'); });`;
 const commentScript = likeScript + `document.querySelector('.comments-comment-box__submit-button').addEventListener('click', async (e) => {
   if (!e.isTrusted) return;
   const text = document.querySelector('[contenteditable]').innerText.trim();
@@ -226,8 +226,8 @@ export function startFakeSite(port = 0) {
           <div class="update-components-actor"><a class="update-components-actor__meta-link" href="/in/ana-silva/">Ana Silva</a>
           <span class="update-components-actor__sub-description">${state.deepAge} •</span></div>
           <div class="update-components-text">Publicação histórica elegível para análise contextual.</div>
-          <button class="react-button__trigger" data-deep-like="1" aria-label="React Like"
-             aria-pressed="${state.deepLiked}">Like</button><button aria-label="Comment">Comment</button>
+          <button class="react-button__trigger" data-deep-like="1" aria-label="${state.modernReaction ? (state.deepLiked ? 'Situação do botão de reação: Gostei' : 'Situação do botão de reação: nenhuma reação') : 'React Like'}"
+             ${state.modernReaction ? '' : ('aria-pressed="' + state.deepLiked + '"')}>Like</button><button aria-label="Comment">Comment</button>
           </div>`;
         const loader = `window.addEventListener('scroll', () => {
           if (window.scrollY < 900 || document.querySelector('[data-deep-like]')) return;
@@ -235,7 +235,8 @@ export function startFakeSite(port = 0) {
           document.querySelector('[data-deep-like]').addEventListener('click', async (e) => {
             if (!e.isTrusted) return;
             await fetch('/api/deep-like', { method: 'POST' });
-            e.target.setAttribute('aria-pressed', 'true');
+            if (e.target.hasAttribute('aria-pressed')) e.target.setAttribute('aria-pressed', 'true');
+            else e.target.setAttribute('aria-label', 'Situação do botão de reação: Gostei');
           });
         });`;
         return html(`<div class="spacer"></div>${postHtml(false)}<div class="spacer" style="height:1400px"></div>
