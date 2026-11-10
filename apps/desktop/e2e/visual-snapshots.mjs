@@ -22,7 +22,7 @@ mkdirSync(out, { recursive: true });
 const tmp = mkdtempSync(join(tmpdir(), 'linkleads-visual-'));
 const site = await startFakeSite();
 const { _electron: electron } = require('playwright');
-const binary = require(join(here, '../../node_modules/electron'));
+const binary = require(join(here, '../../../node_modules/electron'));
 const pages = [];
 let app;
 try {
