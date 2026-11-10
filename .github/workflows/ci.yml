@@ -36,6 +36,8 @@ jobs:
           for file in apps/desktop/src/renderer/*.js; do
             node --check "$file" || exit 1
           done
+      - name: Testar comparador visual e PNG
+        run: node --test apps/desktop/e2e/visual-png.check.mjs
 
   e2e:
     name: E2E — ${{ matrix.name }}
@@ -79,6 +81,72 @@ jobs:
             xvfb-run -a node apps/desktop/e2e/$t.mjs || exit 1
             echo "::endgroup::"
           done
+
+
+  visual-regression:
+    name: Regressão visual — 8 telas Electron comparadas com a main
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Instalar e compilar versão candidata
+        run: |
+          npm ci
+          npm run build
+      - name: Preparar baseline do commit previamente aprovado
+        shell: bash
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          baseline="${PR_BASE:-${PUSH_BEFORE:-}}"
+          if [[ -z "$baseline" || "$baseline" =~ ^0+$ ]]; then
+            baseline="$(git rev-parse HEAD^1)"
+          fi
+          git cat-file -e "${baseline}^{commit}"
+          git worktree add --detach "$RUNNER_TEMP/linkleads-visual-base" "$baseline"
+          (
+            cd "$RUNNER_TEMP/linkleads-visual-base"
+            npm ci
+            npm run build
+          )
+          echo "APP_BASE=$RUNNER_TEMP/linkleads-visual-base/apps/desktop" >> "$GITHUB_ENV"
+          echo "BASE_SHA=$baseline" >> "$GITHUB_ENV"
+      - name: Preparar bibliotecas gráficas do Electron
+        run: npx playwright install --with-deps chromium
+      - name: Fotografar baseline e candidata e comparar pixels
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p visual-regression-report/base visual-regression-report/current visual-regression-report/diff
+          echo "Versão aprovada: $BASE_SHA"
+          xvfb-run -a node apps/desktop/e2e/visual-snapshots.mjs \
+            --app-dir "$APP_BASE" --out "$PWD/visual-regression-report/base"
+          xvfb-run -a node apps/desktop/e2e/visual-snapshots.mjs \
+            --app-dir "$PWD/apps/desktop" --out "$PWD/visual-regression-report/current"
+          node apps/desktop/e2e/compare-visual-snapshots.mjs \
+            --baseline "$PWD/visual-regression-report/base" \
+            --candidate "$PWD/visual-regression-report/current" \
+            --diff "$PWD/visual-regression-report/diff" \
+            --threshold 0.006 --channel-tolerance 25
+      - name: Preservar capturas e mapas de diferença para revisão
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: LINKLEADS-Visual-${{ github.run_id }}-${{ github.run_attempt }}
+          path: visual-regression-report/
+          if-no-files-found: warn
+          retention-days: 14
 
   packaged:
     name: E2E da aplicação empacotada
