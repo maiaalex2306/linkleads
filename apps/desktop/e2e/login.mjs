@@ -15,6 +15,11 @@ const shots = process.env.SHOT_DIR ?? tmp;
 
 const site = await startFakeSite();
 site.state.loggedOut = true;
+// Reproduz a tela exibida no Windows: login com provedores sociais e
+// formulário de senha carregado com atraso (não disponível em did-finish-load).
+site.state.loginSocialButtons = true;
+site.state.loginHydrationDelayMs = 1800;
+site.state.requireSessionCookie = true;
 const app = await electron.launch({
   executablePath: require(join(appDir, '../../node_modules/electron')),
   args: [process.env.LINKLEADS_E2E_APP ?? appDir],
@@ -54,6 +59,13 @@ try {
   check(entered && site.state.logins.length === 1, 'ao abrir, entrou sozinho no LinkedIn (1 tentativa)', { url: await accountUrl(), logins: site.state.logins.length });
   check(site.state.logins[0]?.email === site.state.loginEmail && site.state.logins[0]?.password === site.state.loginPassword, 'digitou o e-mail e a senha certos');
   check(await waitFor(async () => logs.some((l) => /Login no LinkedIn feito automaticamente/.test(l)), 30_000), 'log em português do login', logs);
+  // Nenhuma tentativa adicional depois do sucesso, mesmo ao atualizar a tela
+  // ou depois de novos ciclos sem logout. O usuário não pode ver o login em loop.
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()
+    .find((w) => w.getTitle().startsWith('LinkLeads —')).webContents.reload());
+  await ui.waitForTimeout(1800);
+  check((await accountUrl()).endsWith('/feed/') && site.state.logins.length === 1,
+    'sessão válida não reabre login nem envia credenciais novamente');
 
   // 2b. Com a conta pausada, um login válido não retira a pausa nem aciona o executor.
   await call('setPaused', acc.id, true);
@@ -122,10 +134,16 @@ try {
   await call('setLogin', acc.id, { email: site.state.loginEmail.toUpperCase() });
   check((await call('listAccounts')).find((a) => a.id === acc.id).hasLinkedinPassword,
     'normalizar o mesmo e-mail mantém a senha salva');
-  await call('setLogin', acc.id, { email: 'outra-conta@example.invalid' });
+  let identityChangeRejected = false;
+  try { await call('setLogin', acc.id, { email: 'outra-conta@example.invalid' }); }
+  catch { identityChangeRejected = true; }
+  const unchanged = (await call('listAccounts')).find((a) => a.id === acc.id);
+  check(identityChangeRejected && unchanged.linkedinEmail === site.state.loginEmail.toUpperCase() && unchanged.hasLinkedinPassword,
+    'troca de e-mail sem senha é recusada sem perder a credencial anterior');
+  await call('setLogin', acc.id, { email: 'outra-conta@example.invalid', password: 'senha-de-teste-nova' });
   const switched = (await call('listAccounts')).find((a) => a.id === acc.id);
-  check(switched.linkedinEmail === 'outra-conta@example.invalid' && !switched.hasLinkedinPassword,
-    'troca de e-mail exige nova senha e nunca tenta autenticar com a senha anterior');
+  check(switched.linkedinEmail === 'outra-conta@example.invalid' && switched.hasLinkedinPassword,
+    'troca de identidade com nova senha preserva o cofre e a conta');
   console.log(process.exitCode ? 'E2E LOGIN FALHOU' : 'E2E LOGIN OK');
 } catch (e) {
   console.error(e);

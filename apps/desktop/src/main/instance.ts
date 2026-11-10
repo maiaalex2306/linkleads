@@ -223,6 +223,12 @@ export class AccountInstance {
     this.window.webContents.on('did-finish-load', () => {
       if (LOGIN_PAGE.test(this.window.webContents.getURL())) void this.withBrowser(() => this.ensureLoggedIn()).catch(() => undefined);
     });
+    // Algumas versões do LinkedIn levam o navegador ao login por navegação SPA.
+    // Esse caminho não emite did-finish-load; usa a mesma trava de login para
+    // nunca provocar envios simultâneos.
+    this.window.webContents.on('did-navigate-in-page', (_event, url) => {
+      if (LOGIN_PAGE.test(url)) void this.withBrowser(() => this.ensureLoggedIn()).catch(() => undefined);
+    });
   }
 
   /**
@@ -297,7 +303,15 @@ export class AccountInstance {
     const wc = this.window.webContents;
     const onLogin = async () => LOGIN_PAGE.test(wc.getURL()) || ((await d.exists('loginPassword')) && (await d.exists('loginEmail')));
     if (!(await onLogin().catch(() => false))) return 'not_needed';
-    const creds = this.events.getLogin?.(this.account.id);
+    let creds: { email: string; password: string } | undefined;
+    try {
+      creds = this.events.getLogin?.(this.account.id);
+    } catch {
+      // Falha de descriptografia deve ser visível, nunca confundida com
+      // credenciais ausentes. Jamais incluir senha ou conteúdo do cofre nos logs.
+      this.log('Não foi possível recuperar a senha criptografada desta conta. Verifique o login salvo no LINKLEADS.');
+      return 'no_credentials';
+    }
     if (!creds) {
       this.log('O LinkedIn pediu login. Entre na janela da conta ou salve o e-mail e a senha em "Login do LinkedIn" para entrar sozinho.');
       return 'no_credentials';
@@ -319,8 +333,19 @@ export class AccountInstance {
     // Nunca forçar uma navegação para /login sobre uma tela de passkey,
     // checkpoint ou desafio. A escolha do método de autenticação é do usuário
     // e do LinkedIn, não do executor.
-    if (!(await d.exists('loginPassword'))) {
-      this.log('Login por senha ainda não está disponível. Se aparecer a janela de chave de acesso, cancele-a e escolha a opção de entrar com senha no LinkedIn. Conclua verificações de segurança manualmente.');
+    // O DOM do LinkedIn pode hidratar o formulário DEPOIS de did-finish-load.
+    // Não desistir de imediato: aguardar o campo de senha sem atualizar a página,
+    // inventar credenciais ou contornar passkeys/checkpoints.
+    const passwordReady = await d.waitFor('loginPassword', 12_000).catch(() => false);
+    if (!LOGIN_PAGE.test(wc.getURL())) return 'not_needed'; // login manual durante a espera
+    if (!passwordReady) {
+      this.log('O formulário de senha não apareceu. Se o LinkedIn solicitar chave de acesso ou verificação, conclua diretamente na janela da conta.');
+      return 'no_credentials';
+    }
+    const emailReady = await d.waitFor('loginEmail', 4_000).catch(() => false);
+    if (!LOGIN_PAGE.test(wc.getURL())) return 'not_needed';
+    if (!emailReady) {
+      this.log('O campo de e-mail não está acessível; conclua o login manualmente na janela do LinkedIn.');
       return 'no_credentials';
     }
     this.loginAttempts.push(Date.now());
@@ -350,7 +375,12 @@ export class AccountInstance {
     if (!(await d.click('loginPassword'))) return 'failed';
     await d.input.type(creds.password);
     await d.input.think(500, 1400);
-    if (!(await d.click('loginSubmit'))) await d.press('Enter');
+    // Não clicar genericamente em "Continuar com Google/Microsoft/Apple".
+    // O seletor loginSubmit só procura o formulário que contém a senha.
+    if (!(await d.click('loginSubmit'))) {
+      await d.click('loginPassword');
+      await d.press('Enter');
+    }
 
     const left = await d.waitUntil(async () => !LOGIN_PAGE.test(wc.getURL()) && !wc.isLoading() && !(await onLogin().catch(() => true)), 25_000, 800);
     const url = wc.getURL();
@@ -368,7 +398,14 @@ export class AccountInstance {
       this.log(err ? 'O LinkedIn recusou o login: confira o e-mail e a senha em "Login do LinkedIn".' : 'O login não terminou. Confira a janela da conta.');
       return 'failed';
     }
-    this.loginAttempts = [];
+    // Manter o orçamento de tentativas mesmo após um login bem-sucedido.
+    // Se a plataforma voltar ao login em loop (cookies inválidos, sessão
+    // recusada etc.), a versão anterior zerava o contador e repetia sem freio.
+    try {
+      await this.session.flushStorageData();
+    } catch {
+      this.log('Login concluído, mas não foi possível confirmar a gravação local da sessão.');
+    }
     this.log('Login no LinkedIn feito automaticamente.');
     // Autenticação e execução são operações independentes.
     // Em hipótese alguma um novo login retira a pausa da conta.
