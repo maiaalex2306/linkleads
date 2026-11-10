@@ -3,7 +3,7 @@ import { detectJobChange, getActionDefinition, parseRelativeAgeDays, publicIdFro
 import type { CommentSettings, LlmClient, PostInterpreter } from '@linkleads/ai';
 import type { IntegrationCrm } from '@linkleads/db';
 import type { EnrichmentProvider } from '@linkleads/integrations';
-import { commentSubmitPoint, matchingCommentCount, editorText, extractPosts, extractProfile, likeState, profileReady, type PostExtract } from './dom-scripts.js';
+import { commentEditorPoint, commentSubmitPoint, matchingCommentCount, editorText, extractPosts, extractProfile, likeState, profileReady, type PostExtract } from './dom-scripts.js';
 import { BlockedError, type PageDriver } from './page-driver.js';
 import { isCanonicalPostUrn } from './post-identity.js';
 
@@ -343,17 +343,27 @@ export async function publishComment(d: ExecutorDeps, urn: string, text: string)
   };
   return guard(async () => {
     await d.driver.goto(postUrl(urn), 'postItem');
-    if (!(await d.driver.exists('commentEditor'))) {
+    const selectorMap = d.driver.sel as unknown as Record<string, readonly string[]>;
+    let editor = await d.driver.read(commentEditorPoint, selectorMap, urn);
+    if (!editor) {
       if (!(await d.driver.click('commentButton', { urn, containerKey: 'postItem' })))
-        return { ok: false, reason: 'NO_REAL_EFFECT', message: 'Botão de comentar não encontrado' };
-      await d.driver.waitFor('commentEditor', 8_000);
+        return { ok: false, reason: 'NO_REAL_EFFECT',
+          message: 'Botão de comentar não encontrado na publicação identificada' };
+      const ready = await d.driver.waitUntil(async () => {
+        editor = await d.driver.read(commentEditorPoint, selectorMap, urn);
+        return editor !== null;
+      }, 8_000);
+      if (!ready || !editor) return { ok: false, reason: 'NO_REAL_EFFECT',
+        message: 'Editor da publicação não identificado; nenhuma digitação realizada' };
     }
-    if (!(await d.driver.click('commentEditor'))) return { ok: false, reason: 'NO_REAL_EFFECT', message: 'Caixa de comentário não encontrada' };
+    // Coordenadas derivadas exclusivamente do editor dentro do post canônico.
+    // Evitar o click genérico que pode selecionar o editor de outro post.
+    await d.driver.input.click(editor.x, editor.y);
     await d.driver.input.think(600, 1800);
     await d.driver.input.type(text);
     await d.driver.input.think(1200, 3500); // revisa antes de enviar
 
-    const typed = await d.driver.read(editorText, d.driver.sel as unknown as Record<string, readonly string[]>);
+    const typed = await d.driver.read(editorText, selectorMap, urn);
     const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
     if (norm(typed) !== norm(text)) return { ok: false, reason: 'NO_REAL_EFFECT', message: 'O texto digitado não confere com o comentário' };
 
@@ -361,7 +371,7 @@ export async function publishComment(d: ExecutorDeps, urn: string, text: string)
       d.driver.sel as unknown as Record<string, readonly string[]>, urn, text);
     if (before > 0) return { ok: false, reason: 'NO_REAL_EFFECT',
       message: 'Texto idêntico já presente: envio interrompido para evitar duplicidade' };
-    const send = await d.driver.read(commentSubmitPoint, d.driver.sel as unknown as Record<string, readonly string[]>);
+    const send = await d.driver.read(commentSubmitPoint, selectorMap, urn);
     if (!send) return { ok: false, reason: 'NO_REAL_EFFECT',
       message: 'Botão de publicar não identificado no mesmo editor; comentário preservado sem envio' };
     await d.driver.input.click(send.x, send.y);
