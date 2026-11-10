@@ -93,7 +93,7 @@ jobs:
             -VisualBaselineDirectory "visual-windows"
           if ($LASTEXITCODE -ne 0) { throw "NSIS nao instalado ou nao abriu corretamente (exit $LASTEXITCODE)" }
           $installed = Get-Content 'nsis-smoke/nsis-install-report.json' -Raw | ConvertFrom-Json
-          if ($installed.status -ne 'passed' -or -not $installed.runtimeSmoke -or -not $installed.installedVisualPassed) {
+          if ($installed.status -ne 'passed' -or -not $installed.runtimeSmoke -or -not $installed.installedVisualPassed -or -not $installed.desktopShortcutFound -or -not $installed.desktopShortcutTargetMatches) {
             throw 'Faltam provas obrigatorias da instalacao NSIS'
           }
       - name: Preparar atalho de instalacao assistida (duplo clique)
