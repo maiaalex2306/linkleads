@@ -28,7 +28,7 @@ export const DEFAULT_SELECTORS = {
   postResharedHeader: ['.update-components-header', '.feed-shared-header'],
   likeButton: ['button[aria-label^="Situação do botão de reação:"]', 'button[aria-label^="Reaction button state:"]', 'button.react-button__trigger', 'button[aria-label*="Like"][aria-pressed]', 'button[aria-label*="Gostei"][aria-pressed]', 'button[aria-pressed][aria-label*="React"]'],
   commentButton: ['button[aria-label^="Comentar"]', 'button[aria-label="Comment"]', 'button[aria-label="Comentar"]', 'button.comment-button'],
-  commentEditor: ['.comments-comment-box-comment__text-editor [contenteditable="true"]', '.comments-comment-texteditor [contenteditable="true"]', '.ql-editor[contenteditable="true"]'],
+  commentEditor: ['div.tiptap.ProseMirror[contenteditable="true"]', '.comments-comment-box-comment__text-editor [contenteditable="true"]', '.comments-comment-texteditor [contenteditable="true"]', '.ql-editor[contenteditable="true"]'],
   commentSubmit: ['button.comments-comment-box__submit-button--cr', 'button.comments-comment-box__submit-button', 'form.comments-comment-box__form button[type="submit"]'],
   commentItemText: ['.comments-comment-item__main-content', '.comments-comment-entity .update-components-text', 'article.comments-comment-entity'],
   emptyActivity: ['.artdeco-empty-state', '.pv-recent-activity-detail__no-content'],
