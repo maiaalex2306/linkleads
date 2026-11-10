@@ -22,15 +22,14 @@ $report = [ordered]@{
   runtimeSmoke = $false
   installedVisualPassed = $false
 }
-$installationRoot = Join-Path $env:RUNNER_TEMP ('linkleads-installed-smoke-' + [guid]::NewGuid().ToString('N'))
+$installationRoot = Join-Path $env:RUNNER_TEMP ('LinkLeads Installation Smoke ' + [guid]::NewGuid().ToString('N'))
 try {
   $installer = [IO.Path]::GetFullPath($InstallerPath)
   if (-not (Test-Path -LiteralPath $installer -PathType Leaf)) { throw 'Instalador inexistente' }
   $report.installerFound = $true
   $report.installerSha256 = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash
-  if ($installationRoot -match '\s') {
-    throw 'Caminho do smoke test nao deve conter espacos para o parametro NSIS /D'
-  }
+  # NSIS /D= deve ser o ultimo argumento; caminho com espacos nao usa aspas.
+  # Exercitar caminho com espacos reproduz uma condicao comum do Windows real.
   Write-Host "NSIS P0: instalacao silenciosa isolada"
   $process = Start-Process -FilePath $installer -ArgumentList @('/S', "/D=$installationRoot") -Wait -PassThru -NoNewWindow
   $report.nsisExitCode = [int]$process.ExitCode
