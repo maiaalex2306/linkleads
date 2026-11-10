@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { WebContents } from 'electron';
 import { PageDriver, BlockedError } from '../src/main/linkedin/page-driver.js';
-import { SELECTORS } from '../src/main/linkedin/selectors.js';
+import type { SelectorMap } from '../src/main/linkedin/selectors.js';
 
 function setup() {
   const events: Array<{ name: string; detail: Record<string, unknown> }> = [];
@@ -10,7 +10,7 @@ function setup() {
     loadURL: vi.fn(async () => undefined),
     sendInputEvent: vi.fn(),
   } as unknown as WebContents;
-  const driver = new PageDriver(wc, SELECTORS, (name, detail) => events.push({ name, detail }));
+  const driver = new PageDriver(wc, {} as SelectorMap, (name, detail) => events.push({ name, detail }));
   vi.spyOn(driver, 'assertNotBlocked').mockResolvedValue(undefined);
   vi.spyOn(driver.input, 'think').mockResolvedValue(undefined);
   return { wc, driver, events };
