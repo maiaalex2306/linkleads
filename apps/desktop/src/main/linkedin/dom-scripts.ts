@@ -56,8 +56,8 @@ declare function __llIsReact(el: Element): boolean;
 export function llIsReact(el: Element): boolean {
   const lab = [el.getAttribute('aria-label'), el.getAttribute('title'), (el as HTMLElement).innerText,
     ...Array.from(el.querySelectorAll('[aria-label],[title],[data-test-icon],[type]')).map((x) => `${x.getAttribute('aria-label') ?? ''} ${x.getAttribute('title') ?? ''} ${x.getAttribute('data-test-icon') ?? ''} ${x.getAttribute('type') ?? ''}`)].join(' ');
-  if (/(coment|comment|repost|compart|share|enviar|send|salvar|save|seguir|follow|mensagem|message|conectar|connect)/i.test(lab)) return false;
-  return /(gostei|gostar|like|reagir|react|curtir|curtida|thumbs-up|thumbsup)/i.test(lab);
+  if (/(coment|comment|repost|compart|share|enviar|send|salvar|save|seguir|follow|mensagem|message|conectar|connect|abrir menu de rea[cç][oõ]es|open reactions menu)/i.test(lab)) return false;
+  return /(gostei|gostar|like|reagir|react|curtir|curtida|thumbs-up|thumbsup|situa[cç][aã]o do bot[aã]o de rea[cç][aã]o|reaction button state)/i.test(lab);
 }
 
 /**
@@ -153,7 +153,10 @@ export function extractPosts(sel: Record<string, readonly string[]>, limit: numb
     }
     let like = first(it, sel.likeButton!) as HTMLElement | null;
     if (!like) like = (Array.from(it.querySelectorAll('button, [role="button"]')) as HTMLElement[]).find((b) => __llIsReact(b)) ?? null;
-    const pressed = like?.getAttribute('aria-pressed') ?? (like && /(desfazer|remover|undo|unlike|reagiu|reacted)/i.test(`${like.getAttribute('aria-label') ?? ''}`) ? 'true' : null);
+    const label = like?.getAttribute('aria-label') ?? '';
+    const pressed = like?.getAttribute('aria-pressed') ??
+      (/situa[cç][aã]o do bot[aã]o de rea[cç][aã]o:\s*nenhuma rea[cç][aã]o|reaction button state:\s*no reaction/i.test(label) ? 'false' :
+      (/situa[cç][aã]o do bot[aã]o de rea[cç][aã]o:\s*(?!nenhuma rea[cç][aã]o)\S|reaction button state:\s*(?!no reaction)\S|desfazer|remover|undo|unlike|reagiu|reacted/i.test(label) ? 'true' : null));
     const head = ((it as HTMLElement).innerText || '').slice(0, 400);
     const ageEl = first(it, sel.postAge!);
     const ageTxt = ageEl?.textContent?.replace(/\s+/g, ' ').trim() || head.match(AGE)?.[1] || null;
@@ -183,6 +186,44 @@ export function likeState(sel: Record<string, readonly string[]>, urn: string): 
   }
   const b = (Array.from(container.querySelectorAll('button, [role="button"]')) as HTMLElement[]).find((x) => __llIsReact(x));
   if (b && b.hasAttribute('aria-pressed')) return b.getAttribute('aria-pressed') === 'true';
+  const label = b?.getAttribute('aria-label') ?? '';
+  if (/situa[cç][aã]o do bot[aã]o de rea[cç][aã]o:\s*nenhuma rea[cç][aã]o|reaction button state:\s*no reaction/i.test(label)) return false;
+  if (/situa[cç][aã]o do bot[aã]o de rea[cç][aã]o:\s*(?!nenhuma rea[cç][aã]o)\S|reaction button state:\s*(?!no reaction)\S/i.test(label)) return true;
+  return null;
+}
+
+/**
+ * Encontra o botão de envio pertencente ao editor de comentário ativo.
+ * Não confunde o "Comentar" que abre o editor com o "Comentar" que envia o texto.
+ * Falha fechado se não há associação estrutural inequívoca.
+ */
+export function commentSubmitPoint(sel: Record<string, readonly string[]>): { x: number; y: number } | null {
+  let editor: HTMLElement | null = null;
+  for (const selector of sel.commentEditor ?? []) {
+    const candidates = Array.from(document.querySelectorAll(selector)) as HTMLElement[];
+    editor = candidates.find((e) => e.getBoundingClientRect().width > 0 &&
+      e.getBoundingClientRect().height > 0 && e.getAttribute('contenteditable') === 'true') ?? null;
+    if (editor) break;
+  }
+  if (!editor) return null;
+  let ancestor: Element | null = editor.parentElement;
+  for (let depth = 0; ancestor && depth < 8; depth++, ancestor = ancestor.parentElement) {
+    const buttons = Array.from(ancestor.querySelectorAll('button')) as HTMLButtonElement[];
+    const candidates = buttons.filter((b) => {
+      if (b.disabled) return false;
+      const label = (b.getAttribute('aria-label') || b.innerText || '').replace(/\\s+/g, ' ').trim();
+      if (!/^(comentar|publicar|comment|post)$/i.test(label) &&
+        !b.matches('button.comments-comment-box__submit-button, button.comments-comment-box__submit-button--cr, form.comments-comment-box__form button[type="submit"]')) return false;
+      if (!(editor!.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)) return false;
+      const rect = b.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    });
+    if (candidates.length === 1) {
+      const rect = candidates[0]!.getBoundingClientRect();
+      return { x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2) };
+    }
+    if (candidates.length > 1) return null;
+  }
   return null;
 }
 

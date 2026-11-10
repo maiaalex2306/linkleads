@@ -3,7 +3,7 @@ import { detectJobChange, getActionDefinition, parseRelativeAgeDays, publicIdFro
 import type { CommentSettings, LlmClient, PostInterpreter } from '@linkleads/ai';
 import type { IntegrationCrm } from '@linkleads/db';
 import type { EnrichmentProvider } from '@linkleads/integrations';
-import { matchingCommentCount, editorText, extractPosts, extractProfile, likeState, profileReady, type PostExtract } from './dom-scripts.js';
+import { commentSubmitPoint, matchingCommentCount, editorText, extractPosts, extractProfile, likeState, profileReady, type PostExtract } from './dom-scripts.js';
 import { BlockedError, type PageDriver } from './page-driver.js';
 import { isCanonicalPostUrn } from './post-identity.js';
 
@@ -160,7 +160,7 @@ export function pickPost(posts: PostExtract[], publicId: string, s: LikeSettings
 
 /** Como pickPost, mas explica por que nenhum post serviu (para a tela). */
 export function choosePost(posts: PostExtract[], publicId: string, s: LikeSettings, personName = ''): { post?: PostExtract; why: string; uncertain?: boolean } {
-  const maxAge = s.maxPostAgeDays ?? 30;
+  const maxAge = s.maxPostAgeDays ?? 365;
   const norm = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
   const expected = norm(personName);
   const isOwn = (p: PostExtract) => {
@@ -358,7 +358,10 @@ export async function publishComment(d: ExecutorDeps, urn: string, text: string)
       d.driver.sel as unknown as Record<string, readonly string[]>, urn, text);
     if (before > 0) return { ok: false, reason: 'NO_REAL_EFFECT',
       message: 'Texto idêntico já presente: envio interrompido para evitar duplicidade' };
-    if (!(await d.driver.click('commentSubmit'))) return { ok: false, reason: 'NO_REAL_EFFECT', message: 'Botão de publicar não encontrado' };
+    const send = await d.driver.read(commentSubmitPoint, d.driver.sel as unknown as Record<string, readonly string[]>);
+    if (!send) return { ok: false, reason: 'NO_REAL_EFFECT',
+      message: 'Botão de publicar não identificado no mesmo editor; comentário preservado sem envio' };
+    await d.driver.input.click(send.x, send.y);
     const published = await d.driver.waitUntil(async () => {
       const after = await d.driver.read(matchingCommentCount,
         d.driver.sel as unknown as Record<string, readonly string[]>, urn, text);
