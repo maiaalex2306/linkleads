@@ -56,7 +56,8 @@ export function buildPayload(crm: IntegrationCrm, account: Account, personId: st
  */
 export class IntegrationHub {
   private timer?: NodeJS.Timeout;
-  private running = false;
+  private activeFlush?: Promise<{ delivered: number; failed: number }>;
+  private flushRequested = false;
 
   constructor(
     private settings: IntegrationSettings,
@@ -86,13 +87,30 @@ export class IntegrationHub {
     if (this.timer) clearInterval(this.timer);
   }
 
-  /** Entrega o que estiver vencido em todas as contas. */
+  /**
+   * Serializa os envios: se já existe uma descarga em curso, aguarda a mesma
+   * Promise e solicita mais uma passagem para itens enfileirados enquanto
+   * havia requisições HTTP pendentes. Nunca reporta "sucesso" prematuramente.
+   */
   async flush(): Promise<{ delivered: number; failed: number }> {
-    if (this.running) return { delivered: 0, failed: 0 };
-    this.running = true;
+    if (this.activeFlush) {
+      this.flushRequested = true;
+      return this.activeFlush;
+    }
+    const task = this.flushQueued();
+    this.activeFlush = task;
+    try {
+      return await task;
+    } finally {
+      if (this.activeFlush === task) this.activeFlush = undefined;
+    }
+  }
+
+  private async flushQueued(): Promise<{ delivered: number; failed: number }> {
     let delivered = 0;
     let failed = 0;
-    try {
+    do {
+      this.flushRequested = false;
       for (const { account, crm } of this.accounts()) {
         for (const d of crm.dueDeliveries(now())) {
           try {
@@ -109,9 +127,7 @@ export class IntegrationHub {
           }
         }
       }
-    } finally {
-      this.running = false;
-    }
+    } while (this.flushRequested);
     return { delivered, failed };
   }
 
