@@ -26,7 +26,9 @@ export function extractProfile(sel: Record<string, readonly string[]>): ProfileE
     if (!/^\/in\//.test(location.pathname)) return null;
     const t = document.title.replace(/^\(\d+\+?\)\s*/, '').replace(/\s*[|·–-]\s*LinkedIn\s*$/i, '').trim();
     if (!t || /^linkedin$/i.test(t) || /not found|não encontrad|indisponível|unavailable/i.test(t)) return null;
-    return t;
+    // Evitar que a aba "Atividades | Nome | LinkedIn" contamine o nome do contato.
+    const cleanTitle = t.replace(/^(?:(?:Atividades|Activity|Publicações|Publications|Posts|Comentários|Comments)\s*[|·–-]\s*)+/i, '').trim();
+    return cleanTitle || null;
   };
   return {
     name: pick(sel.profileName!) ?? fromTitle(),
@@ -76,7 +78,7 @@ export function llPostContainers(sel: { postItem: readonly string[]; likeButton:
       if (urn && !seen.has(urn)) { seen.add(urn); out.push({ el, urn }); }
     }
   }
-  if (out.length) return out;
+  // Continuar a descoberta: o feed pode misturar cartões antigos com cartões modernos sem data-urn.
   const root = document.querySelector('main') || document.body;
   const TIME = /^(h[áa]\s+)?\d+\s*(min|h|d|sem|m|a|mo|w|y|s)\b\.?\s*(•.*)?$/i;
   const timeEls = (Array.from(root.querySelectorAll('span, time, a, div, p')) as HTMLElement[]).filter((e) => {
@@ -117,10 +119,19 @@ export function llPostContainers(sel: { postItem: readonly string[]; likeButton:
   // remove blocos contidos em outros (fica o maior de cada post) e ordena como na página
   const list = [...containers].filter((c) => ![...containers].some((o) => o !== c && o.contains(c)));
   list.sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
-  list.forEach((el, idx) => {
-    const urn = urnOf(el) ?? `ll-idx-${idx}`;
+  let provisional = 0;
+  for (const el of list) {
+    // Não misturar nem duplicar o mesmo cartão já identificado pelos seletores clássicos.
+    const match = out.find((existing) => existing.el === el || existing.el.contains(el) || el.contains(existing.el));
+    const urn = urnOf(el) ?? (match?.urn || `ll-idx-${provisional++}`);
+    if (match) {
+      // Preferir o cartão maior somente quando mantém a mesma identidade.
+      if (match.urn === urn && el.contains(match.el)) match.el = el;
+      continue;
+    }
     if (!seen.has(urn)) { seen.add(urn); out.push({ el, urn }); }
-  });
+  }
+  out.sort((a, b) => (a.el.compareDocumentPosition(b.el) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
   return out;
 }
 
@@ -198,14 +209,16 @@ export function likeState(sel: Record<string, readonly string[]>, urn: string): 
  * Falha fechado se não há associação estrutural inequívoca.
  */
 export function commentSubmitPoint(sel: Record<string, readonly string[]>): { x: number; y: number } | null {
-  let editor: HTMLElement | null = null;
+  const visibleEditors = new Set<HTMLElement>();
   for (const selector of sel.commentEditor ?? []) {
-    const candidates = Array.from(document.querySelectorAll(selector)) as HTMLElement[];
-    editor = candidates.find((e) => e.getBoundingClientRect().width > 0 &&
-      e.getBoundingClientRect().height > 0 && e.getAttribute('contenteditable') === 'true') ?? null;
-    if (editor) break;
+    for (const e of Array.from(document.querySelectorAll(selector)) as HTMLElement[]) {
+      const rect = e.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0 && e.getAttribute('contenteditable') === 'true') visibleEditors.add(e);
+    }
   }
-  if (!editor) return null;
+  // Falhar fechado: sem escopo de publicação, mais de um editor é ambíguo.
+  if (visibleEditors.size !== 1) return null;
+  const editor = [...visibleEditors][0]!;
   let ancestor: Element | null = editor.parentElement;
   for (let depth = 0; ancestor && depth < 8; depth++, ancestor = ancestor.parentElement) {
     const buttons = Array.from(ancestor.querySelectorAll('button')) as HTMLButtonElement[];
@@ -229,11 +242,16 @@ export function commentSubmitPoint(sel: Record<string, readonly string[]>): { x:
 
 /** O editor de comentário contém exatamente o texto esperado? */
 export function editorText(sel: Record<string, readonly string[]>): string {
-  for (const c of sel.commentEditor!) {
-    const el = document.querySelector(c) as HTMLElement | null;
-    if (el) return el.innerText.replace(/\s+/g, ' ').trim();
+  const editors = new Set<HTMLElement>();
+  for (const selector of sel.commentEditor ?? []) {
+    for (const el of Array.from(document.querySelectorAll(selector)) as HTMLElement[]) {
+      const r = el.getBoundingClientRect();
+      if (el.getAttribute('contenteditable') === 'true' && r.width > 0 && r.height > 0) editors.add(el);
+    }
   }
-  return '';
+  // Nunca comparar o texto de outro editor quando houver vários comentários abertos.
+  if (editors.size !== 1) return '';
+  return [...editors][0]!.innerText.replace(/\s+/g, ' ').trim();
 }
 
 /** Conta ocorrências completas do comentário SOMENTE no post identificado.
@@ -246,7 +264,11 @@ export function matchingCommentCount(
   const norm = (t: string) => t.replace(/\s+/g, ' ').trim().toLocaleLowerCase();
   const target = norm(commentText);
   if (!target) return 0;
-  const container = __llPostContainers({ postItem: sel.postItem!, likeButton: sel.likeButton! })
+  // Priorizar a identidade exata declarada no próprio cartão. Reexecutar
+  // heurísticas estruturais após abrir comentários pode alterar os ancestrais.
+  const direct = Array.from(document.querySelectorAll('[data-urn]'))
+    .find((el) => el.getAttribute('data-urn') === urn);
+  const container = direct ?? __llPostContainers({ postItem: sel.postItem!, likeButton: sel.likeButton! })
     .find((item) => item.urn === urn)?.el;
   if (!container) return 0;
   const seen = new Set<Element>();
