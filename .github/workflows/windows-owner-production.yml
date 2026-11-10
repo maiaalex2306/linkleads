@@ -154,6 +154,23 @@ jobs:
           & cmd.exe /c 'apps\desktop\release\INSTALAR-LINKLEADS.cmd' '--check-only'
           if ($LASTEXITCODE -ne 0) { throw "Assistente de instalacao rejeitou manifesto SHA256 (exit $LASTEXITCODE)" }
           Write-Host 'Assistente Windows: integridade validada sem desativar protecoes e sem executar setup'
+          # Teste negativo: manifesto adulterado jamais pode aprovar uma instalacao.
+          $badDir = Join-Path $env:RUNNER_TEMP ('LinkLeads-InvalidHash-' + [guid]::NewGuid().ToString('N'))
+          New-Item -ItemType Directory -Force -Path $badDir | Out-Null
+          try {
+            $realExe = @(Get-ChildItem 'apps/desktop/release' -Filter 'LinkLeads-Setup-*.exe' -File)
+            if ($realExe.Count -ne 1) { throw 'Instalador ausente para teste negativo' }
+            Copy-Item -LiteralPath $realExe[0].FullName -Destination $badDir -Force
+            $badCmd = Join-Path $badDir 'INSTALAR-LINKLEADS.cmd'
+            Copy-Item -LiteralPath 'apps/desktop/release/INSTALAR-LINKLEADS.cmd' -Destination $badCmd -Force
+            $badHash = Join-Path $badDir 'SHA256.txt'
+            Set-Content -LiteralPath $badHash -Value ($realExe[0].Name + ' SHA256 ' + ('0' * 64)) -Encoding ascii
+            & $badCmd --check-only
+            if ($LASTEXITCODE -eq 0) { throw 'FALHA DE SEGURANCA: assistente aceitou SHA256 adulterado' }
+            Write-Host 'Assistente Windows: manifesto adulterado corretamente bloqueado'
+          } finally {
+            Remove-Item -LiteralPath $badDir -Recurse -Force -ErrorAction SilentlyContinue
+          }
       - name: Disponibilizar instalador com hash e instrucoes
         uses: actions/upload-artifact@v4
         with:
