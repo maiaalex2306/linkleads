@@ -66,7 +66,8 @@ export interface DiagnosisReport {
 
 /** Pura: estrutura em volta das datas dos posts ("há 1 sem") — tags, papéis, classes, nomes de atributos e rótulos de botões. */
 function postsProbe() {
-  const TIME = /^(h[áa]\s+)?\d+\s*(min|h|d|sem|m|a|mo|w|y|s)\b\.?\s*(•.*)?$/i;
+  // Manter a sonda consistente com o extrator: incluir o separador "·" e unidades por extenso.
+  const TIME = /^(?:h[áa]\s+)?\d+\s*(?:min(?:utos?)?|h(?:oras?|rs?)?|d(?:ias?|ays?)?|sem(?:anas?)?|w(?:eeks?)?|mo(?:nths?)?|m[eê]s(?:es)?|mes(?:es)?|a(?:nos?)?|y(?:ears?|rs?)?|s(?:egundos?)?)\b(?:\s*[•·]\s*.*)?$/i;
   const root = document.querySelector('main') || document.body;
   const cls = (el: Element) => (typeof el.className === 'string' ? el.className : '').trim().split(/\s+/).slice(0, 4).join('.');
   const times = (Array.from(root.querySelectorAll('span, time, a, div, p')) as HTMLElement[])
