@@ -347,30 +347,85 @@ async function wizardPage(a, cols) {
 }
 
 async function campaignPage(a, cols, camps) {
-  const active = camps.find((c) => c.active);
   if (state.chooseCampaignType) return intentionPicker();
   if (state.creating) return h('div', { class: 'stack' },
     h('button', { class: 'link', onclick: () => { state.creating = false; state.wiz = null; renderView(); } }, '← Voltar'),
     await wizardPage(a, cols));
-  if (!active) return intentionPicker();
-  const others = camps.filter((c) => !c.active);
+  // Uma área por conta; arquivo separado. O backend omite campanhas arquivadas
+  // da lista operacional, mas preserva sua estrutura e histórico.
+  const archived = Boolean(state.simpleArchived);
+  const all = await api.listCampaignSummaries(a.id, archived);
+  const summaries = all.filter((c) => Boolean(c.archived) === archived);
+  const active = camps.find((c) => c.active);
+  const tab = (id, label) => h('button', {
+    class: archived === (id === 'archived') ? 'primary' : '',
+    'aria-current': archived === (id === 'archived') ? 'page' : undefined,
+    onclick: () => { state.simpleArchived = id === 'archived'; renderView(); },
+  }, label);
+  const list = summaries.map((c) => h('div', { class: 'card stack' },
+    h('div', { class: 'row', style: 'align-items:center;flex-wrap:wrap' },
+      h('span', { class: 'pill ' + (c.active ? 'ok' : '') },
+        c.archived ? 'Arquivada' : c.active ? 'Em execução' : 'Pausada'),
+      h('strong', { style: 'flex:1;min-width:200px' }, c.name),
+      h('span', { class: 'muted' }, c.contacts + ' contato(s) · ' + c.actions + ' etapa(s)')),
+    h('div', { class: 'row', style: 'flex-wrap:wrap;gap:8px' },
+      !c.archived && h('button', { class: 'primary', onclick: () => openCampaignWorkspace(c.id) }, 'Abrir e editar fluxo'),
+      !c.archived && h('button', { onclick: () => openCampaignWorkspace(c.id) }, 'Configurar etapas'),
+      !c.archived && h('button', { title: 'Abre o editor existente; ações com histórico não podem ser removidas ou reordenadas', onclick: () => openCampaignWorkspace(c.id) }, 'Ver pessoas e histórico'),
+      !c.archived && h('button', {
+        onclick: async () => {
+          const copy = await safe(() => api.duplicateCampaign(a.id, c.id));
+          if (copy?.campaignId) { toast('Cópia criada sem contatos ou histórico. Edite livremente o fluxo duplicado.'); await openCampaignWorkspace(copy.campaignId); }
+        },
+      }, 'Duplicar para modificar etapas'),
+      h('button', {
+        disabled: a.runnerEnabled,
+        title: a.runnerEnabled ? 'Pare apenas o executor desta conta antes de arquivar ou restaurar' : '',
+        onclick: async () => {
+          if (!c.archived && !window.confirm('Arquivar esta campanha? Ela será desativada, mas pessoas, etapas e histórico serão preservados.')) return;
+          const result = await safe(() => api.archiveCampaign(a.id, c.id, !c.archived));
+          if (result?.ok) { toast(c.archived ? 'Campanha restaurada sem ativar' : 'Campanha arquivada sem excluir dados'); await refresh(); }
+        },
+      }, c.archived ? 'Restaurar à lista de campanhas' : 'Arquivar campanha'))));
   return h('div', { class: 'stack' },
-    h('div', { class: 'card stack' },
-      h('div', { class: 'row' }, h('span', { class: 'pill ok' }, 'Ativa'), h('h3', { style: 'margin:0;flex:1' }, active.name),
-        h('button', { onclick: () => safe(() => api.setCampaignActive(a.id, active.id, false)).then(refresh) }, '⏸ Pausar esta campanha')),
-      h('div', { class: 'muted' }, `${active.people.length} pessoa(s) · etapas: ${active.actions.map((x) => x.name).join(' → ')}`),
+    h('div', { class: 'row', style: 'align-items:center;flex-wrap:wrap' },
+      h('h2', { style: 'flex:1;margin:0' }, 'Campanhas desta conta'),
+      h('button', { class: 'primary', onclick: () => { state.simpleArchived = false; state.chooseCampaignType = true; state.creating = false; state.wiz = null; renderView(); } }, '+ Nova campanha')),
+    h('p', { class: 'muted' }, 'Campanhas e arquivo pertencem somente a esta conta LinkedIn. Arquivar não exclui contatos, histórico nem etapas; restaurar não inicia a execução.'),
+    h('nav', { class: 'row', 'aria-label': 'Campanhas e arquivadas', style: 'display:flex;gap:8px;border-bottom:1px solid var(--border, #ddd);padding-bottom:12px' },
+      tab('current', 'Campanhas (' + (archived ? camps.length : summaries.length) + ')'),
+      tab('archived', 'Arquivadas' + (archived ? ' (' + summaries.length + ')' : ''))),
+    !archived && active && h('div', { class: 'card stack' },
+      h('strong', {}, 'Campanha em andamento: ' + active.name),
+      h('p', { class: 'muted' }, 'Edite parâmetros no construtor visual. Para adicionar, remover ou reorganizar etapas em fluxos com histórico, duplique a campanha antes.'),
       h('div', { class: 'row' },
-        h('button', { class: 'link', onclick: () => goAdvanced('campaigns') }, 'Ver a lista de pessoas e editar as mensagens'),
-        h('button', { class: 'link', onclick: () => goStep('track') }, 'Acompanhar →'))),
-    h('div', {}, h('button', { class: 'primary', onclick: () => { state.chooseCampaignType = true; state.creating = false; state.wiz = null; renderView(); } }, '+ Criar nova campanha')),
-    others.length > 0 && h('div', { class: 'card stack' }, h('b', {}, 'Campanhas pausadas'),
-      ...others.map((c) => h('div', { class: 'row' }, h('span', { style: 'flex:1' }, `${c.name} — ${c.people.length} pessoa(s)`),
-        h('button', { onclick: async () => {
-          if (!window.confirm(`Ativar "${c.name}"? A campanha ativa agora ("${active.name}") será pausada.`)) return;
-          await api.setCampaignActive(a.id, active.id, false);
-          await safe(() => api.setCampaignActive(a.id, c.id, true));
-          refresh();
-        } }, 'Ativar')))));
+        h('button', { onclick: () => goStep('track') }, 'Acompanhar e aprovar'),
+        h('button', { onclick: () => openCampaignWorkspace(active.id) }, 'Abrir editor visual'))),
+    ...list,
+    !summaries.length && h('div', { class: 'card muted' },
+      archived ? 'Nenhuma campanha arquivada nesta conta.' : 'Nenhuma campanha nesta conta. Crie uma nova campanha ou restaure uma arquivada.'),
+  );
+}
+
+/** Ajusta somente a janela de posts explicitamente para campanha existente.
+ * A versão 0.5.5 preserva parâmetros antigos, inclusive 30 dias. */
+function postAgeNotice(a, campaign) {
+  const affected = (campaign?.actions || []).filter((act) =>
+    (act.type === 'LikePosts' || act.type === 'LikeAndComment') &&
+    Number(act.settings?.maxPostAgeDays) > 0 && Number(act.settings.maxPostAgeDays) < 365);
+  if (!affected.length) return null;
+  const age = Math.min(...affected.map((act) => Number(act.settings.maxPostAgeDays)));
+  return h('div', { class: 'card stack attention' },
+    h('strong', {}, 'Esta campanha ainda considera somente ' + age + ' dias de publicações'),
+    h('p', { class: 'muted' }, 'O programa preservou o parâmetro gravado. Alterar para um ano requer confirmação e não modifica outras contas ou etapas.'),
+    h('div', {}, h('button', { class: 'primary', onclick: async () => {
+      if (!window.confirm('Alterar o limite de posts desta campanha para 365 dias, sem modificar as outras etapas?')) return;
+      const next = { ...campaign, actions: campaign.actions.map((act) =>
+        act.type === 'LikePosts' || act.type === 'LikeAndComment'
+          ? { ...act, settings: { ...(act.settings || {}), maxPostAgeDays: 365 } } : act) };
+      const saved = await safe(() => api.updateCampaign(a.id, next), 'Limite de 365 dias salvo');
+      if (saved?.ok) refresh();
+    } }, 'Corrigir esta campanha para 365 dias')));
 }
 
 // ── ③ Configurações ──────────────────────────────────────────────────────
@@ -473,6 +528,7 @@ async function trackPage(a, camps, stats) {
       h('h3', {}, 'Acompanhamento da execução'),
       h('p', { class: 'muted' }, 'Veja quem está sendo atendido, a etapa em andamento e o resultado efetivamente confirmado. Eventos sem comprovação não são tratados como sucesso.'),
       livePanel(a)),
+    active && postAgeNotice(a, active),
     h('div', { class: 'card stack' },
       h('div', { class: 'row' }, h('strong', { style: 'flex:1' }, `Onde estão as ${active.people.length} pessoas de "${active.name}"`),
         h('button', { class: 'link', onclick: () => goAdvanced('campaigns') }, 'ver lista completa')),
