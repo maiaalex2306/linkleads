@@ -213,7 +213,7 @@ function engagementForm(a, cols) {
       h('label', {}, 'Coleção', h('select', { name: 'collectionId', required: true }, ...cols.map((c) => h('option', { value: c.id }, `${c.name} (${c.size})`)))),
       h('label', {}, 'Comentários', h('select', { name: 'commentMode' }, h('option', { value: 'manual' }, 'Eu aprovo cada um (recomendado)'), h('option', { value: 'auto' }, 'Publicar automaticamente'))),
       h('label', {}, 'Tom', h('select', { name: 'tone' }, h('option', { value: 'profissional' }, 'Profissional'), h('option', { value: 'consultivo' }, 'Consultivo'), h('option', { value: 'caloroso' }, 'Caloroso'))),
-      h('label', {}, 'Post de até (dias)', h('input', { name: 'maxPostAgeDays', type: 'number', min: 1, max: 365, value: '30', style: 'width:90px' })),
+      h('label', {}, 'Post de até (dias)', h('input', { name: 'maxPostAgeDays', type: 'number', min: 1, max: 365, value: '365', style: 'width:90px' })),
     ),
     h('label', {}, 'Instruções extras para a IA (opcional)', h('textarea', { name: 'extraInstructions', placeholder: 'Ex.: quando fizer sentido, conecte com eficiência hídrica e saneamento.' })),
     h('div', {}, h('button', { class: 'primary', disabled: !cols.length }, 'Criar campanha')),
@@ -229,6 +229,19 @@ function campaignEditor(a, c, onDone) {
     const text = isText ? textSourceEditor(s, { kind: act.type === 'SendInvite' ? 'invite_note' : 'message', allowNoNote: act.type === 'SendInvite' }) : null;
     let extraEl = null;
     let readExtra = () => ({});
+    if (act.type === 'LikeAndComment' || act.type === 'LikePosts') {
+      // Importante para campanhas antigas: valores de 30 dias já salvos não
+      // devem ser alterados silenciosamente na instalação da versão 0.5.1.
+      // O usuário pode ampliá-los explicitamente aqui até um ano.
+      const age = h('input', { type: 'number', min: 1, max: 365,
+        value: String(Math.max(1, Math.min(365, Number(s.maxPostAgeDays ?? 365)))),
+        style: 'width:85px' });
+      extraEl = h('label', { class: 'row', style: 'display:flex;align-items:center;gap:8px' },
+        'Buscar publicações de até', age, 'dias (máximo 365)');
+      readExtra = () => ({
+        maxPostAgeDays: Math.max(1, Math.min(365, Math.round(Number(age.value) || 365))),
+      });
+    }
     if (act.type === 'CheckConnection') {
       const t = h('input', { type: 'number', min: 3, max: 60, value: String(s.timeoutDays ?? 21), style: 'width:70px' });
       const w = h('input', { type: 'checkbox', checked: s.withdrawOnTimeout !== false });

@@ -39,9 +39,9 @@ export function likeAndComment(d: ExecutorDeps): ActionExecutor {
         ...ctx,
         action: { ...ctx.action, type: 'LikePosts',
           settings: {
-            maxPostAgeDays: settings.maxPostAgeDays ?? 30,
+            maxPostAgeDays: settings.maxPostAgeDays ?? 365,
             includeReshares: settings.includeReshares === true,
-            allowAlreadyLiked: true,
+            allowAlreadyLiked: false,
           } },
       };
       const liked = await like.execute(likeCtx);

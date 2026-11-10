@@ -6,6 +6,7 @@ const state = {
   anaHeadline: 'Diretora de Operações na Águas do Vale', companyVisits: 0,
   // sessão do LinkedIn falso: loggedOut força a página de login; logins guarda as tentativas (e-mail, senha)
   loggedOut: false, logins: [], loginEmail: 'ana@empresa.com.br', loginPassword: 'senha-certa',
+  activityDeepPosts: false, deepAge: '1 a', deepLiked: false, deepLikes: 0, likes: 0,
   loginHydrationDelayMs: 0, loginSocialButtons: false, requireSessionCookie: false,
 };
 
@@ -30,6 +31,7 @@ const COLLEAGUES = {
   'diego-siste': { name: 'Diego Siste', headline: 'Hardware & Quality Engineer | MAHLE' },
 };
 const URN = 'urn:li:activity:7001';
+const DEEP_URN = 'urn:li:activity:7002';
 // busca global: sugestões enquanto digita e página de resultados com Enter
 const PEOPLE = [['ana-silva', 'Ana Silva', 'Diretora de Operações na Águas do Vale'], ['bruno-lima', 'Bruno Lima', 'Compras'], ['carla-souza', 'Carla Souza', 'Engenheira'], ['diego-alves', 'Diego Alves', 'Estagiário'],
   ['carlos-pereira-tyt', 'Carlos Pereira', 'Gerente de Utilidades na Toyota do Brasil'], ['carlos-pereira-fia', 'Carlos Pereira', 'Analista Financeiro na Fiat']];
@@ -55,12 +57,12 @@ const page = (body, script = '') => `<!doctype html><html><head><meta charset="u
 </style></head><body><header><input class="search-global-typeahead__input" aria-label="Search" placeholder="Search"><div class="typeahead"></div></header>
 <main>${body}</main><script>window.__thread = ${JSON.stringify(typeof threadHtml === 'function' ? threadHtml() : '')};${searchScript}${script}</script></body></html>`;
 
-const postHtml = (withEditor) => `
-<div class="feed-shared-update-v2" data-urn="${URN}">
+const postHtml = (withEditor, urn = URN) => `
+<div class="feed-shared-update-v2" data-urn="${urn}">
   <div class="update-components-actor"><a class="update-components-actor__meta-link" href="/in/ana-silva/">Ana Silva</a>
-    <span class="update-components-actor__sub-description">2d •</span></div>
+    <span class="update-components-actor__sub-description">${urn === URN ? '2d' : state.deepAge} •</span></div>
   <div class="update-components-text">Concluímos a telemetria de 120 km de rede e reduzimos as perdas de água em 18% no primeiro trimestre.</div>
-  <button class="react-button__trigger" aria-label="React Like" aria-pressed="${state.liked}">Like</button>
+  <button class="react-button__trigger" aria-label="React Like" aria-pressed="${urn === URN ? state.liked : state.deepLiked}">Like</button>
   <button aria-label="Comment">Comment</button>
   ${withEditor ? `<form class="comments-comment-box__form" onsubmit="return false">
     <div class="comments-comment-box-comment__text-editor"><div contenteditable="true"></div></div>
@@ -163,7 +165,8 @@ export function startFakeSite(port = 0) {
       let body = '';
       req.on('data', (c) => (body += c));
       req.on('end', () => {
-        if (url === '/api/like') state.liked = true;
+        if (url === '/api/like') { state.liked = true; state.likes++; }
+        if (url === '/api/deep-like') { state.deepLiked = true; state.deepLikes++; }
         if (url === '/api/like2') { state.liked2 = true; state.liked2Post = body; }
         if (url === '/api/invite') { state.connection = 'pending'; state.inviteNote = body || null; state.invites++; }
         if (url === '/api/withdraw') { state.connection = 'none'; state.withdrawals++; }
@@ -182,7 +185,10 @@ export function startFakeSite(port = 0) {
           return res.end(state.loggedOut ? 'denied' : 'ok');
         }
         if (url === '/test/logout') state.loggedOut = true;
-        if (url === '/api/comment') state.comments.push(body.replace(/</g, '&lt;'));
+        if (url === '/api/comment') {
+          state.lastCommentReferrer = req.headers.referer;
+          state.comments.push(body.replace(/</g, '&lt;'));
+        }
         res.end('ok');
       });
       return;
@@ -208,8 +214,35 @@ export function startFakeSite(port = 0) {
       const q = new URL(url, 'http://x').searchParams.get('keywords')?.toLowerCase() ?? '';
       return html(`<ul class="search-results-container">${PEOPLE.filter(([, n]) => n.toLowerCase().includes(q)).map(([s, n, hl]) => `<li class="entity-result"><a href="/in/${s}/">${n}</a><div>${hl}</div></li>`).join('')}</ul>`);
     }
-    if (url.startsWith('/feed/update/')) return html(postHtml(true), commentScript);
-    if (url === '/in/ana-silva/recent-activity/all/') return html(`<div class="spacer"></div>${postHtml(false)}<div class="spacer"></div>`, likeScript);
+    if (url.startsWith('/feed/update/')) {
+      const urn = url.split('/')[3];
+      return html(postHtml(true, urn === DEEP_URN ? DEEP_URN : URN), commentScript);
+    }
+    if (url === '/in/ana-silva/recent-activity/all/') {
+      if (state.activityDeepPosts) {
+        // O segundo post só aparece após o scroll: simula carregamento incremental
+        // da timeline e exige que o executor pule o primeiro, já curtido.
+        const deepHtml = `<div class="feed-shared-update-v2" data-urn="${DEEP_URN}">
+          <div class="update-components-actor"><a class="update-components-actor__meta-link" href="/in/ana-silva/">Ana Silva</a>
+          <span class="update-components-actor__sub-description">${state.deepAge} •</span></div>
+          <div class="update-components-text">Publicação histórica elegível para análise contextual.</div>
+          <button class="react-button__trigger" data-deep-like="1" aria-label="React Like"
+             aria-pressed="${state.deepLiked}">Like</button><button aria-label="Comment">Comment</button>
+          </div>`;
+        const loader = `window.addEventListener('scroll', () => {
+          if (window.scrollY < 900 || document.querySelector('[data-deep-like]')) return;
+          document.getElementById('older-feed').insertAdjacentHTML('beforeend', ${JSON.stringify(deepHtml)});
+          document.querySelector('[data-deep-like]').addEventListener('click', async (e) => {
+            if (!e.isTrusted) return;
+            await fetch('/api/deep-like', { method: 'POST' });
+            e.target.setAttribute('aria-pressed', 'true');
+          });
+        });`;
+        return html(`<div class="spacer"></div>${postHtml(false)}<div class="spacer" style="height:1400px"></div>
+          <div id="older-feed"></div><div class="spacer"></div>`, likeScript + loader);
+      }
+      return html(`<div class="spacer"></div>${postHtml(false)}<div class="spacer"></div>`, likeScript);
+    }
     if (url === '/in/ana-silva/') return html(profileHtml(), profileScript);
     if (url === '/messaging/') return html(inboxHtml(), inboxScript);
     if (url.match(/^\/in\/[a-z-]+\/overlay\/contact-info\/$/)) {
