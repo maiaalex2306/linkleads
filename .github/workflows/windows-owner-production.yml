@@ -154,6 +154,19 @@ jobs:
           & cmd.exe /c 'apps\desktop\release\INSTALAR-LINKLEADS.cmd' '--check-only'
           if ($LASTEXITCODE -ne 0) { throw "Assistente de instalacao rejeitou manifesto SHA256 (exit $LASTEXITCODE)" }
           Write-Host 'Assistente Windows: integridade validada sem desativar protecoes e sem executar setup'
+          # Provar fail-closed: manifesto adulterado nunca deve retornar sucesso.
+          $manifest = 'apps/desktop/release/SHA256.txt'
+          $original = Get-Content -LiteralPath $manifest -Raw
+          try {
+            $bad = $original -replace '(?i)[A-F0-9]{64}', ('0' * 64)
+            if ($bad -eq $original) { throw 'Nao foi possivel adulterar manifesto para teste negativo' }
+            Set-Content -LiteralPath $manifest -Value $bad -NoNewline
+            & cmd.exe /c 'apps\desktop\release\INSTALAR-LINKLEADS.cmd' '--check-only'
+            if ($LASTEXITCODE -eq 0) { throw 'FALHA DE SEGURANCA: manifesto adulterado foi aceito' }
+            Write-Host 'Assistente Windows: manifesto adulterado corretamente rejeitado'
+          } finally {
+            Set-Content -LiteralPath $manifest -Value $original -NoNewline
+          }
       - name: Disponibilizar instalador com hash e instrucoes
         uses: actions/upload-artifact@v4
         with:
