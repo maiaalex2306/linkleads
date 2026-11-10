@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { ActionExecutor, BudgetKey, ExecutionContext, ExecutionResult, Person, PostSnapshot } from '@linkleads/core';
 import { detectJobChange, getActionDefinition, parseRelativeAgeDays, publicIdFromUrl } from '@linkleads/core';
 import type { CommentSettings, LlmClient, PostInterpreter } from '@linkleads/ai';
@@ -374,15 +375,31 @@ export async function publishComment(d: ExecutorDeps, urn: string, text: string)
     const send = await d.driver.read(commentSubmitPoint, selectorMap, urn);
     if (!send) return { ok: false, reason: 'NO_REAL_EFFECT',
       message: 'Botão de publicar não identificado no mesmo editor; comentário preservado sem envio' };
-    await d.driver.input.click(send.x, send.y);
-    const published = await d.driver.waitUntil(async () => {
-      const after = await d.driver.read(matchingCommentCount,
-        d.driver.sel as unknown as Record<string, readonly string[]>, urn, text);
-      return after > before;
-    }, 12_000);
-    return published ? { ok: true, data: { post: urn } }
-      : { ok: false, reason: 'NO_REAL_EFFECT',
-        message: 'Nenhum novo comentário confirmado no post identificado' };
+    // A reserva é atômica e persistida antes de qualquer possibilidade de envio.
+    // Em reinicialização, 'started' é considerado resultado incerto.
+    const textHash = createHash('sha256').update(text).digest('hex');
+    if (!d.crm.beginCommentSubmission(urn, textHash)) return {
+      ok: false, reason: 'NO_REAL_EFFECT',
+      message: 'Existe uma tentativa anterior para esta publicação (' +
+        (d.crm.commentSubmissionStatus(urn) ?? 'desconhecida') +
+        '). Concilie manualmente antes de qualquer novo envio.',
+    };
+    try {
+      await d.driver.input.click(send.x, send.y);
+      const published = await d.driver.waitUntil(async () => {
+        const after = await d.driver.read(matchingCommentCount, selectorMap, urn, text);
+        return after > before;
+      }, 12_000);
+      d.crm.finishCommentSubmission(urn, published ? 'confirmed' : 'uncertain');
+      return published ? { ok: true, data: { post: urn } }
+        : { ok: false, reason: 'NO_REAL_EFFECT',
+          message: 'Envio possivelmente realizado, mas não confirmado. Reconciliação manual obrigatória; não repetir automaticamente.' };
+    } catch (error) {
+      d.crm.finishCommentSubmission(urn, 'uncertain');
+      return { ok: false, reason: 'NO_REAL_EFFECT',
+        message: 'A confirmação foi interrompida após reservar o envio; resultado incerto, não repetir. ' +
+          (error instanceof Error ? error.message : String(error)) };
+    }
   });
 }
 
