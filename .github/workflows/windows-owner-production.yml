@@ -165,8 +165,20 @@ jobs:
             Copy-Item -LiteralPath 'apps/desktop/release/INSTALAR-LINKLEADS.cmd' -Destination $badCmd -Force
             $badHash = Join-Path $badDir 'SHA256.txt'
             Set-Content -LiteralPath $badHash -Value ($realExe[0].Name + ' SHA256 ' + ('0' * 64)) -Encoding ascii
-            & $badCmd --check-only
-            if ($LASTEXITCODE -eq 0) { throw 'FALHA DE SEGURANCA: assistente aceitou SHA256 adulterado' }
+            # A rejeicao esperada emite stderr. Com ErrorActionPreference=Stop,
+            # invocar .cmd diretamente transforma o stderr em falha do job,
+            # antes de podermos verificar o exit code e o motivo correto.
+            $badStdout = Join-Path $badDir 'negative-stdout.log'
+            $badStderr = Join-Path $badDir 'negative-stderr.log'
+            $args = '/d /c ""' + $badCmd + '" --check-only"'
+            $probe = Start-Process -FilePath $env:ComSpec -ArgumentList $args `
+              -Wait -PassThru -NoNewWindow `
+              -RedirectStandardOutput $badStdout -RedirectStandardError $badStderr
+            if ($probe.ExitCode -eq 0) { throw 'FALHA DE SEGURANCA: assistente aceitou SHA256 adulterado' }
+            $negativeOut = Get-Content -LiteralPath $badStdout -Raw
+            if ($negativeOut -notmatch 'TESTE DE INTEGRIDADE REPROVADO') {
+              throw 'Teste negativo falhou por motivo inesperado: a rejeicao SHA256 nao foi comprovada'
+            }
             Write-Host 'Assistente Windows: manifesto adulterado corretamente bloqueado'
           } finally {
             Remove-Item -LiteralPath $badDir -Recurse -Force -ErrorAction SilentlyContinue
