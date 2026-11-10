@@ -167,6 +167,9 @@ jobs:
             Set-Content -LiteralPath $badHash -Value ($realExe[0].Name + ' SHA256 ' + ('0' * 64)) -Encoding ascii
             & $badCmd --check-only
             if ($LASTEXITCODE -eq 0) { throw 'FALHA DE SEGURANCA: assistente aceitou SHA256 adulterado' }
+            # O exit 1 e EXPECTED neste teste negativo. Limpar o LASTEXITCODE,
+            # pois o runner pwsh usa seu valor final como exit code do job.
+            $global:LASTEXITCODE = 0
             Write-Host 'Assistente Windows: manifesto adulterado corretamente bloqueado'
           } finally {
             Remove-Item -LiteralPath $badDir -Recurse -Force -ErrorAction SilentlyContinue
