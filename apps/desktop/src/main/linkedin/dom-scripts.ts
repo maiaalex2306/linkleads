@@ -249,7 +249,7 @@ export function editorText(sel: Record<string, readonly string[]>): string {
   }
   // Nunca comparar o texto de outro editor quando houver vários comentários abertos.
   if (editors.size !== 1) return '';
-  return [...editors][0]!.innerText.replace(/\\s+/g, ' ').trim();
+  return [...editors][0]!.innerText.replace(/\s+/g, ' ').trim();
 }
 
 /** Conta ocorrências completas do comentário SOMENTE no post identificado.
