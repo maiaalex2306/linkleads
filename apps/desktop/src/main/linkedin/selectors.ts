@@ -73,7 +73,15 @@ export const DEFAULT_SELECTORS = {
   // página de login (entrada automática com o e-mail e a senha salvos na conta)
   loginEmail: ['#username', 'input[name="session_key"]'],
   loginPassword: ['#password', 'input[name="session_password"]'],
-  loginSubmit: ['form.login__form button[type="submit"]', 'button[data-litms-control-urn="login-submit"]', 'button[type="submit"]'],
+  // Preferir o envio do formulário que contém a senha: a página de login atual
+  // também possui botões de provedores externos (Google, Microsoft, Apple).
+  loginSubmit: [
+    'form:has(input[name="session_password"]) button[type="submit"]',
+    'form:has(input#password) button[type="submit"]',
+    'form:has(input[type="password"]) button[type="submit"]',
+    'form.login__form button[type="submit"]',
+    'button[data-litms-control-urn="login-submit"]',
+  ],
   loginError: ['#error-for-password', '#error-for-username', '.form__label--error', '.alert-content'],
   loggedOut: ['form.login__form', 'a[href*="/login"].nav__button-secondary', '.authwall-join-form'],
 } as const;
