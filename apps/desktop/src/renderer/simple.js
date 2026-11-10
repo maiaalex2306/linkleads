@@ -358,6 +358,7 @@ async function campaignPage(a, cols, camps) {
   if (state.creating) return h('div', { class: 'stack' },
     h('button', { class: 'link', onclick: () => { state.creating = false; state.wiz = null; renderView(); } }, '← Voltar'),
     await wizardPage(a, cols));
+  if (!camps.length && !state.simpleArchived) return intentionPicker();
   // Uma área por conta; arquivo separado. O backend omite campanhas arquivadas
   // da lista operacional, mas preserva sua estrutura e histórico.
   const archived = Boolean(state.simpleArchived);
