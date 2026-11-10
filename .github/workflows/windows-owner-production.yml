@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: owner-windows-\${{ github.ref }}
+  group: owner-windows-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -102,7 +102,7 @@ jobs:
       - name: Disponibilizar instalador com hash e instrucoes
         uses: actions/upload-artifact@v4
         with:
-          name: LinkLeads-Producao-Windows-\${{ github.sha }}
+          name: LinkLeads-Producao-Windows-${{ github.sha }}
           path: |
             apps/desktop/release/LinkLeads-Setup-*.exe
             apps/desktop/release/SHA256.txt
