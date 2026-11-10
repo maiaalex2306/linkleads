@@ -84,6 +84,7 @@ try {
     .getByRole('button', { name: 'Abrir campanhas' }).click();
   // A biblioteca é a nova entrada de contas com campanhas; o assistente
   // permanece acessível pelo botão Nova campanha.
+  await ui.getByRole('heading', { name: /^(Campanhas desta conta|O que você quer fazer hoje\\?)$/ }).first().waitFor();
   if (await ui.getByRole('heading', { name: 'Campanhas desta conta' }).count()) {
     await ui.getByRole('button', { name: '+ Nova campanha' }).click();
   }
