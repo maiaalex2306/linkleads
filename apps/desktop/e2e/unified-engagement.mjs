@@ -16,6 +16,7 @@ writeFileSync(csv, 'firstName,lastName,profileUrl\nAna,Silva,https://www.linkedi
 const site = await startFakeSite();
 site.state.unrelatedEditor = true; // outro editor visível não pode ser selecionado
 site.state.modernReaction = true; // permalink do layout moderno sem data-urn
+site.state.modernTimeLabels = true; // atividade moderna: 'há 2 d · Editado' em vez de '2d •'
 const app = await electron.launch({
   executablePath: require(join(appDir, '../../node_modules/electron')),
   args: [process.env.LINKLEADS_E2E_APP ?? appDir],
