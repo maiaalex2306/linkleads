@@ -136,8 +136,9 @@ try {
   await ui.screenshot({ path: join(shots, 'fase4-entregas.png') });
   await ui.locator('.top-menu > summary').click();
   await ui.getByRole('button', { name: 'Configurações gerais' }).click();
+  await ui.getByRole('button', { name: 'Integrações', exact: true }).click();
   await ui.getByText('Enriquecimento: Apollo.io').waitFor();
-  await ui.getByText('Integrações', { exact: true }).scrollIntoViewIfNeeded();
+  await ui.getByRole('heading', { name: 'Integrações', exact: true }).scrollIntoViewIfNeeded();
   await ui.screenshot({ path: join(shots, 'fase4-integracoes.png') });
 } catch (e) {
   fail(e.stack ?? e);
