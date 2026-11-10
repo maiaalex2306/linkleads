@@ -63,4 +63,30 @@ describe('escolha de publicação com confirmação do estado', () => {
     const p = one('urn:li:activity:333333333333', null);
     expect(pickPost([p], 'ana-silva', { maxPostAgeDays: 30 }, 'Ana Silva')?.liked).toBeNull();
   });
+  it('365 dias é um limite inclusivo, mas 366 dias não é elegível', () => {
+    const within = { ...one('urn:li:activity:777777777777', false), age: '365 d' };
+    const outside = { ...one('urn:li:activity:888888888888', false), age: '366 d' };
+    expect(choosePost([within], 'ana-silva', { maxPostAgeDays: 365 }, 'Ana Silva').post?.urn)
+      .toBe(within.urn);
+    const rejected = choosePost([outside], 'ana-silva', { maxPostAgeDays: 365 }, 'Ana Silva');
+    expect(rejected.post).toBeUndefined();
+    expect(rejected.why).toMatch(/mais de 365 dias/);
+  });
+  it('não descarta publicações de 90 e 150 dias quando o limite efetivo é um ano', () => {
+    const p90 = { ...one('urn:li:activity:999999999990', false), age: '90 d' };
+    const p150 = { ...one('urn:li:activity:999999999991', false), age: '150 d' };
+    expect(choosePost([p90, p150], 'ana-silva', { maxPostAgeDays: 365 }, 'Ana Silva').post)
+      .toBeDefined();
+    expect(choosePost([p90, p150], 'ana-silva', { maxPostAgeDays: 30 }, 'Ana Silva').post)
+      .toBeUndefined();
+  });
+
+  it('remove o prefixo de Atividades recebido do título do perfil sem perder a identidade', () => {
+    const post = { ...one('urn:li:activity:777777777778', false),
+      actorHref: null, actorName: 'Ana Silva', age: '150 d' };
+    const result = choosePost([post], 'ana-silva',
+      { maxPostAgeDays: 365 }, 'Atividades | Ana Silva');
+    expect(result.post?.urn).toBe(post.urn);
+  });
+
 });
