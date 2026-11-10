@@ -1,4 +1,4 @@
-import type { WebContents } from 'electron';
+import { BrowserWindow, type WebContents } from 'electron';
 import { humanDelay, randInt, type Rng } from '@linkleads/core';
 
 /**
@@ -36,6 +36,7 @@ export class HumanInput {
   }
 
   async click(x: number, y: number): Promise<void> {
+    BrowserWindow.fromWebContents(this.wc)?.focus();
     await this.moveTo(x + randInt(this.rng, -3, 3), y + randInt(this.rng, -2, 2));
     await this.sleep(randInt(this.rng, 60, 220));
     this.emit?.('click', { x: this.x, y: this.y });
@@ -46,6 +47,7 @@ export class HumanInput {
 
   /** Digitação com cadência irregular e pausas ocasionais. */
   async type(text: string): Promise<void> {
+    BrowserWindow.fromWebContents(this.wc)?.focus();
     const started = Date.now();
     this.emit?.('type_start', { length: text.length });
     for (const ch of text) {
@@ -58,11 +60,14 @@ export class HumanInput {
   }
 
   async scroll(deltaY: number): Promise<void> {
+    // Electron entrega eventos de input somente ao BrowserWindow em foco.
+    BrowserWindow.fromWebContents(this.wc)?.focus();
+    // Positivo = descer a página, negativo = subir (DOM WheelEvent.deltaY).
     this.emit?.('scroll', { deltaY });
     let left = deltaY;
     while (Math.abs(left) > 0) {
       const step = Math.sign(left) * Math.min(Math.abs(left), randInt(this.rng, 60, 140));
-      this.wc.sendInputEvent({ type: 'mouseWheel', x: this.x, y: this.y, deltaX: 0, deltaY: -step });
+      this.wc.sendInputEvent({ type: 'mouseWheel', x: this.x, y: this.y, deltaX: 0, deltaY: step });
       left -= step;
       await this.sleep(randInt(this.rng, 30, 90));
     }
