@@ -63,6 +63,17 @@ jobs:
             node "apps/desktop/e2e/$suite.mjs"
             if ($LASTEXITCODE -ne 0) { throw "E2E reprovado: $suite" }
           }
+      - name: Fotografar oito telas do bundle Windows com dados ficticios
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $appDir = Join-Path $env:GITHUB_WORKSPACE 'apps/desktop/app-dist'
+          $outDir = Join-Path $env:GITHUB_WORKSPACE 'visual-windows'
+          node apps/desktop/e2e/visual-snapshots.mjs --app-dir "$appDir" --out "$outDir"
+          if ($LASTEXITCODE -ne 0) { throw 'Capturas visuais Windows falharam' }
+          $images = @(Get-ChildItem $outDir -Filter '*.png' -File)
+          if ($images.Count -ne 8) { throw "Esperadas 8 capturas: recebidas $($images.Count)" }
+          Write-Host "HOMOLOGADO: 8 screenshots de Windows sem conta real"
       - name: Gerar instalador Windows NSIS (identidade de producao)
         shell: pwsh
         working-directory: apps/desktop
@@ -107,5 +118,7 @@ jobs:
             apps/desktop/release/LinkLeads-Setup-*.exe
             apps/desktop/release/SHA256.txt
             apps/desktop/release/LEIA-ME-INSTALACAO.txt
+            visual-windows/*.png
+            visual-windows/manifest.json
           if-no-files-found: error
           retention-days: 30
