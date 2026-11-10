@@ -147,6 +147,13 @@ jobs:
           Set-Content -Path (Join-Path $dir 'LEIA-ME-INSTALACAO.txt') -Value $notes -Encoding utf8
           Write-Host $hashLine
           Write-Host "Assinatura: $($signature.Status) | teste do proprietario, nao distribuicao a clientes."
+      - name: Verificar assistente CMD no Windows com instalador e hash reais
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & cmd.exe /c 'apps\desktop\release\INSTALAR-LINKLEADS.cmd' '--check-only'
+          if ($LASTEXITCODE -ne 0) { throw "Assistente de instalacao rejeitou manifesto SHA256 (exit $LASTEXITCODE)" }
+          Write-Host 'Assistente Windows: integridade validada sem desativar protecoes e sem executar setup'
       - name: Disponibilizar instalador com hash e instrucoes
         uses: actions/upload-artifact@v4
         with:
