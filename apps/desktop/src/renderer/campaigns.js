@@ -213,7 +213,7 @@ function engagementForm(a, cols) {
       h('label', {}, 'Coleção', h('select', { name: 'collectionId', required: true }, ...cols.map((c) => h('option', { value: c.id }, `${c.name} (${c.size})`)))),
       h('label', {}, 'Comentários', h('select', { name: 'commentMode' }, h('option', { value: 'manual' }, 'Eu aprovo cada um (recomendado)'), h('option', { value: 'auto' }, 'Publicar automaticamente'))),
       h('label', {}, 'Tom', h('select', { name: 'tone' }, h('option', { value: 'profissional' }, 'Profissional'), h('option', { value: 'consultivo' }, 'Consultivo'), h('option', { value: 'caloroso' }, 'Caloroso'))),
-      h('label', {}, 'Post de até (dias)', h('input', { name: 'maxPostAgeDays', type: 'number', min: 1, max: 365, value: '30', style: 'width:90px' })),
+      h('label', {}, 'Post de até (dias)', h('input', { name: 'maxPostAgeDays', type: 'number', min: 1, max: 365, value: '365', style: 'width:90px' })),
     ),
     h('label', {}, 'Instruções extras para a IA (opcional)', h('textarea', { name: 'extraInstructions', placeholder: 'Ex.: quando fizer sentido, conecte com eficiência hídrica e saneamento.' })),
     h('div', {}, h('button', { class: 'primary', disabled: !cols.length }, 'Criar campanha')),
