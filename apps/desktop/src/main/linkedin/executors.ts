@@ -124,8 +124,17 @@ export function visitAndExtract(d: ExecutorDeps): ActionExecutor {
               message: `O perfil abriu, mas o app não reconheceu a página (lenta ou layout diferente do esperado); tenta de novo em 3 h${file ? `. Relatório para ajuste: ${file}` : ''}`,
             };
           }
-          await d.driver.browse(200, 900); // "lê" o perfil
-          return captureOpenProfile(d, ctx.person);
+          // Visitar significa carregar o perfil e percorrer parte dele,
+          // não apenas abrir a URL. A plataforma decide quando registra a visita.
+          const browse = await d.driver.browseProfile(280, 520);
+          if (browse.scrollable && browse.movedPx < 20) {
+            return { ok: false, reason: 'NO_REAL_EFFECT',
+              message: 'Perfil reconhecido, mas não foi possível confirmar a rolagem da página' };
+          }
+          const captured = await captureOpenProfile(d, ctx.person);
+          if (!captured.ok) return captured;
+          return { ...captured, data: { ...(captured.data ?? {}), profileScrollPx: browse.movedPx,
+            profileScrollable: browse.scrollable } };
         }),
       ),
   };
