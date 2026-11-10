@@ -15,6 +15,7 @@ const csv = join(temp, 'leads.csv');
 writeFileSync(csv, 'firstName,lastName,profileUrl\nAna,Silva,https://www.linkedin.com/in/ana-silva/\n');
 const site = await startFakeSite();
 site.state.activityDeepPosts = true;
+site.state.modernReaction = process.env.LINKLEADS_E2E_MODERN_REACTION === '1';
 site.state.liked = true;
 site.state.deepAge = '1 a';
 const app = await electron.launch({
