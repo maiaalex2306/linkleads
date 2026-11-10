@@ -386,31 +386,48 @@ async function configPage(a) {
   const ritmo = (key, title, desc) => h('label', { class: 'choice' + (preset === key ? ' sel' : '') },
     h('input', { type: 'radio', name: 'ritmo', checked: preset === key, onchange: () => setPreset(key) }), h('div', {}, h('b', {}, title), h('div', { class: 'muted' }, desc)));
   const sec = (icon, title, ok, body) => h('div', { class: 'card stack' }, h('div', { class: 'row' }, h('span', { class: 'ficon' }, icon), h('h3', { style: 'margin:0;flex:1' }, title), ok != null && h('span', { class: 'pill ' + (ok ? 'ok' : 'warn') }, ok ? 'ok' : 'falta')), body);
+  const tabs = [
+    ['access', 'Acesso e login'], ['schedule', 'Horários'],
+    ['limits', 'Limites e ritmo'], ['network', 'Rede e proxy'],
+  ];
+  const selected = tabs.some(([id]) => id === state.accountSettingsSection) ? state.accountSettingsSection : 'access';
+  const tab = ([id, title]) => h('button', {
+    type: 'button', class: selected === id ? 'primary' : '',
+    'aria-current': selected === id ? 'page' : undefined,
+    onclick: () => { state.accountSettingsSection = id; renderView(); },
+  }, title);
   return h('div', { class: 'stack' },
-    sec('🔑', 'Login do LinkedIn', a.hasLinkedinPassword,
+    h('h2', {}, 'Configurações desta conta LinkedIn'),
+    h('p', { class: 'muted' }, 'Login, horários, limites e proxy são exclusivos desta conta. Configurações globais ficam em uma área separada.'),
+    h('nav', { class: 'row', 'aria-label': 'Abas da conta LinkedIn', style: 'display:flex;gap:8px;flex-wrap:wrap;padding-bottom:12px;border-bottom:1px solid var(--border, #ddd)' },
+      ...tabs.map(tab)),
+    selected === 'access' && sec('🔑', 'Login do LinkedIn', a.hasLinkedinPassword,
       state.loginOpen ? loginPanel(a, () => { state.loginOpen = false; renderView(); })
-        : h('div', { class: 'row' }, h('span', { class: 'muted', style: 'flex:1' }, a.hasLinkedinPassword ? `Entra sozinho como ${a.linkedinEmail}.` : 'Sem login salvo: você entra manualmente na janela do LinkedIn.'),
-            h('button', { onclick: () => { state.loginOpen = true; renderView(); } }, a.hasLinkedinPassword ? 'Trocar' : 'Salvar login'))),
-    sec('🤖', 'Inteligência artificial (comentários e mensagens)', settings.hasAiKey,
-      h('div', { class: 'row' }, h('span', { class: 'muted', style: 'flex:1' }, settings.hasAiKey ? 'Chave configurada.' : 'Sem chave: o app curte, mas não comenta nem escreve mensagens com IA.'),
-        h('button', { class: settings.hasAiKey ? '' : 'primary', onclick: () => { state.tab = 'settings'; renderView(); } }, settings.hasAiKey ? 'Alterar' : 'Configurar a chave'))),
-    sec('🕒', 'Horário de trabalho', null,
+        : h('div', { class: 'row' }, h('span', { class: 'muted', style: 'flex:1' },
+            a.hasLinkedinPassword ? 'Credencial desta conta já configurada.' : 'Sem login salvo: autenticação manual na janela do LinkedIn.'),
+          h('button', { onclick: () => { state.loginOpen = true; renderView(); } },
+            a.hasLinkedinPassword ? 'Trocar login' : 'Configurar login'))),
+    selected === 'schedule' && sec('🕒', 'Horário desta conta', null,
       state.hoursOpen ? hoursPanel(a, () => { state.hoursOpen = false; renderView(); })
-        : h('div', { class: 'row' }, h('span', { class: 'muted', style: 'flex:1' }, `${a.workingHours.start}–${a.workingHours.end} · ${a.workingHours.days.length === 7 ? 'todos os dias' : `${a.workingHours.days.length} dias por semana`} (${a.workingHours.timezone})`),
-            h('button', { onclick: () => { state.hoursOpen = true; renderView(); } }, 'Alterar'))),
-    sec('🚦', 'Ritmo (quanto o app faz por dia)', null,
+        : h('div', { class: 'row' }, h('span', { class: 'muted', style: 'flex:1' },
+            a.workingHours.start + '–' + a.workingHours.end + ' (' + a.workingHours.timezone + ')'),
+          h('button', { onclick: () => { state.hoursOpen = true; renderView(); } }, 'Alterar horário'))),
+    selected === 'limits' && sec('🚦', 'Limites e ritmo desta conta', null,
       h('div', { class: 'stack' },
-        ritmo('safe', 'Conservador — conta nova no LinkedIn', 'Começa devagar e sobe em ~6 semanas.'),
-        ritmo('normal', 'Recomendado', 'O que o Linked Helper recomenda para contas com mais de 1 ano: ~150 perfis e 20 convites por dia, 100 convites por semana.'),
-        ritmo('fast', 'Acelerado', '50% a mais (dentro dos tetos de segurança). Mais risco de bloqueio.'),
-        preset === 'custom' && h('div', { class: 'muted' }, 'Você está com regras personalizadas.'),
+        ritmo('safe', 'Conservador', 'Ritmo restrito, indicado para contas novas.'),
+        ritmo('normal', 'Padrão', 'Respeita os limites internos de segurança configurados no produto.'),
+        ritmo('fast', 'Acelerado', 'Maior volume dentro dos limites internos; exige avaliação de risco.'),
+        preset === 'custom' && h('div', { class: 'muted' }, 'Esta conta utiliza regras personalizadas.'),
         state.limitsOpen ? limitsPanel(a, () => { state.limitsOpen = false; renderView(); })
-          : h('div', {}, h('button', { class: 'link', onclick: () => { state.limitsOpen = true; renderView(); } }, 'Personalizar os limites (avançado)')))),
-    sec('🔗', 'Para onde vão as respostas (webhook / CRM)', integ.webhook.enabled && !!integ.webhook.url,
-      h('div', { class: 'row' }, h('span', { class: 'muted', style: 'flex:1' }, integ.webhook.enabled && integ.webhook.url ? 'Webhook ligado: quem responder é enviado automaticamente.' : 'Sem webhook: as respostas ficam só no app.'),
-        h('button', { onclick: () => { state.tab = 'settings'; renderView(); } }, 'Configurar'))),
-    sec('🌐', 'Proxy', null, h('div', { class: 'row' }, h('span', { class: 'muted', style: 'flex:1' }, a.proxy ? `Usando ${a.proxy.host}` : 'Sem proxy (usa a internet deste computador). Só precisa com várias contas.'),
-      h('button', { onclick: () => goAdvanced() }, 'Configurar'))),
+          : h('button', { class: 'link', onclick: () => { state.limitsOpen = true; renderView(); } }, 'Ajustar limites específicos'))),
+    selected === 'network' && sec('🌐', 'Proxy desta conta', null,
+      h('div', { class: 'row' },
+        h('span', { class: 'muted', style: 'flex:1' }, a.proxy ? 'Proxy configurado nesta conta' : 'Sem proxy nesta conta.'),
+        h('button', { onclick: () => goAdvanced() }, 'Configurar proxy'))),
+    h('div', { class: 'card stack' },
+      h('strong', {}, 'Configurações compartilhadas do LINKLEADS'),
+      h('span', { class: 'muted' }, 'IA, modelos, oferta/ICP, integrações e bloqueios gerais são comuns a todas as contas.'),
+      h('button', { onclick: () => { state.tab = 'settings'; state.settingsSection = 'ai'; renderView(); } }, 'Abrir configurações do sistema')),
   );
 }
 
@@ -445,14 +462,17 @@ async function trackPage(a, camps, stats) {
   const settings = await api.getSettings();
   const need = [
     !settings.hasAiKey && h('button', { class: 'primary', onclick: () => { state.tab = 'settings'; renderView(); } }, '⚠ Configurar a chave da IA (sem ela não há comentários)'),
-    stats.pendingApprovals > 0 && h('button', { class: 'primary', onclick: () => { state.showApprovals = !state.showApprovals; renderView(); } }, `✍ Aprovar ${stats.pendingApprovals} comentário(s)/mensagem(ns)`),
+    stats.pendingApprovals > 0 && h('button', { class: 'primary', onclick: () => { state.showApprovals = state.showApprovals === false ? true : false; renderView(); } }, `${state.showApprovals === false ? 'Mostrar' : 'Ocultar'} ${stats.pendingApprovals} aprovação(ões) pendente(s)`),
     stats.unhandledReplies > 0 && h('button', { class: 'primary', onclick: () => { state.showInbox = !state.showInbox; renderView(); } }, `↩ ${stats.unhandledReplies} resposta(s) para você atender`),
   ].filter(Boolean);
   return h('div', { class: 'stack' },
     need.length ? h('div', { class: 'card stack attention' }, h('strong', {}, 'Precisa de você'), h('div', { class: 'row' }, ...need)) : '',
-    state.showApprovals && stats.pendingApprovals > 0 && h('div', { class: 'card' }, await approvalsView(a)),
+    state.showApprovals !== false && stats.pendingApprovals > 0 && h('section', { class: 'card stack', 'aria-label': 'Aprovações pendentes nesta campanha' }, h('h3', {}, 'Aprovações pendentes — sem pausar a campanha'), h('p', { class: 'muted' }, 'Revise e aprove cada texto aqui mesmo. Aprovar não exige pausar a conta nem abandonar o acompanhamento.'), await approvalsView(a)),
     state.showInbox && stats.unhandledReplies > 0 && h('div', { class: 'card' }, await inboxView(a)),
-    livePanel(a),
+    h('section', { class: 'stack', 'aria-label': 'Execução e eventos da campanha' },
+      h('h3', {}, 'Acompanhamento da execução'),
+      h('p', { class: 'muted' }, 'Veja quem está sendo atendido, a etapa em andamento e o resultado efetivamente confirmado. Eventos sem comprovação não são tratados como sucesso.'),
+      livePanel(a)),
     h('div', { class: 'card stack' },
       h('div', { class: 'row' }, h('strong', { style: 'flex:1' }, `Onde estão as ${active.people.length} pessoas de "${active.name}"`),
         h('button', { class: 'link', onclick: () => goAdvanced('campaigns') }, 'ver lista completa')),
