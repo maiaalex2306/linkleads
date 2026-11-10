@@ -73,7 +73,7 @@ try {
   await ui.locator('.top-menu > summary').click();
   await ui.getByRole('button', { name: 'Configurações gerais' }).click();
   await ui.getByText('Sobre mim').first().waitFor();
-  await shot('03-configuracoes-seguras', '.password-field');
+  await shot('03-configuracoes-seguras', '#view .password-field:visible');
   await ui.getByRole('button', { name: '← Voltar' }).click();
   await ui.locator('.launcher-page').waitFor();
 
