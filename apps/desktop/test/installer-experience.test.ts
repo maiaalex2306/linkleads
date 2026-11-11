@@ -86,6 +86,9 @@ describe('instalacao assistida Windows', () => {
     expect(repair).toContain('expectedVersion');
     expect(repair).toContain('installedVersion');
     expect(repair).toContain('LinkLeads-Setup-');
+    expect(repair).toContain('if($match.Success)');
+    expect(repair).toContain('if(-not $exe)');
+    expect(repair).toContain('if(-not $expectedVersion');
     expect(repair).toContain('resultado-atalho.json');
     expect(repair).toContain("if($state -ne 'aprovado'){exit 1}");
     expect(repair).not.toMatch(/Set-ExecutionPolicy|ExecutionPolicy\\s+Bypass|DisableRealtimeMonitoring/i);
