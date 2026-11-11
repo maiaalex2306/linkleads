@@ -61,12 +61,33 @@ describe('aprovação humana', () => {
     const r = await runner.tick(campaign, account);
 
     expect(r.awaitingApproval).toBe(1);
+    expect(store.usageTimes('acc', 'likes', 0)).toHaveLength(1);
+    expect(store.usageTimes('acc', 'activity', 0)).toHaveLength(1);
     expect(store.statusOf('c', engagement!.id, 'p1')).toMatchObject({ status: 'processed', reason: 'AWAITING_APPROVAL' });
     // não é reprocessado no próximo tick
     expect(store.listQueued('c', engagement!.id, -1)).toHaveLength(0);
 
     resolveApproval(store, campaign, engagement!.id, 'p1', { executed: true });
     expect(store.statusOf('c', engagement!.id, 'p1')?.status).toBe('successful');
+  });
+
+  it('ação composta soma curtida e comentário ao limite geral, sem duplicar as chaves', async () => {
+    const campaign = { ...engagementCampaign({ id: 'combined', accountId: 'acc', name: 'Engajar', commentMode: 'auto' }), active: true };
+    const [, engagement] = campaign.actions;
+    const store = new InMemoryCampaignStore();
+    store.addPerson({ id: 'p1' });
+    store.enqueue('combined', engagement!.id, 'p1');
+    const executors = new ExecutorRegistry()
+      .register({ type: 'LikeAndComment', execute: async () => ({ ok: true, data: { usageKeys: ['likes', 'comments', 'likes'] } }) });
+    const account: Account = {
+      id: 'acc', label: 'x', tier: 'basic', paused: false, onboardedAt: '2026-01-01T00:00:00Z',
+      workingHours: { timezone: 'America/Sao_Paulo', days: [1, 2, 3, 4, 5], start: '09:00', end: '18:00' },
+    };
+    const runner = new CampaignRunner({ store, executors, now: () => new Date('2026-11-09T13:00:00Z'), sleep: async () => {} });
+    await runner.tick(campaign, account);
+    expect(store.usageTimes('acc', 'likes', 0)).toHaveLength(1);
+    expect(store.usageTimes('acc', 'comments', 0)).toHaveLength(1);
+    expect(store.usageTimes('acc', 'activity', 0)).toHaveLength(2);
   });
 });
 
