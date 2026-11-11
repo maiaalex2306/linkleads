@@ -26,9 +26,9 @@ if not defined LL_RUN (
   goto :fail
 )
 if exist "D:\" (
-  set "LL_DEST=D:\LinkLeads\Instaladores\run-%LL_RUN%"
+  set "LL_DEST=D:\LinkLeads-Seguro\Instaladores\run-%LL_RUN%"
 ) else (
-  set "LL_DEST=%USERPROFILE%\Documents\LinkLeads\Instaladores\run-%LL_RUN%"
+  set "LL_DEST=%USERPROFILE%\Documents\LinkLeads-Seguro\Instaladores\run-%LL_RUN%"
 )
 echo Workflow aprovado: %LL_RUN%
 echo Destino: %LL_DEST%
