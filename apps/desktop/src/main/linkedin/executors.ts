@@ -265,6 +265,11 @@ export function choosePost(posts: PostExtract[], publicId: string, s: LikeSettin
   return { why: `Achei ${posts.length} post(s), nenhum serve: ${parts.join(', ')}` };
 }
 
+/** Progresso só é demonstrável por URNs canônicas novas. Índices ll-idx-* se repetem. */
+export function hasNewVerifiedPost(seen: ReadonlyMap<string, PostExtract>, batch: readonly PostExtract[]): boolean {
+  return batch.some((post) => isCanonicalPostUrn(post.urn) && !seen.has(post.urn));
+}
+
 /**
  * Percorre a atividade como o usuário: lê os posts da viewport, desce com wheel
  * nativo e espera novos cartões surgirem antes de avaliar novamente.
@@ -330,7 +335,7 @@ async function discoverUnlikedPost(
     // (unresolved:step:index) indicava progresso falso a cada rolagem.
     // A detecção de novos cartões usa exclusivamente identidades estáveis;
     // alterações de altura/posição continuam indicando paginação real.
-    const newPost = next.some((p) => isCanonicalPostUrn(p.urn) && !seen.has(p.urn));
+    const newPost = hasNewVerifiedPost(seen, next);
     if (after.offset <= before.offset && after.height <= before.height && !newPost) stalled++;
     else stalled = 0;
     if (stalled >= 3) break; // fim do feed, sem movimento nem carga adicional
