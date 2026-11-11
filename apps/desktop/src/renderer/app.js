@@ -150,7 +150,7 @@ async function renderView() {
   const header = h('div', {},
     h('div', { class: 'row' },
       h('button', { class: 'link', onclick: returnToLauncher }, '← Contas'),
-      h('button', { class: 'link', onclick: () => { state.mode = 'simple'; renderView(); } }, 'Tela guiada'),
+      h('button', { class: 'link', onclick: () => { state.mode = 'simple'; state.g = 'campaign'; renderView(); } }, 'Tela guiada'),
       h('h2', { style: 'margin:0;flex:1' }, a.label),
       a.running
         ? [
