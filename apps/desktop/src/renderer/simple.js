@@ -77,6 +77,10 @@ function simpleCampaignStatus(a, c) {
 /** Iniciar aqui executa somente a campanha escolhida; outras ativas exigem confirmação. */
 async function startSimpleCampaign(a, c, camps) {
   if (a.paused) { toast('A conta está pausada. Resolva a pausa antes de iniciar campanhas.', 7000); return; }
+  if (a.runnerEnabled && a.running && c.active) {
+    openSimpleCampaign(c.id, 'track');
+    return;
+  }
   const others = camps.filter((x) => x.id !== c.id && x.active && !x.archived);
   if (others.length && !window.confirm('Há ' + others.length + ' outra(s) campanha(s) ativa(s). Pausá-las para executar somente esta campanha?')) return;
   try {
@@ -137,6 +141,7 @@ function openSimpleCampaign(id, section = 'workflow') {
 async function listsPage(a, cols, camps) {
   const usedBy = (id) => camps.filter((c) => c.people.length && c.collectionIds?.includes?.(id)).map((c) => c.name);
   return h('div', { class: 'stack' },
+    h('button', { class: 'link', onclick: () => { state.g = 'campaign'; renderView(); } }, '← Voltar à campanha'),
     h('div', { class: 'row' },
       h('div', { style: 'flex:1' }, h('h3', { style: 'margin:0' }, 'Suas listas de leads'),
         h('div', { class: 'muted' }, 'Importe a planilha (exportação do Linked Helper, do Sales Navigator ou qualquer CSV com nome + link do perfil).')),
@@ -538,6 +543,7 @@ async function configPage(a) {
     onclick: () => { state.accountSettingsSection = id; renderView(); },
   }, title);
   return h('div', { class: 'stack' },
+    h('button', { class: 'link', onclick: () => { state.g = 'campaign'; renderView(); } }, '← Voltar às campanhas'),
     h('h2', {}, 'Configurações desta conta LinkedIn'),
     h('p', { class: 'muted' }, 'Login, horários, limites e proxy são exclusivos desta conta. Configurações globais ficam em uma área separada.'),
     h('nav', { class: 'row', 'aria-label': 'Abas da conta LinkedIn', style: 'display:flex;gap:8px;flex-wrap:wrap;padding-bottom:12px;border-bottom:1px solid var(--border, #ddd)' },
