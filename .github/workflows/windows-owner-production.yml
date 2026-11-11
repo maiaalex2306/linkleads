@@ -36,6 +36,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Typecheck reprovado' }
           npm run build
           if ($LASTEXITCODE -ne 0) { throw 'Build reprovado' }
+      - name: P0 — validar integridade e nao exclusao das pastas da instalacao
+        shell: pwsh
+        run: |
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-baseline-preservation.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'Baseline de preservacao reprovada' }
       - name: Empacotar canal de producao (testes do proprietario)
         shell: pwsh
         env:
@@ -107,6 +112,9 @@ jobs:
             throw 'Assistente contem instrucao de enfraquecimento das protecoes Windows'
           }
           Copy-Item -LiteralPath $script -Destination 'apps/desktop/release/INSTALAR-LINKLEADS.cmd' -Force
+          $baseline = 'scripts/BASELINE-LINKLEADS.ps1'
+          if (-not (Test-Path -LiteralPath $baseline -PathType Leaf)) { throw 'Modulo de baseline P0 ausente' }
+          Copy-Item -LiteralPath $baseline -Destination 'apps/desktop/release/BASELINE-LINKLEADS.ps1' -Force
           $repair = 'scripts/REPARAR-ATALHO-LINKLEADS.cmd'
           if (-not (Test-Path -LiteralPath $repair -PathType Leaf)) { throw 'Reparador de atalho ausente' }
           $rawRepair = Get-Content -LiteralPath $repair -Raw
@@ -137,6 +145,7 @@ jobs:
           if ($files[0].Length -lt 1000000) { throw 'Instalador incompleto' }
           if (-not (Test-Path -LiteralPath (Join-Path $dir 'INSTALAR-LINKLEADS.cmd'))) { throw 'Assistente de instalacao nao foi empacotado' }
           if (-not (Test-Path -LiteralPath (Join-Path $dir 'REPARAR-ATALHO-LINKLEADS.cmd'))) { throw 'Reparador de atalho nao foi empacotado' }
+          if (-not (Test-Path -LiteralPath (Join-Path $dir 'BASELINE-LINKLEADS.ps1'))) { throw 'Gate P0 de backup SHA256 ausente do pacote' }
           $hash = Get-FileHash $files[0].FullName -Algorithm SHA256
           $hashLine = "$($files[0].Name) SHA256 $($hash.Hash)"
           Set-Content -Path (Join-Path $dir 'SHA256.txt') -Value $hashLine -Encoding utf8
@@ -149,7 +158,10 @@ jobs:
             'AppId: br.com.linkleads.app (mesma identidade da instalacao normal)'
             'Dados locais: utiliza contas, sessoes e SQLite da instalacao normal'
             'INSTALACAO SIMPLIFICADA: apos extrair o ZIP, abra INSTALAR-LINKLEADS.cmd por duplo clique.'
-            'O assistente verifica SHA256, preserva backup, solicita Defender, abre o setup e grava resultado-instalacao.json.'
+            'O assistente verifica SHA256 e cria snapshot completo, com SHA256 por arquivo de contas, SQLite, WAL, cookies e aplicativo instalado.'
+            'Se a copia ou integridade falhar, a instalacao nao sera iniciada.'
+            'Relatorio do backup: D:\LinkLeads\Relatorios\resultado-baseline-linkleads.json (ou Documents quando D: nao existir).'
+            'O assistente solicita Defender, abre o setup e grava resultado-instalacao.json.'
             'Se o setup nao gerar o atalho, REPARAR-ATALHO-LINKLEADS.cmd verifica o EXE instalado e cria o atalho no Desktop.'
             'O instalador cria automaticamente um atalho LinkLeads na area de trabalho e no Menu Iniciar.'
             'ANTES DE INSTALAR: fechar o LinkLeads e fazer backup completo dos dados locais.'
@@ -196,6 +208,7 @@ jobs:
             apps/desktop/release/LinkLeads-Setup-*.exe
             apps/desktop/release/SHA256.txt
             apps/desktop/release/INSTALAR-LINKLEADS.cmd
+            apps/desktop/release/BASELINE-LINKLEADS.ps1
             apps/desktop/release/REPARAR-ATALHO-LINKLEADS.cmd
             apps/desktop/release/LEIA-ME-INSTALACAO.txt
             visual-windows/*.png
