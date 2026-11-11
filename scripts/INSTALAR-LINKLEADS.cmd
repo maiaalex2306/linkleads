@@ -7,7 +7,7 @@ echo =========================================================
 echo.
 echo Este assistente verifica a integridade, cria backup,
 echo abre o instalador oficial e confere o atalho.
-echo Ele NAO desativa protecoes do Windows.
+echo Ele NAO desativa protecoes do Windows nem apaga arquivos existentes.
 echo.
 set "LL_STAGE=localizar_instalador"
 set "LL_HASH_OK=false"
@@ -48,9 +48,17 @@ if errorlevel 1 goto :fail
 
 set "LL_STAGE=backup"
 echo.
-echo Criando backup dos dados existentes...
-powershell.exe -NoProfile -Command "$ErrorActionPreference='Stop';$root=$env:LL_BACKUP_ROOT;New-Item -ItemType Directory -Force -Path $root | Out-Null;$sources=@(@{tag='LinkLeads';dir=(Join-Path $env:APPDATA 'LinkLeads')},@{tag='ScopedDesktop';dir=(Join-Path (Join-Path $env:APPDATA '@linkleads') 'desktop')});$existing=@($sources | Where-Object {Test-Path -LiteralPath $_.dir -PathType Container});if($existing.Count -eq 0){Write-Host 'Primeira instalacao: nenhum diretorio conhecido de dados foi encontrado.'}else{$dest=Join-Path $root ('LinkLeads-'+(Get-Date -Format 'yyyyMMdd-HHmmssfff'));New-Item -ItemType Directory -Force -Path $dest | Out-Null;foreach($src in $existing){$target=Join-Path $dest $src.tag;Copy-Item -LiteralPath $src.dir -Destination $target -Recurse -Force -ErrorAction Stop;if(-not(Test-Path -LiteralPath $target -PathType Container)){throw ('Pasta de backup ausente: '+$target)};$originals=@(Get-ChildItem -LiteralPath $src.dir -File -Recurse -Force -ErrorAction Stop);$copies=@(Get-ChildItem -LiteralPath $target -File -Recurse -Force -ErrorAction Stop);if($copies.Count -ne $originals.Count){throw ('Quantidade de arquivos do backup divergente: '+$src.dir)};$originalBytes=($originals | Measure-Object Length -Sum).Sum;$copiedBytes=($copies | Measure-Object Length -Sum).Sum;if($originalBytes -ne $copiedBytes){throw ('Tamanho total do backup divergente: '+$src.dir)};Write-Host ('Backup verificado: '+$src.dir+' -> '+$target) -ForegroundColor Green};Write-Host ('Backup desta instalacao: '+$dest) -ForegroundColor Green}"
-if errorlevel 1 goto :fail
+echo Inventariando versao e dados e conferindo backup SHA256 por arquivo...
+if not exist "%~dp0BASELINE-LINKLEADS.ps1" (
+  echo ERRO: BASELINE-LINKLEADS.ps1 nao foi incluido na raiz do pacote.
+  goto :fail
+)
+powershell.exe -NoProfile -File "%~dp0BASELINE-LINKLEADS.ps1" -Mode Backup -ReportDirectory "%LL_REPORT_DIR%" -BackupRoot "%LL_BACKUP_ROOT%" -InstallerPath "%LL_INSTALLER%"
+if errorlevel 1 (
+  echo ERRO: inventario ou backup SHA256 reprovado. A instalacao foi bloqueada.
+  echo Consulte %LL_REPORT_DIR%\resultado-baseline-linkleads.json
+  goto :fail
+)
 
 set "LL_STAGE=antivirus"
 echo.
