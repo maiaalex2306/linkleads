@@ -56,7 +56,7 @@ try {
   check(loads.length === 1 && how['ana-silva'] === 'link',
     'primeiro lead abre pela URL exata, sem pesquisa por nome', loads);
   const waitingSlugs = ['bruno-lima', 'diego-alves', 'carla-souza'];
-  check(waitingSlugs.every((slug) => !how[slug]) && site.state.searches === 0,
+  check(waitingSlugs.every((slug) => !how[slug]) && (site.state.searches ?? 0) === 0,
     'demais leads não são abertos nem pesquisados após esgotar a vaga', { loads, searches: site.state.searches });
   const waitingSlug = 'bruno-lima';
   const people = (await call('listCampaigns', acc.id))[0].people;
@@ -79,7 +79,7 @@ try {
   await call('setCampaignActive', acc.id, camp2.campaignId, true);
   await call('runNow', acc.id);
   const last = (site.state.profileLoads || []).filter((l) => l.slug === waitingSlug);
-  check(site.state.searches === 0 && last.length === 0,
+  check((site.state.searches ?? 0) === 0 && last.length === 0,
     'sem sugestões e sem quota de URL: não pesquisa homônimos nem navega ao lead', { searches: site.state.searches, last });
   check((await meter('profile_url')).used === 1, 'bloqueio não consome crédito adicional por URL');
 
