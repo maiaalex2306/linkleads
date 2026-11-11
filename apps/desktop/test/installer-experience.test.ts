@@ -36,7 +36,8 @@ describe('instalacao assistida Windows', () => {
     expect(baseline).toContain("Join-Path $env:APPDATA '@linkleads'");
     expect(baseline).toContain("'desktop'");
     expect(baseline).toContain('Copy-Item -LiteralPath');
-    expect(baseline).toContain('Get-FileHash -LiteralPath');
+    expect(baseline).toContain('[System.Security.Cryptography.SHA256]::Create()');
+    expect(baseline).not.toContain('Get-FileHash -LiteralPath');
     expect(baseline).toContain('(Hash $to) -ne $file.sha256');
     expect(baseline).toContain('Get-Process -Name');
     expect(baseline).not.toMatch(/Remove-Item|rmSync|rmdir|\bdel\s+|\brd\s+/i);
