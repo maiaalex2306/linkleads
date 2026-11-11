@@ -9,10 +9,10 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 if (-not $ReportDirectory) {
- $ReportDirectory = if (Test-Path 'D:\') {'D:\LinkLeads\Relatorios'} else {Join-Path $env:USERPROFILE 'Documents\LinkLeads\Relatorios'}
+ $ReportDirectory = if (Test-Path 'D:\') {'D:\LinkLeads-Seguro\Relatorios'} else {Join-Path $env:USERPROFILE 'Documents\LinkLeads-Seguro\Relatorios'}
 }
 if (-not $BackupRoot) {
- $BackupRoot = if (Test-Path 'D:\') {'D:\LinkLeads\Backups'} else {Join-Path $env:USERPROFILE 'Documents\LinkLeads\Backups'}
+ $BackupRoot = if (Test-Path 'D:\') {'D:\LinkLeads-Seguro\Backups'} else {Join-Path $env:USERPROFILE 'Documents\LinkLeads-Seguro\Backups'}
 }
 $reportPath = Join-Path ([IO.Path]::GetFullPath($ReportDirectory)) 'resultado-baseline-linkleads.json'
 $report = [ordered]@{
