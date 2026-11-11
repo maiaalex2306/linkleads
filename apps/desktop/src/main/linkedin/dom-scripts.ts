@@ -72,12 +72,8 @@ export function llIsReact(el: Element): boolean {
 export function llPostContainers(sel: { postItem: readonly string[]; likeButton: readonly string[] }): Array<{ el: Element; urn: string }> {
   const out: Array<{ el: Element; urn: string }> = [];
   const seen = new Set<string>();
-  for (const c of sel.postItem) {
-    for (const el of Array.from(document.querySelectorAll(c))) {
-      const urn = el.getAttribute('data-urn');
-      if (urn && !seen.has(urn)) { seen.add(urn); out.push({ el, urn }); }
-    }
-  }
+  // Identidades dos cartões clássicos serão validadas pela MESMA rotina
+  // que interpreta permalinks no layout moderno. data-urn cru não é prova.
   // Continuar a descoberta: o feed pode misturar cartões antigos com cartões modernos sem data-urn.
   const root = document.querySelector('main') || document.body;
   // As atividades atuais podem mostrar "há 6 d · Editado", "2 semanas" ou "3 days".
@@ -108,14 +104,15 @@ export function llPostContainers(sel: { postItem: readonly string[]; likeButton:
       return 'urn:li:' + type + ':' + m[2];
     };
     const direct = normalize(el.getAttribute('data-urn') || '');
-    if (direct) return direct;
     const links = Array.from(el.querySelectorAll(
       'a[href*="/feed/update/"], a[href*="/posts/"], a[href*="urn:li:"], a[href*="activity-"]',
     ));
     const permalinks = new Set(links.map((a) => normalize(a.getAttribute('href') || '')).filter((v): v is string => !!v));
-    // Dois IDs distintos no mesmo cartão podem vir de repost ou comentários.
-    // Não escolher arbitrariamente qual publicação será curtida.
-    if (permalinks.size > 1) return null;
+    // O identificador no elemento e os permalinks precisam ser coerentes.
+    // Uma publicação citada ou um cartão mesclado pode trazer URNs distintas.
+    // Nesse caso a identidade é INCERTA, mesmo que data-urn esteja presente.
+    if (permalinks.size > 1 || (direct && permalinks.size === 1 && !permalinks.has(direct))) return null;
+    if (direct) return direct;
     if (permalinks.size === 1) return [...permalinks][0]!;
     const ids = new Set<string>();
     const attrs = [el, ...Array.from(el.querySelectorAll('[data-urn], [data-id], [data-activity-urn], [componentkey], [data-view-tracking-scope]'))];
@@ -128,6 +125,14 @@ export function llPostContainers(sel: { postItem: readonly string[]; likeButton:
     // Ambiguidade é erro de reconhecimento, não licença para executar.
     return ids.size === 1 ? [...ids][0]! : null;
   };
+  // Descoberta clássica: nunca propagar data-urn arbitrário, incompleto ou
+  // inconsistente com o permalink do próprio cartão para ações externas.
+  for (const selector of sel.postItem) {
+    for (const el of Array.from(document.querySelectorAll(selector))) {
+      const urn = urnOf(el);
+      if (urn && !seen.has(urn)) { seen.add(urn); out.push({ el, urn }); }
+    }
+  }
   const seeds: Element[] = [
     ...timeEls,
     ...Array.from(root.querySelectorAll('a[href*="activity"], a[href*="urn:li:"], [data-urn*="activity"], [data-id*="activity"]')),
