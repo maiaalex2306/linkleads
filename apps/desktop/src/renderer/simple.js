@@ -475,7 +475,7 @@ async function campaignPage(a, cols, camps, stats) {
         class: archived === (key === 'archived') ? 'selected' : '',
         'aria-current': archived === (key === 'archived') ? 'page' : undefined,
         onclick: () => { state.simpleArchived = key === 'archived'; renderView(); },
-      }, name + (key === 'current' ? ' (' + camps.length + ')' : ''))),
+      }, name + (key === 'current' ? ' (' + camps.length + ')' : '')))),
     ...summaries.map((c) => {
       const status = simpleCampaignStatus(a, c);
       const raw = camps.find((x) => x.id === c.id);
