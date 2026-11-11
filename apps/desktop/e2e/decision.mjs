@@ -99,7 +99,8 @@ try {
 
   await ui.reload();
   await ui.locator('.account-list .acc').first().click();
-  await ui.getByRole('button', { name: 'Empresas' }).click();
+  await ui.getByText('Outras ferramentas').click();
+  await ui.getByRole('button', { name: 'Empresas e comitês' }).click();
   await ui.getByText('ACME Saneamento').click();
   await ui.getByText('Papéis críticos alcançados').waitFor();
   await ui.screenshot({ path: join(shots, 'fase3-empresa.png'), fullPage: true });

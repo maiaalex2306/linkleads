@@ -29,6 +29,17 @@ function diagReportCard(r, i) {
     h('div', { style: missing.length ? 'color:var(--risk)' : 'color:var(--ok)' }, h('b', {}, 'Obrigatórios não encontrados: '), missing.map((k) => k.key).join(', ') || 'nenhum'),
     absentCond.length > 0 && h('div', { class: 'muted' }, 'Ausentes, mas só aparecem em certas situações (janela aberta, página vazia, dado que a pessoa não tem): ', absentCond.map((k) => k.key).join(', ')),
     r.labels.length > 0 && h('div', {}, h('b', {}, 'Botões por rótulo: '), r.labels.map((l) => `${l.label} ${l.matched ? '✓' : '✗'}`).join(' · ')),
+    r.posts && h('section', { class: 'post-diagnosis card stack' },
+      h('strong', {}, 'Reconhecimento de publicações — somente leitura'),
+      h('div', {}, 'Publicações encontradas: ' + r.posts.recognized
+        + ' · URNs verificáveis: ' + r.posts.canonical
+        + ' · URNs provisórias: ' + r.posts.provisional),
+      h('div', {}, 'Datas verificáveis: ' + r.posts.dated
+        + ' · Datas desconhecidas: ' + r.posts.undated
+        + ' · Reações sem estado confiável: ' + r.posts.reactionUnknown),
+      (r.posts.provisional || r.posts.undated || r.posts.reactionUnknown)
+        && h('p', { class: 'muted' },
+          'Uma publicação sem identificador, data ou estado verificável não autoriza curtidas ou comentários. Salve o relatório para ajustar o leitor.')),
     r.buttons.length > 0 && h('details', {}, h('summary', { class: 'muted' }, `Botões visíveis (${r.buttons.length})`), h('div', { class: 'muted' }, r.buttons.join(' · '))),
   );
 }

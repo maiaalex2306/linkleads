@@ -86,6 +86,48 @@ try {
   const savedAccount = (await call('listAccounts')).find((x) => x.id === acc.id);
   check(!savedAccount.running && !savedAccount.runnerEnabled,
     'não abre LinkedIn nem começa ações automaticamente');
+
+  // UX campanha-first: criação abre detalhes DA CAMPANHA, sem quatro passos globais.
+  await ui.locator('.simple-campaign-detail').waitFor();
+  check(await ui.locator('.gsteps').count() === 0,
+    'navegação global de listas/configuracoes/acompanhamento nao compete com campanha');
+  check(await ui.locator('.simple-campaign-actions').getByRole('button', { name: '▶ Executar esta campanha' }).count() === 1,
+    'executar está ao lado da campanha selecionada');
+  const tabs = ui.getByRole('navigation', { name: 'Áreas desta campanha' });
+  for (const tab of ['Fluxo','Listas','Configurações','Acompanhamento']) {
+    check(await tabs.getByRole('button', { name: tab, exact: true }).count() === 1,
+      tab + ' pertence ao detalhe da campanha');
+  }
+  await tabs.getByRole('button', { name: 'Listas' }).click();
+  check(await ui.locator('.simple-campaign-detail').count() === 1, 'listas mantêm contexto da campanha');
+  await tabs.getByRole('button', { name: 'Acompanhamento' }).click();
+  check(await ui.getByText('Acompanhamento desta campanha').count() === 1,
+    'painel de acompanhamento dentro da campanha');
+  await ui.getByRole('button', { name: '← Todas as campanhas' }).click();
+  await ui.locator('.simple-campaign-row').first().waitFor();
+  check(await ui.locator('.simple-campaign-row').first().getByRole('button', { name: 'Arquivar' }).count() === 1,
+    'arquivar presente junto da campanha');
+  check((await ui.locator('.simple-campaign-row').first().textContent()).includes('Pausada'),
+    'campanha inativa não recebe rótulo de execução');
+  await ui.locator('.simple-campaign-row').first().getByRole('button', { name: 'Ativar' }).click();
+  await ui.getByText('Ativa · aguardando início').first().waitFor();
+  const withoutRunner = (await call('listAccounts')).find((x) => x.id === acc.id);
+  check(!withoutRunner.runnerEnabled, 'ativar campanha NÃO executa LinkedIn automaticamente');
+  await ui.locator('.simple-campaign-row').first().getByRole('button', { name: '⏸ Pausar' }).click();
+  check(!(await call('listCampaigns', acc.id)).find((x) => x.id === all[0].id).active,
+    'pausar campanha desativa somente campanha');
+
+  ui.once('dialog', (dialog) => dialog.accept());
+  await ui.locator('.simple-campaign-row').first().getByRole('button', { name: 'Arquivar' }).click();
+  const archivedRows = await call('listCampaignSummaries', acc.id, true);
+  check(archivedRows.some((c) => c.id === all[0].id && c.archived),
+    'arquivar mantém campanha no arquivo, sem apagar seus contatos');
+  await ui.getByRole('button', { name: 'Arquivadas' }).click();
+  await ui.locator('.simple-campaign-row').first().getByRole('button', { name: 'Restaurar' }).click();
+  const restoredRows = await call('listCampaigns', acc.id);
+  check(restoredRows.some((c) => c.id === all[0].id && c.people.length === 2 && !c.active),
+    'restaurar preserva os dois contatos e não reinicia campanha');
+
   console.log('E2E ONBOARDING GUIDED OK');
 } catch (err) {
   console.error('FALHOU:', err?.stack ?? err);

@@ -135,7 +135,8 @@ try {
   await ui.locator('.launcher-account', { hasText: 'Conta Beta' })
     .getByRole('button', { name: 'Abrir campanhas' }).click();
   await ui.locator('#work-nav').getByRole('button', { name: /Fluxo editável/ }).click();
-  await ui.getByRole('button', { name:'Fluxo de trabalho', exact:true }).click();
+  await ui.getByRole('navigation', { name: 'Áreas desta campanha' })
+    .getByRole('button', { name:'Fluxo', exact:true }).click();
   await ui.getByRole('button', { name:'Editar etapas' }).click();
   await ui.locator('.wb-root').waitFor();
   check(await ui.locator('.wb-action.is-unavailable').count() > 0,

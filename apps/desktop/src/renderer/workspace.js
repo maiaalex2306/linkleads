@@ -28,6 +28,8 @@ async function openAccountWorkspace(id) {
   state.g = 'campaign';
   state.tab = 'campaigns';
   state.campaignId = null;
+  state.simpleSelectedCampaignId = null;
+  state.simpleCampaignSection = 'workflow';
   state.campaignTab = 'info';
   state.campaignPage = 0;
   state.campaignStatusFilter = 'all';
@@ -167,15 +169,15 @@ async function renderWorkspaceSidebar(a) {
     h('div', { class: 'sidebar-divider' }),
     h('div', { class: 'sidebar-heading' }, 'Campanhas desta conta',
       h('span', { class: 'muted' }, String(summaries.length))),
-    h('button', { class: 'workspace-sidebar-link' + (!state.campaignId && state.tab === 'campaigns' ? ' selected' : ''),
-      onclick: () => { state.tab = 'campaigns'; state.campaignId = null; renderView(); } }, 'Todas as campanhas'),
+    h('button', { class: 'workspace-sidebar-link' + (!state.campaignId && !state.simpleSelectedCampaignId && state.tab === 'campaigns' ? ' selected' : ''),
+      onclick: () => { state.tab = 'campaigns'; state.campaignId = null; state.simpleSelectedCampaignId = null; state.g = 'campaign'; renderView(); } }, 'Todas as campanhas'),
     ...summaries.map((c) => h('button', {
-      class: 'workspace-sidebar-link' + (state.campaignId === c.id && state.tab === 'campaigns' ? ' selected' : ''),
+      class: 'workspace-sidebar-link' + ((state.mode === 'simple' ? state.simpleSelectedCampaignId : state.campaignId) === c.id && state.tab === 'campaigns' ? ' selected' : ''),
       title: c.name,
-      onclick: () => openCampaignWorkspace(c.id),
+      onclick: () => state.mode === 'simple' ? openSimpleCampaign(c.id) : openCampaignWorkspace(c.id),
     },
       h('span', { class: 'campaign-side-name' }, c.name),
-      h('span', { class: 'muted' }, (WORK_STATUS[c.status] || c.status) + ' · ' + c.contacts + ' contatos'))),
+      h('span', { class: 'muted' }, (state.mode === 'simple' ? simpleCampaignStatus(a, c).label : (WORK_STATUS[c.status] || c.status)) + ' · ' + c.contacts + ' contatos'))),
     h('div', { class: 'sidebar-divider' }),
     h('div', { class: 'sidebar-heading' }, 'Ferramentas da conta'),
     ...[['collections','Coleções / CRM'],['approvals','Rascunhos pendentes'],['inbox','Mensagens recebidas'],

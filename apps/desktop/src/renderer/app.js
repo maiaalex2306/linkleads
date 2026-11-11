@@ -71,7 +71,7 @@ async function renderAccounts() {
     ...list.map((a) =>
       h('button', { class: 'acc' + (a.id === state.accountId && state.screen === 'workspace' ? ' sel' : ''), onclick: () => openAccountWorkspace(a.id) },
         h('span', { class: 'dot' + (a.paused ? ' paused' : a.running ? ' on' : '') }),
-        h('div', { class: 'grow' }, a.label, h('div', { class: 'muted' }, a.paused ? 'pausada' : a.running ? 'em execução' : 'parada')),
+        h('div', { class: 'grow' }, a.label, h('div', { class: 'muted' }, a.paused ? 'automação pausada' : a.runnerEnabled ? 'executor ligado' : a.running ? 'LinkedIn aberto' : 'LinkedIn fechado')),
       )),
   );
   const previousBack = box.querySelector('.workspace-back');
@@ -150,7 +150,7 @@ async function renderView() {
   const header = h('div', {},
     h('div', { class: 'row' },
       h('button', { class: 'link', onclick: returnToLauncher }, '← Contas'),
-      h('button', { class: 'link', onclick: () => { state.mode = 'simple'; renderView(); } }, 'Tela guiada'),
+      h('button', { class: 'link', onclick: () => { state.mode = 'simple'; state.g = 'campaign'; renderView(); } }, 'Tela guiada'),
       h('h2', { style: 'margin:0;flex:1' }, a.label),
       a.running
         ? [

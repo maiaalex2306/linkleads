@@ -85,22 +85,48 @@ export function llPostContainers(sel: { postItem: readonly string[]; likeButton:
   const TIME = /^(?:h[áa]\s+)?\d+\s*(?:min(?:utos?)?|h(?:oras?|rs?)?|d(?:ias?|ays?)?|sem(?:anas?)?|w(?:eeks?)?|mo(?:nths?)?|m[eê]s(?:es)?|mes(?:es)?|a(?:nos?)?|y(?:ears?|rs?)?|s(?:egundos?)?)\b(?:\s*[•·]\s*.*)?$/i;
   const timeEls = (Array.from(root.querySelectorAll('span, time, a, div, p')) as HTMLElement[]).filter((e) => {
     if (e.children.length > 3) return false;
+    // Publicação com <time datetime="...">: âncora temporal explícita e verificável.
+    if (e.tagName === 'TIME' && /^\d{4}-\d{2}-\d{2}(?:T|$)/.test(e.getAttribute('datetime') || '')) return true;
     const t = (e.innerText || e.textContent || '').replace(/\s+/g, ' ').trim();
     return t.length > 0 && t.length < 40 && TIME.test(t) && !(e.parentElement && TIME.test((e.parentElement.innerText || '').replace(/\s+/g, ' ').trim()) && e.parentElement.children.length === 1);
   });
   const countTimes = (el: Element) => timeEls.filter((t) => el.contains(t)).length;
   const urnOf = (el: Element): string | null => {
-    const vals: string[] = [];
-    const scan = (n: Element) => { for (const a of Array.from(n.attributes)) vals.push(a.value); };
-    scan(el);
-    for (const n of Array.from(el.querySelectorAll('a[href], [data-urn], [data-id], [componentkey], [data-view-tracking-scope]'))) scan(n);
-    for (const v0 of vals) {
-      let v = v0;
-      try { v = decodeURIComponent(v0); } catch {}
-      const m = v.match(/urn:li:(activity|ugcPost|share):(\d{10,25})/) || v.match(/[-/](activity|ugcPost|share)[-:](\d{15,25})/);
-      if (m) return `urn:li:${m[1]}:${m[2]}`;
+    // Identidade deve vir do cartão ou do permalink do PRÓPRIO cartão.
+    // Não recuperar ID do nome da pessoa, da posição no feed nem do texto do post.
+    const normalize = (source: string): string | null => {
+      let value = source;
+      for (let i = 0; i < 3; i++) {
+        const decoded = (() => { try { return decodeURIComponent(value); } catch { return value; } })();
+        if (decoded === value) break;
+        value = decoded;
+      }
+      const m = value.match(/urn:li:(activity|ugcPost|share):(\d{10,25})(?!\d)/i)
+        || value.match(/[-/](activity|ugcPost|share)[-:](\d{15,25})(?!\d)/i);
+      if (!m) return null;
+      const type = m[1]!.toLowerCase() === 'ugcpost' ? 'ugcPost' : m[1]!.toLowerCase();
+      return 'urn:li:' + type + ':' + m[2];
+    };
+    const direct = normalize(el.getAttribute('data-urn') || '');
+    if (direct) return direct;
+    const links = Array.from(el.querySelectorAll(
+      'a[href*="/feed/update/"], a[href*="/posts/"], a[href*="urn:li:"], a[href*="activity-"]',
+    ));
+    const permalinks = new Set(links.map((a) => normalize(a.getAttribute('href') || '')).filter((v): v is string => !!v));
+    // Dois IDs distintos no mesmo cartão podem vir de repost ou comentários.
+    // Não escolher arbitrariamente qual publicação será curtida.
+    if (permalinks.size > 1) return null;
+    if (permalinks.size === 1) return [...permalinks][0]!;
+    const ids = new Set<string>();
+    const attrs = [el, ...Array.from(el.querySelectorAll('[data-urn], [data-id], [data-activity-urn], [componentkey], [data-view-tracking-scope]'))];
+    for (const node of attrs) {
+      for (const attribute of Array.from(node.attributes)) {
+        const canonical = normalize(attribute.value);
+        if (canonical) ids.add(canonical);
+      }
     }
-    return null;
+    // Ambiguidade é erro de reconhecimento, não licença para executar.
+    return ids.size === 1 ? [...ids][0]! : null;
   };
   const seeds: Element[] = [
     ...timeEls,
@@ -172,7 +198,12 @@ export function extractPosts(sel: Record<string, readonly string[]>, limit: numb
       (/situa[cç][aã]o do bot[aã]o de rea[cç][aã]o:\s*(?!nenhuma rea[cç][aã]o)\S|reaction button state:\s*(?!no reaction)\S|desfazer|remover|undo|unlike|reagiu|reacted/i.test(label) ? 'true' : null));
     const head = ((it as HTMLElement).innerText || '').slice(0, 400);
     const ageEl = first(it, sel.postAge!);
-    const ageTxt = ageEl?.textContent?.replace(/\s+/g, ' ').trim() || head.match(AGE)?.[1] || null;
+    const labelled = ageEl?.textContent?.replace(/\s+/g, ' ').trim() || '';
+    const time = it.querySelector('time[datetime]');
+    // Metadado de publicação é mais confiável do que encontrar números no conteúdo.
+    const absolute = time?.getAttribute('datetime') || null;
+    const ageTxt = (labelled && /(?:^|\s)(?:h[áa]\s+)?\d+\s*(?:min|h|d|dia|day|sem|w|week|m[oêe]|mes|a|ano|y|year)\b/i.test(labelled)
+      ? labelled : null) || absolute || head.match(AGE)?.[1] || null;
     out.push({
       urn,
       text,
