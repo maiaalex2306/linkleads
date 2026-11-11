@@ -83,6 +83,9 @@ describe('instalacao assistida Windows', () => {
     expect(repair).toContain('CreateShortcut');
     expect(repair).toContain("GetFolderPath('DesktopDirectory')");
     expect(repair).toContain('LinkLeads.exe nao encontrado');
+    expect(repair).toContain('expectedVersion');
+    expect(repair).toContain('installedVersion');
+    expect(repair).toContain('LinkLeads-Setup-');
     expect(repair).toContain('resultado-atalho.json');
     expect(repair).toContain("if($state -ne 'aprovado'){exit 1}");
     expect(repair).not.toMatch(/Set-ExecutionPolicy|ExecutionPolicy\\s+Bypass|DisableRealtimeMonitoring/i);
