@@ -122,3 +122,23 @@ describe('CSV robusto (planilhas reais)', () => {
     expect(r.people[0]?.publicId).toBe('bruno');
   });
 });
+
+
+describe('identidade do perfil importado — regressões dos incidentes 11/11', () => {
+  it('URL /in prevalece sobre public_id desatualizado e preserva a divergência para diagnóstico', () => {
+    const csv = 'public_id;profile_url;full_name\nperfil-errado;https://www.linkedin.com/in/felipe-santos/;Felipe Santos';
+    const r = importPeopleFromCsv(csv);
+    expect(r.skipped).toHaveLength(0);
+    expect(r.people).toHaveLength(1);
+    expect(r.people[0]?.publicId).toBe('felipe-santos');
+    expect(r.people[0]?.id).toBe('felipe-santos');
+    expect(r.people[0]?.custom?.linkleads_import_public_id_conflict).toBe('perfil-errado');
+  });
+
+  it('não incorpora o título Atividades | ao nome importado', () => {
+    const csv = 'nome;profile_url\nAtividades | Felipe Santos;https://www.linkedin.com/in/felipe-santos/';
+    const r = importPeopleFromCsv(csv);
+    expect(r.people[0]?.firstName).toBe('Felipe');
+    expect(r.people[0]?.lastName).toBe('Santos');
+  });
+});
