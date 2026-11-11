@@ -40,7 +40,7 @@ export function publicIdFromUrl(url: string): string | undefined {
     const match = parsed.pathname.match(/^\/(?:in|pub)\/([^/?#]+)/i);
     if (!match) return undefined;
     const slug = decodeURIComponent(match[1]!).toLowerCase();
-    return /^[\\p{L}\\p{N}_.-]+$/u.test(slug) ? slug : undefined;
+    return /^[\p{L}\p{N}_.-]+$/u.test(slug) ? slug : undefined;
   } catch {
     return undefined;
   }
@@ -134,7 +134,7 @@ export function importPeopleFromCsv(text: string, makeId: (publicId: string) => 
     }
     const publicId = distinct[0];
     const sourceUrl = validLinks[0]?.source;
-    const exportedId = rec.publicId && /^[\\p{L}\\p{N}_.-]+$/u.test(rec.publicId)
+    const exportedId = rec.publicId && /^[\p{L}\p{N}_.-]+$/u.test(rec.publicId)
       ? rec.publicId.toLowerCase() : undefined;
     if (publicId) {
       custom.linkleads_profile_source_url = sourceUrl!;
@@ -154,17 +154,17 @@ export function importPeopleFromCsv(text: string, makeId: (publicId: string) => 
       custom.linkleads_profile_source_url = sourceSalesUrl;
       custom.linkleads_profile_type = 'sales_navigator';
     }
-    const memberId = rec.memberId && /^\\d+$/.test(rec.memberId) ? rec.memberId : undefined;
+    const memberId = rec.memberId && /^\d+$/.test(rec.memberId) ? rec.memberId : undefined;
     let key: string | undefined = publicId;
     if (!key && memberId) key = `m:${memberId}`;
     else if (!key && snId) key = `sn:${snId}`;
     else if (!key && exportedId) key = `pending:${exportedId}`;
     if (!key) {
-      const reason = /linkedin\\.com\\/sales\\//i.test(any)
+      const reason = /linkedin\.com\/sales\//i.test(any)
         ? 'Só tem link do Sales Navigator: revisão de identidade necessária'
-        : /linkedin\\.com\\/company\\//i.test(any)
+        : /linkedin\.com\/company\//i.test(any)
           ? 'URL de página de empresa, não de perfil'
-          : /linkedin\\.com\\/(?:posts|feed)\\//i.test(any)
+          : /linkedin\.com\/(?:posts|feed)\//i.test(any)
             ? 'URL de publicação, não de perfil'
             : urlCandidates.length ? 'URL de perfil inválida: revisão necessária' : 'Sem URL de perfil';
       return result.skipped.push({ line, reason });
