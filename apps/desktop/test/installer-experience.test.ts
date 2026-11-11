@@ -1,5 +1,7 @@
-import { readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
@@ -24,11 +26,53 @@ describe('instalacao assistida Windows', () => {
     expect(cmd).toContain('SHA256.txt');
     expect(cmd).toContain('LL_BACKUP_ROOT');
     expect(cmd).toContain('Copy-Item');
+    // Electron pode usar o nome do produto OU o nome npm com escopo como userData.
+    // Nunca iniciar uma atualizacao que salve somente um dos dois locais.
+    expect(cmd).toContain("Join-Path $env:APPDATA 'LinkLeads'");
+    expect(cmd).toContain("Join-Path $env:APPDATA '@linkleads'");
+    expect(cmd).toContain("'desktop'");
+    expect(cmd).toContain('Get-ChildItem -LiteralPath $src.dir -File -Recurse');
+    expect(cmd).toContain('Tamanho total do backup divergente');
     expect(cmd).toContain('Start-MpScan');
     expect(cmd).toContain('resultado-instalacao.json');
     expect(cmd).toContain('--check-only');
     expect(cmd).not.toMatch(/Set-ExecutionPolicy|ExecutionPolicy\s+Bypass|DisableRealtimeMonitoring/i);
   });
+  it('executa e confere backup dos dois formatos de userData no Windows', () => {
+    // Em CI Windows, validar a rotina real com diretórios fictícios, sem dados do operador.
+    if (process.platform !== 'win32') return;
+    const root = mkdtempSync(join(tmpdir(), 'linkleads-installer-backup-'));
+    try {
+      const appData = join(root, 'Roaming');
+      const product = join(appData, 'LinkLeads');
+      const scoped = join(appData, '@linkleads', 'desktop', 'Partitions', 'conta-exemplo');
+      const backups = join(root, 'Backups');
+      mkdirSync(product, { recursive: true });
+      mkdirSync(scoped, { recursive: true });
+      writeFileSync(join(product, 'accounts.json'), 'CONTA-TESTE');
+      writeFileSync(join(scoped, 'linkleads.db'), 'BANCO-TESTE');
+
+      const commandLine = source('scripts/INSTALAR-LINKLEADS.cmd')
+        .split(/\r?\n/).find((line) => line.startsWith('powershell.exe -NoProfile -Command "') && line.includes('$sources=@('));
+      expect(commandLine).toBeDefined();
+      const prefix = 'powershell.exe -NoProfile -Command "';
+      const payload = commandLine!.slice(prefix.length, -1);
+      const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', payload], {
+        encoding: 'utf8', timeout: 60_000,
+        env: { ...process.env, APPDATA: appData, LL_BACKUP_ROOT: backups },
+      });
+      expect(result.status, (result.stdout || '') + (result.stderr || '')).toBe(0);
+      const snapshots = readdirSync(backups);
+      expect(snapshots).toHaveLength(1);
+      const snapshot = join(backups, snapshots[0]!);
+      expect(readFileSync(join(snapshot, 'LinkLeads', 'accounts.json'), 'utf8')).toBe('CONTA-TESTE');
+      expect(readFileSync(join(snapshot, 'ScopedDesktop', 'Partitions', 'conta-exemplo', 'linkleads.db'), 'utf8'))
+        .toBe('BANCO-TESTE');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('baixador usa workflow aprovado, GitHub autenticado e assistente verificado', () => {
     const cmd = source('scripts/BAIXAR-E-INSTALAR-LINKLEADS.cmd');
     expect(cmd).toContain('gh auth status');
