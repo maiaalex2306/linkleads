@@ -4,12 +4,13 @@ import { classifyReply, looksLikeOptOut, writeOutreachMessage, type OutreachCont
 import { listConversations, conversationBox, messageEditorText, readThread, threadProfileHref, type ThreadEvent } from './dom-scripts.js';
 import { BASE, awaitProfile, gotoProfile, guard as baseGuard, noUrlSlot, profileSlug, profileUrl, type ExecutorDeps } from './executors.js';
 
-/** Sem vaga para abrir perfil pelo link (e sem conseguir pela busca). */
+/** Sem vaga para abrir perfil pelo link. */
 class NoUrlSlot extends Error {
   constructor(readonly retryAt: Date | undefined) {
     super('sem vaga de perfil pelo link');
   }
 }
+class PendingIdentityReview extends Error {}
 
 const guard = (fn: () => Promise<ExecutionResult>): Promise<ExecutionResult> =>
   baseGuard(async () => {
@@ -17,6 +18,8 @@ const guard = (fn: () => Promise<ExecutionResult>): Promise<ExecutionResult> =>
       return await fn();
     } catch (e) {
       if (e instanceof NoUrlSlot) return noUrlSlot(e.retryAt);
+      if (e instanceof PendingIdentityReview)
+        return { ok: false, reason: 'IDENTITY_REVIEW', message: e.message };
       throw e;
     }
   });
@@ -51,6 +54,7 @@ async function openProfile(d: ExecutorDeps, p: Person): Promise<ProfileState | '
   const open = await gotoProfile(d, p);
   if (open !== 'ok') {
     if ('notFound' in open) return 'not_found';
+    if ('review' in open) throw new PendingIdentityReview(open.review);
     throw new NoUrlSlot(open.retryAt);
   }
   return (await awaitProfile(d)) === 'ok' ? profileState(d) : 'not_found';
