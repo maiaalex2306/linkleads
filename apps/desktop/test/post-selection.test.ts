@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { pickPost, choosePost, firstUnlikedCandidate } from '../src/main/linkedin/executors.js';
+import { pickPost, choosePost, firstUnlikedCandidate, hasNewVerifiedPost, profileSlug } from '../src/main/linkedin/executors.js';
 import type { PostExtract } from '../src/main/linkedin/dom-scripts.js';
 
 const one = (urn: string, liked: boolean | null): PostExtract => ({
@@ -176,4 +176,36 @@ describe('escolha de publicação com confirmação do estado', () => {
     expect(result.post?.urn).toBe(post.urn);
   });
 
+});
+
+describe('fase 3 — origem do autor e rolagem sem falsas identidades', () => {
+  it('um link externo /in/ não comprova a autoria mesmo com nome coincidente', () => {
+    const bad = { ...one('urn:li:activity:1111111111111111111', false),
+      actorHref: 'https://outro-exemplo.com/in/ana-silva/' };
+    expect(profileSlug(bad.actorHref)).toBeUndefined();
+    const first = firstUnlikedCandidate([bad], 'ana-silva', 'Ana Silva');
+    expect(first.uncertain).toBe(true);
+    expect(first.why).toMatch(/confiável/);
+    const selected = choosePost([bad], 'ana-silva', { maxPostAgeDays: 365 }, 'Ana Silva');
+    expect(selected.post).toBeUndefined();
+    expect(selected.uncertain).toBe(true);
+  });
+
+  it('índice ll-idx-0 repetido nunca significa nova publicação', () => {
+    const known = new Map<string, PostExtract>([
+      ['unresolved:0:0', one('ll-idx-0', null)],
+      ['urn:li:activity:1111111111111111111', one('urn:li:activity:1111111111111111111', true)],
+    ]);
+    expect(hasNewVerifiedPost(known, [one('ll-idx-0', null)])).toBe(false);
+    expect(hasNewVerifiedPost(known, [one('urn:li:activity:1111111111111111111', true)])).toBe(false);
+    expect(hasNewVerifiedPost(known, [one('urn:li:activity:2222222222222222222', false)])).toBe(true);
+  });
+
+  it('não aceita perfil com caminho codificado ou protocolo inseguro', () => {
+    for (const url of [
+      'https://fake-linkedin.com/in/ana-silva/',
+      'http://www.linkedin.com/in/ana-silva/',
+      'https://www.linkedin.com/in/ana%2Fsilva/',
+    ]) expect(profileSlug(url)).toBeUndefined();
+  });
 });

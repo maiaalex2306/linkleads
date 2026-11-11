@@ -57,7 +57,7 @@ jobs:
           - name: Prospecção e Sales Navigator
             suite: "prospecting salesnav comment-duplicate profile-visit-scroll"
           - name: Curtir e comentar — ação única
-            suite: "unified-engagement engagement-scroll"
+            suite: "post-recognition unified-engagement engagement-scroll"
           - name: Login e limites
             suite: "login limits"
           - name: Launcher e workspace por conta

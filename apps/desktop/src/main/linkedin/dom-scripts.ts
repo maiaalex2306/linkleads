@@ -140,7 +140,12 @@ export function llPostContainers(sel: { postItem: readonly string[]; likeButton:
     for (let i = 0; el && el !== root && i < 25; i++, el = el.parentElement) {
       const n = countTimes(el);
       if (n > 1) break; // subiu demais: já pegou dois posts
-      if (n === 1 && el.querySelector('a[href*="/in/"]') && ((el as HTMLElement).innerText || '').length > 40) best = el;
+      // O contêiner de uma publicação deve conter exatamente uma reação.
+      // Sem isso, um ancestral pode englobar dois cartões e misturar autoria, texto e URN.
+      const reactions = (Array.from(el.querySelectorAll('button, [role="button"]')) as Element[])
+        .filter((button) => (typeof __llIsReact === 'function' ? __llIsReact : llIsReact)(button)).length;
+      if (n === 1 && reactions === 1 && el.querySelector('a[href*="/in/"]') &&
+          ((el as HTMLElement).innerText || '').length > 40) best = el;
     }
     if (best) containers.add(best);
   }
@@ -178,18 +183,44 @@ export function extractPosts(sel: Record<string, readonly string[]>, limit: numb
   const AGE = /(?:^|\s|há\s|ha\s)(\d+\s*(?:min|h|d|sem|w|mo|m|a|y|dias?|semanas?|meses|m[eê]s|anos?|hr?s?|days?|weeks?|months?|years?))\b/i;
   const out: PostExtract[] = [];
   for (const { el: it, urn } of __llPostContainers({ postItem: sel.postItem!, likeButton: sel.likeButton! })) {
+    // A descrição deve vir da área de conteúdo do próprio cartão.
+    // Nunca escolher "maior div": ela pode conter autor, rodapé, botões e comentários.
     const textEl = first(it, sel.postText!) as HTMLElement | null;
-    let text = textEl?.innerText?.trim() ?? '';
+    const excluded = [
+      '.update-components-actor', '.feed-shared-actor', '.update-components-header',
+      '.feed-shared-header', '.comments-comment-entity', '.comments-comment-item',
+      '.comments-comment-box__form', '[contenteditable="true"]', '[role="toolbar"]',
+      'button', '[role="button"]',
+    ].join(', ');
+    const validTextNode = (node: Element) => {
+      if (node.closest(excluded)) return false;
+      if (node.querySelector('button, [role="button"], time, [contenteditable]')) return false;
+      return true;
+    };
+    let text = textEl && validTextNode(textEl) ? (textEl.innerText || '').trim() : '';
     if (!text) {
-      // layout novo: o maior bloco de texto do post (sem botões dentro)
-      let best = '';
-      for (const n of Array.from(it.querySelectorAll('span, p, div')) as HTMLElement[]) {
-        if (n.querySelector('button')) continue;
-        const t = (n.innerText || '').trim();
-        if (t.length > best.length && t.length < 6000) best = t;
+      // Elementos semânticos de conteúdo: pt-BR, en-US e layout moderno.
+      // Se não existirem, falhar sem inventar conteúdo da navegação.
+      const body = Array.from(it.querySelectorAll(
+        '[dir="ltr"], [data-test-id*="commentary"], [data-testid*="post-text"], blockquote, p',
+      )) as HTMLElement[];
+      const valid = body.filter(validTextNode);
+      const blocks = valid.filter((node) =>
+        node.matches('[dir="ltr"], [data-test-id*="commentary"], [data-testid*="post-text"]'));
+      if (blocks.length) {
+        // Bloco estrutural completo (não concatenar filhos repetidos).
+        text = blocks.map((node) => (node.innerText || '').trim())
+          .filter((v) => v && v.length <= 6000)
+          .sort((a, b) => b.length - a.length)[0] ?? '';
+      } else {
+        // Quando o corpo contém vários parágrafos irmãos, preservar todos na
+        // ordem original, sem comentários e sem duplicar parágrafos aninhados.
+        const paragraphs = valid.filter((node) => node.matches('p, blockquote'));
+        const roots = paragraphs.filter((node) => !paragraphs.some((other) => other !== node && other.contains(node)));
+        text = roots.map((node) => (node.innerText || '').trim()).filter(Boolean).join('\n\n').slice(0, 6000);
       }
-      text = best.replace(/\s*…\s*mais$|\s*\.\.\.\s*(more|mais)$/i, '').trim();
     }
+    text = text.replace(/\s*…\s*mais$|\s*\.\.\.\s*(more|mais)$/i, '').trim();
     let like = first(it, sel.likeButton!) as HTMLElement | null;
     if (!like) like = (Array.from(it.querySelectorAll('button, [role="button"]')) as HTMLElement[]).find((b) => __llIsReact(b)) ?? null;
     const label = like?.getAttribute('aria-label') ?? '';
@@ -202,13 +233,43 @@ export function extractPosts(sel: Record<string, readonly string[]>, limit: numb
     const time = it.querySelector('time[datetime]');
     // Metadado de publicação é mais confiável do que encontrar números no conteúdo.
     const absolute = time?.getAttribute('datetime') || null;
+    // Não inferir a data por números no conteúdo ("365 dias de economia").
+    // Usar exclusivamente legenda do autor, <time> ou texto de permalink.
+    const permalinkAge = (Array.from(it.querySelectorAll('a[href*="/feed/update/"], a[href*="/posts/"]')) as HTMLAnchorElement[])
+      .map((a) => (a.innerText || '').replace(/\s+/g, ' ').trim())
+      .find((v) => v && v.length < 60 && AGE.test(v)) ?? null;
     const ageTxt = (labelled && /(?:^|\s)(?:h[áa]\s+)?\d+\s*(?:min|h|d|dia|day|sem|w|week|m[oêe]|mes|a|ano|y|year)\b/i.test(labelled)
-      ? labelled : null) || absolute || head.match(AGE)?.[1] || null;
+      ? labelled : null) || absolute || permalinkAge || null;
+    // Perfil citado no corpo do texto NÃO é prova de autoria.
+    // Aceitar apenas links na área do autor/cabeçalho ou junto ao permalink temporal.
+    const inAuthorHeader = (link: HTMLAnchorElement) => {
+      if (link.closest('.update-components-actor, .feed-shared-actor, header')) return true;
+      let parent: Element | null = link.parentElement;
+      for (let depth = 0; parent && depth < 2; depth++, parent = parent.parentElement) {
+        if (parent.querySelector('button, [role="button"], [dir="ltr"], .update-components-text')) break;
+        if (parent.querySelector('a[href*="/posts/"], a[href*="/feed/update/"], time[datetime]'))
+          return true;
+      }
+      return false;
+    };
+    const actorLinks = (Array.from(it.querySelectorAll('a[href*="/in/"]')) as HTMLAnchorElement[])
+      .filter((a) => !a.closest('.comments-comment-entity, .comments-comment-item, .comments-comment-box__form, [contenteditable]') && inAuthorHeader(a));
+    const verifiedActor = first(it, sel.postActorLink!) as HTMLAnchorElement | null;
+    // A URL da autoria só pode ser inferida quando todos os links de perfil
+    // observáveis fora da área de comentários apontam para a mesma pessoa.
+    // Referências a outros perfis tornam a autoria incerta, sem fallback por nome.
+    const distinctActors = new Set(actorLinks.map((a) => {
+      try { return new URL(a.href).pathname.replace(/\/$/, '').toLowerCase(); }
+      catch { return a.href.toLowerCase(); }
+    }));
+    const actor = distinctActors.size === 1
+      ? (verifiedActor && actorLinks.includes(verifiedActor) ? verifiedActor : actorLinks[0] ?? null)
+      : null;
     out.push({
       urn,
       text,
-      actorHref: (first(it, sel.postActorLink!) as HTMLAnchorElement | null)?.href ?? (it.querySelector('a[href*="/in/"]') as HTMLAnchorElement | null)?.href ?? null,
-      actorName: (it.querySelector('a[href*="/in/"]') as HTMLElement | null)?.innerText?.split('\n')[0]?.trim() || null,
+      actorHref: actor?.href ?? null,
+      actorName: actor?.innerText?.split('\n')[0]?.trim() || null,
       age: ageTxt,
       hasMedia: !!first(it, sel.postMedia!) || !!it.querySelector('img[src*="media"], video'),
       isReshare: !!first(it, sel.postResharedHeader!) || /\b(compartilhou|republicou|reposted|repostou)\b/i.test(head.slice(0, 160)),
