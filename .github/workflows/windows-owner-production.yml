@@ -115,6 +115,7 @@ jobs:
           $baseline = 'scripts/BASELINE-LINKLEADS.ps1'
           if (-not (Test-Path -LiteralPath $baseline -PathType Leaf)) { throw 'Modulo de baseline P0 ausente' }
           Copy-Item -LiteralPath $baseline -Destination 'apps/desktop/release/BASELINE-LINKLEADS.ps1' -Force
+          Copy-Item -LiteralPath 'scripts/PRESERVAR-LINKLEADS.cmd' -Destination 'apps/desktop/release/PRESERVAR-LINKLEADS.cmd' -Force
           $repair = 'scripts/REPARAR-ATALHO-LINKLEADS.cmd'
           if (-not (Test-Path -LiteralPath $repair -PathType Leaf)) { throw 'Reparador de atalho ausente' }
           $rawRepair = Get-Content -LiteralPath $repair -Raw
@@ -146,6 +147,7 @@ jobs:
           if (-not (Test-Path -LiteralPath (Join-Path $dir 'INSTALAR-LINKLEADS.cmd'))) { throw 'Assistente de instalacao nao foi empacotado' }
           if (-not (Test-Path -LiteralPath (Join-Path $dir 'REPARAR-ATALHO-LINKLEADS.cmd'))) { throw 'Reparador de atalho nao foi empacotado' }
           if (-not (Test-Path -LiteralPath (Join-Path $dir 'BASELINE-LINKLEADS.ps1'))) { throw 'Gate P0 de backup SHA256 ausente do pacote' }
+          if (-not (Test-Path -LiteralPath (Join-Path $dir 'PRESERVAR-LINKLEADS.cmd'))) { throw 'Comando de preservar dados ausente do pacote' }
           $hash = Get-FileHash $files[0].FullName -Algorithm SHA256
           $hashLine = "$($files[0].Name) SHA256 $($hash.Hash)"
           Set-Content -Path (Join-Path $dir 'SHA256.txt') -Value $hashLine -Encoding utf8
@@ -158,6 +160,7 @@ jobs:
             'AppId: br.com.linkleads.app (mesma identidade da instalacao normal)'
             'Dados locais: utiliza contas, sessoes e SQLite da instalacao normal'
             'INSTALACAO SIMPLIFICADA: apos extrair o ZIP, abra INSTALAR-LINKLEADS.cmd por duplo clique.'
+            'SOMENTE BACKUP: abra PRESERVAR-LINKLEADS.cmd. Ele nao instala nem atualiza.'
             'O assistente verifica SHA256 e cria snapshot completo, com SHA256 por arquivo de contas, SQLite, WAL, cookies e aplicativo instalado.'
             'Se a copia ou integridade falhar, a instalacao nao sera iniciada.'
             'Relatorio do backup: D:\LinkLeads\Relatorios\resultado-baseline-linkleads.json (ou Documents quando D: nao existir).'
@@ -208,7 +211,7 @@ jobs:
           $zipRoot = 'owner-package'
           New-Item -ItemType Directory -Force -Path $zipRoot | Out-Null
           $package = Join-Path $zipRoot 'LINKLEADS-INSTALADOR.zip'
-          $required = @('INSTALAR-LINKLEADS.cmd', 'BASELINE-LINKLEADS.ps1',
+          $required = @('INSTALAR-LINKLEADS.cmd', 'BASELINE-LINKLEADS.ps1', 'PRESERVAR-LINKLEADS.cmd',
             'REPARAR-ATALHO-LINKLEADS.cmd', 'SHA256.txt', 'LEIA-ME-INSTALACAO.txt')
           $files = @()
           foreach ($name in $required) {
