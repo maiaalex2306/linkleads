@@ -424,7 +424,10 @@ async function simpleCampaignDetail(a, cols, camps, stats) {
       : section === 'track'
         ? h('div', { class: 'stack' },
             h('div', { class: 'card stack' },
-              h('strong', {}, 'Acompanhamento desta campanha'),
+              h('div', { class: 'row' },
+                h('strong', { style: 'flex:1' }, 'Acompanhamento desta campanha'),
+                h('button', { onclick: () => goAdvanced('diagnostics'),
+                  title: 'Lê a página aberta sem curtir, comentar ou avançar pessoas' }, 'Diagnosticar publicações')),
               h('p', { class: 'muted' }, 'Somente confirmações verificadas contam como resultado. Interações incertas exigem revisão.'),
               livePanel(a)),
             detailStatistics(c))
