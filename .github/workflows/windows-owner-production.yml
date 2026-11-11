@@ -163,7 +163,7 @@ jobs:
             'SOMENTE BACKUP: abra PRESERVAR-LINKLEADS.cmd. Ele nao instala nem atualiza.'
             'O assistente verifica SHA256 e cria snapshot completo, com SHA256 por arquivo de contas, SQLite, WAL, cookies e aplicativo instalado.'
             'Se a copia ou integridade falhar, a instalacao nao sera iniciada.'
-            'Relatorio do backup: D:\LinkLeads\Relatorios\resultado-baseline-linkleads.json (ou Documents quando D: nao existir).'
+            'Relatorio do backup: D:\LinkLeads-Seguro\Relatorios\resultado-baseline-linkleads.json (ou Documents quando D: nao existir).'
             'O assistente solicita Defender, abre o setup e grava resultado-instalacao.json.'
             'Se o setup nao gerar o atalho, REPARAR-ATALHO-LINKLEADS.cmd verifica o EXE instalado e cria o atalho no Desktop.'
             'O instalador cria automaticamente um atalho LinkLeads na area de trabalho e no Menu Iniciar.'
