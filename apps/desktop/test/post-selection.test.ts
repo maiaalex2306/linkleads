@@ -98,6 +98,18 @@ describe('escolha de publicação com confirmação do estado', () => {
       expect(result.why).toMatch(/data não verificável/);
     }
   });
+  it('mostra por que as publicações reais não podem receber interação', () => {
+    const posts = [
+      one('ll-idx-0', false),
+      { ...one('urn:li:activity:999999999997', false), age: 'sem data' },
+    ];
+    const result = choosePost(posts, 'ana-silva', { maxPostAgeDays: 365 }, 'Ana Silva');
+    expect(result.post).toBeUndefined();
+    expect(result.uncertain).toBe(true);
+    expect(result.why).toMatch(/1 com URN provisória/);
+    expect(result.why).toMatch(/1 com data não verificável/);
+  });
+
   it('preserva uma publicação válida mesmo quando outra tem identidade incerta', () => {
     const broken = { ...one('ll-idx-2', false), age: '2 d' };
     const valid = { ...one('urn:li:activity:999999999998', false), age: '90 d' };
