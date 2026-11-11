@@ -6,9 +6,12 @@ const REPLY_LABEL = {
   interessado: 'Interessado', objecao: 'Objeção', agora_nao: 'Agora não', indicou_outro: 'Indicou outra pessoa', opt_out: 'Pediu para parar', neutro: 'Neutro',
 };
 
-async function approvalsView(a) {
-  const drafts = await api.listDrafts(a.id, 'pending');
-  if (!drafts.length) return h('p', { class: 'muted' }, 'Nada aguardando aprovação.');
+async function approvalsView(a, campaignId = null, loadedDrafts = null) {
+  // A fila global continua disponível; dentro de uma campanha, mostrar só
+  // solicitações originadas por ela, nunca as de outra campanha/conta.
+  const rows = loadedDrafts ?? await api.listDrafts(a.id, 'pending');
+  const drafts = campaignId ? rows.filter((d) => d.campaignId === campaignId) : rows;
+  if (!drafts.length) return h('p', { class: 'muted' }, 'Nenhuma aprovação pendente nesta seleção.');
   return h('div', { class: 'stack' },
     h('p', { class: 'muted' }, 'A IA escreveu estes textos. Edite se quiser e aprove para executar.' + (a.running ? '' : ' Inicie a conta para executar.')),
     ...drafts.map((d) => {
