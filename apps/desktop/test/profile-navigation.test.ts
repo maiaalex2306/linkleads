@@ -37,7 +37,7 @@ describe('navegação por identidade de perfil — regressão 11/11', () => {
   it('bloqueia redirecionamento para pessoa diferente mesmo com nome parecido', async () => {
     const { deps, exists } = mockBrowser('https://www.linkedin.com/in/felipe-dos-santos/');
     const r = await gotoProfile(deps, lead);
-    expect(r).toMatchObject({ notFound: expect.stringMatching(/endereço diferente/) });
+    expect(r).toMatchObject({ review: expect.stringMatching(/domínio diferente/) });
     expect(exists).not.toHaveBeenCalled();
   });
 
@@ -70,7 +70,7 @@ describe('identidade reforçada — SalesNav, URLs suspeitas e redirecionamentos
       },
     };
     const result = await gotoProfile(deps, person, 'recent-activity/all/');
-    expect(result).toMatchObject({ notFound: expect.stringMatching(/Revisão manual/) });
+    expect(result).toMatchObject({ review: expect.stringMatching(/Revisão manual/) });
     expect(goto).not.toHaveBeenCalled();
     expect(exists).not.toHaveBeenCalled();
   });
@@ -78,26 +78,26 @@ describe('identidade reforçada — SalesNav, URLs suspeitas e redirecionamentos
   it('URL de origem diferente do publicId bloqueia o acesso mesmo com nome igual', async () => {
     const { deps, goto } = mockBrowser();
     const p: Person = { ...lead, custom: { linkleads_profile_source_url: 'https://www.linkedin.com/in/felipe-dos-santos/' } };
-    expect(await gotoProfile(deps, p)).toMatchObject({ notFound: expect.stringMatching(/URL original/) });
+    expect(await gotoProfile(deps, p)).toMatchObject({ review: expect.stringMatching(/URL original/) });
     expect(goto).not.toHaveBeenCalled();
   });
 
   it('identidade ainda pendente no CSV não se torna autorizada por um publicId exportado', async () => {
     const { deps, goto } = mockBrowser();
     const p: Person = { ...lead, custom: { linkleads_identity_status: 'pending_review' } };
-    expect(await gotoProfile(deps, p)).toMatchObject({ notFound: expect.stringMatching(/Revisão manual/) });
+    expect(await gotoProfile(deps, p)).toMatchObject({ review: expect.stringMatching(/Revisão manual/) });
     expect(goto).not.toHaveBeenCalled();
   });
 
   it('não aceita domínio externo com caminho /in/ idêntico', async () => {
     const { deps } = mockBrowser('https://evil.example/in/felipe-santos/');
-    expect(await gotoProfile(deps, lead)).toHaveProperty('notFound');
+    expect(await gotoProfile(deps, lead)).toHaveProperty('review');
   });
 
   it('não aceita perfil inválido e nunca constrói URL baseada em ID arbitrário', async () => {
     const { deps, goto } = mockBrowser();
     const p: Person = { ...lead, publicId: 'https://evil.example/in/felipe' };
-    expect(await gotoProfile(deps, p)).toHaveProperty('notFound');
+    expect(await gotoProfile(deps, p)).toHaveProperty('review');
     expect(goto).not.toHaveBeenCalled();
   });
 
