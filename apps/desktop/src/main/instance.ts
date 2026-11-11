@@ -96,7 +96,7 @@ const DOING: Record<string, string> = {
 };
 const REASON_PT: Record<string, string> = {
   NO_REAL_EFFECT: 'não deu para confirmar o efeito', EXCLUDED: 'excluída', REJECTED: 'rejeitado na aprovação', REPLIED: 'respondeu',
-  OPTED_OUT: 'pediu para parar', NOT_FOUND: 'perfil não encontrado', LIMIT_REACHED: 'limite do dia', THROTTLED: 'a plataforma bloqueou',
+  OPTED_OUT: 'pediu para parar', NOT_FOUND: 'perfil não encontrado', IDENTITY_REVIEW: 'identidade do perfil precisa de revisão', LIMIT_REACHED: 'limite do dia', THROTTLED: 'a plataforma bloqueou',
   ERROR: 'erro', AWAITING_APPROVAL: 'aguardando sua aprovação (aba Aprovações)', AI_SKIPPED: 'IA preferiu não agir', NO_POST: 'sem post recente',
   ICP_REJECTED: 'fora do ICP', RETRY_LATER: 'vai conferir de novo', NOT_ACCEPTED: 'convite não aceito', ALREADY_CONNECTED: 'já era conexão', NOT_CONNECTED: 'não é conexão',
 };
