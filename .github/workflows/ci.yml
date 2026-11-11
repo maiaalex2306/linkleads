@@ -207,6 +207,11 @@ jobs:
         shell: powershell
         run: |
           powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\homologar-linkleads.ps1 -SkipE2E -SkipBundle
+      - name: Testar recuperacao de atalho em Windows isolado
+        shell: powershell
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/test-shortcut-repair.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'Reparador de atalho Windows reprovado' }
 
   windows-e2e-smoke:
     name: Windows Electron + instalador NSIS — prova de execução real
