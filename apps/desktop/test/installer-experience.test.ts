@@ -24,6 +24,13 @@ describe('instalacao assistida Windows', () => {
     expect(cmd).toContain('SHA256.txt');
     expect(cmd).toContain('LL_BACKUP_ROOT');
     expect(cmd).toContain('Copy-Item');
+    // Electron pode usar o nome do produto OU o nome npm com escopo como userData.
+    // Nunca iniciar uma atualizacao que salve somente um dos dois locais.
+    expect(cmd).toContain("Join-Path $env:APPDATA 'LinkLeads'");
+    expect(cmd).toContain("Join-Path $env:APPDATA '@linkleads'");
+    expect(cmd).toContain("'desktop'");
+    expect(cmd).toContain('Get-ChildItem -LiteralPath $src.dir -File -Recurse');
+    expect(cmd).toContain('Arquivo incompleto no backup');
     expect(cmd).toContain('Start-MpScan');
     expect(cmd).toContain('resultado-instalacao.json');
     expect(cmd).toContain('--check-only');
