@@ -39,8 +39,17 @@ if errorlevel 1 (
   echo Nao foi possivel baixar o pacote pelo GitHub.
   goto :fail
 )
+if exist "%LL_DEST%\LINKLEADS-INSTALADOR.zip" (
+  echo Extraindo pacote unico com instalador na raiz...
+  powershell.exe -NoProfile -Command "$ErrorActionPreference='Stop';Expand-Archive -LiteralPath $env:LL_DEST\LINKLEADS-INSTALADOR.zip -DestinationPath $env:LL_DEST -Force"
+  if errorlevel 1 (
+    echo ERRO: pacote unico nao pode ser extraido.
+    goto :fail
+  )
+)
 set "LL_HELPER="
-for /r "%LL_DEST%" %%F in (INSTALAR-LINKLEADS.cmd) do if not defined LL_HELPER if exist "%%~fF" set "LL_HELPER=%%~fF"
+if exist "%LL_DEST%\INSTALAR-LINKLEADS.cmd" set "LL_HELPER=%LL_DEST%\INSTALAR-LINKLEADS.cmd"
+if not defined LL_HELPER for /r "%LL_DEST%" %%F in (INSTALAR-LINKLEADS.cmd) do if not defined LL_HELPER if exist "%%~fF" set "LL_HELPER=%%~fF"
 if not defined LL_HELPER (
   echo O pacote nao possui INSTALAR-LINKLEADS.cmd.
   echo Nao tente instalar uma versao antiga sem o assistente.
