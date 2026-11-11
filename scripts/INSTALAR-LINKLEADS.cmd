@@ -15,11 +15,11 @@ set "LL_INSTALLER="
 set "LL_CHECKSUM=%~dp0SHA256.txt"
 set /a LL_COUNT=0
 if exist "D:\" (
-  set "LL_REPORT_DIR=D:\LinkLeads\Relatorios"
-  set "LL_BACKUP_ROOT=D:\LinkLeads\Backups"
+  set "LL_REPORT_DIR=D:\LinkLeads-Seguro\Relatorios"
+  set "LL_BACKUP_ROOT=D:\LinkLeads-Seguro\Backups"
 ) else (
-  set "LL_REPORT_DIR=%USERPROFILE%\Documents\LinkLeads\Relatorios"
-  set "LL_BACKUP_ROOT=%USERPROFILE%\Documents\LinkLeads\Backups"
+  set "LL_REPORT_DIR=%USERPROFILE%\Documents\LinkLeads-Seguro\Relatorios"
+  set "LL_BACKUP_ROOT=%USERPROFILE%\Documents\LinkLeads-Seguro\Backups"
 )
 for %%F in ("%~dp0LinkLeads-Setup-*.exe") do if exist "%%~fF" call :candidate "%%~fF"
 if not "%LL_COUNT%"=="1" (
