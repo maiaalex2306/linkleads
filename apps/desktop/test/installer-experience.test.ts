@@ -114,8 +114,8 @@ describe('instalacao assistida Windows', () => {
     const preserve = source('scripts/PRESERVAR-LINKLEADS.cmd');
     const baseline = source('scripts/BASELINE-LINKLEADS.ps1');
     const installer = source('scripts/INSTALAR-LINKLEADS.cmd');
-    const autoUpdateCommands = /\\bgit\\s+pull\\b|\\bgit\\s+reset\\s+--hard\\b|\\bgit\\s+clean\\s+-/i;
-    const recursiveDelete = /Remove-Item[^\\r\\n]*-Recurse|\\brmdir\\b|\\brd\\s+\\/s\\b|\\bdel\\s+\\/s\\b/i;
+    const autoUpdateCommands = /\bgit\s+pull\b|\bgit\s+reset\s+--hard\b|\bgit\s+clean\s+-/i;
+    const recursiveDelete = /Remove-Item[^\r\n]*-Recurse|\brmdir\b|\brd\s+\/s\b|\bdel\s+\/s\b/i;
     for (const file of [launch, preserve, baseline, installer]) {
       expect(file).not.toMatch(autoUpdateCommands);
       expect(file).not.toMatch(recursiveDelete);
