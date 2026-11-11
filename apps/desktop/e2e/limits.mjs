@@ -1,4 +1,4 @@
-// E2E dos limites (modelo Linked Helper) e da abertura de perfil pela busca, sem colar o link.
+// E2E de limites móveis e identidade: abrir URL exata sem pesquisa por nome/homônimos.
 import { createRequire } from 'node:module';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -53,21 +53,22 @@ try {
 
   const loads = site.state.profileLoads || [];
   const how = Object.fromEntries(loads.map((l) => [l.slug, l.clicked ? 'busca' : 'link']));
-  check(how['ana-silva'] === 'busca' && how['bruno-lima'] === 'busca', 'quem tem nome é aberto pela busca (digitando o nome), não pelo link', loads);
-  const nameless = ['diego-alves', 'carla-souza'];
-  const byLink = nameless.filter((x) => how[x] === 'link');
-  check(byLink.length === 1, 'sem nome: abre pelo link (gasta a 1 vaga de "perfis pelo link")', loads);
-  const waitingSlug = nameless.find((x) => !how[x]);
-  check(!!waitingSlug, 'sem nome e sem vaga de link: não abre', loads);
+  check(loads.length === 1 && how['ana-silva'] === 'link',
+    'primeiro lead abre pela URL exata, sem pesquisa por nome', loads);
+  const waitingSlugs = ['bruno-lima', 'diego-alves', 'carla-souza'];
+  check(waitingSlugs.every((slug) => !how[slug]) && site.state.searches === 0,
+    'demais leads não são abertos nem pesquisados após esgotar a vaga', { loads, searches: site.state.searches });
+  const waitingSlug = 'bruno-lima';
   const people = (await call('listCampaigns', acc.id))[0].people;
   const waiting = people.find((p) => p.publicId === waitingSlug);
-  check(waiting && waiting.reason === 'RETRY_LATER' && waiting.notBefore, 'fica na fila até a vaga de link liberar (janela de 24 h)', waiting);
+  check(waiting && waiting.reason === 'RETRY_LATER' && waiting.notBefore,
+    'lead fica agendado até reabrir a vaga de URL na janela móvel', waiting);
   const url = await meter('profile_url');
   check(url.used === 1 && url.limit === 1 && url.nextFreeAt, 'medidor "perfis pelo link" 1/1 com horário em que libera', url);
   const pl = await meter('profile_load');
-  check(pl.used === 3, 'medidor "perfis abertos": 3 (busca + link; voltar ao mesmo perfil não conta de novo)', pl);
+  check(pl.used === 1, 'medidor "perfis abertos": somente o perfil cujo acesso foi permitido', pl);
 
-  // sem sugestões na busca: usa a página de resultados
+  // Mesmo sem sugestões de busca, nunca entrar na pesquisa global como fallback.
   site.state.noTypeahead = true;
   await app.evaluate(({ BrowserWindow }, u) => BrowserWindow.getAllWindows().find((x) => x.getTitle().startsWith('LinkLeads —')).webContents.loadURL(u), site.url + '/feed/');
   writeFileSync(csv2, `firstName,lastName,profileUrl\n${NAMES[waitingSlug]},https://www.linkedin.com/in/${waitingSlug}/\n`);
@@ -78,8 +79,9 @@ try {
   await call('setCampaignActive', acc.id, camp2.campaignId, true);
   await call('runNow', acc.id);
   const last = (site.state.profileLoads || []).filter((l) => l.slug === waitingSlug);
-  check(site.state.searches >= 1 && last.length === 1 && last[0].clicked, 'sem sugestões: Enter → página de resultados → clica no perfil', { searches: site.state.searches, last });
-  check((await meter('profile_url')).used === 1, 'abrir pela busca não gasta vaga de link');
+  check(site.state.searches === 0 && last.length === 0,
+    'sem sugestões e sem quota de URL: não pesquisa homônimos nem navega ao lead', { searches: site.state.searches, last });
+  check((await meter('profile_url')).used === 1, 'bloqueio não consome crédito adicional por URL');
 
   // painel de limites na tela
   await ui.reload();
