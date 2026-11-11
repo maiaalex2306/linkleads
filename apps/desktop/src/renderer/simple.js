@@ -52,38 +52,87 @@ function flowDiagram(o = {}) {
   );
 }
 
-/** Situação da conta em uma palavra + o botão principal. */
-function statusBar(a, active) {
-  const inside = scheduleStatus(a).inside;
-  const [label, cls] = a.paused ? ['Pausado', 'warn'] : !a.runnerEnabled ? [a.running ? 'Navegador aberto, executor desligado' : 'Parado', 'idle'] : !active ? ['Sem campanha ativa', 'idle'] : !inside ? ['Fora do horário', 'warn'] : ['Executor ativo', 'ok'];
-  let btn;
-  if (a.paused) btn = h('button', { class: 'primary big', onclick: () => safe(() => api.setPaused(a.id, false)).then(refresh) }, '▶ Retomar');
-  else if (!a.running) btn = [
-    h('button', { class: 'big', onclick: () => safe(() => api.openBrowser(a.id)).then(refresh) }, 'Abrir LinkedIn'),
-    h('button', { class: 'primary big', disabled: !active, title: active ? '' : 'Crie e ative uma campanha primeiro (etapa 2)',
-      onclick: () => safe(() => api.startRunner(a.id)).then(refresh) }, '▶ Começar'),
-  ];
-  else if (!a.runnerEnabled) btn = h('button', { class: 'primary big', disabled: !active,
-    onclick: () => safe(() => api.startRunner(a.id)).then(refresh) }, '▶ Iniciar campanhas');
-  else btn = h('button', { class: 'big', onclick: () => safe(() => api.setPaused(a.id, true)).then(refresh) }, '⏸ Pausar');
-  return h('div', { class: 'gtop' },
-    h('h2', { style: 'margin:0' }, a.label),
-    h('span', { class: 'pill ' + cls }, label),
-    h('div', { class: 'muted', style: 'flex:1' }, active ? `Campanha: ${active.name}` : ''),
-    btn);
+/** Estado DA CONTA, não da campanha. Não duplicar Iniciar/Pausar neste cabeçalho. */
+function statusBar(a) {
+  const label = a.paused ? 'Automação da conta pausada'
+    : a.runnerEnabled ? 'Executor da conta ligado'
+    : a.running ? 'Navegador aberto · executor desligado'
+    : 'Navegador fechado';
+  return h('div', { class: 'simple-account-head' },
+    h('h2', {}, a.label),
+    h('span', { class: 'muted', 'aria-label': 'Estado da conta LinkedIn' }, 'Conta LinkedIn: ' + label),
+    h('button', { class: 'link', onclick: () => { state.g = 'config'; renderView(); } }, 'Configurar conta'));
 }
 
-/** As 4 etapas numeradas (navegação principal). */
-function stepper(cur, info) {
-  const item = (key, n, title, sub, warn) => h('button', { class: 'gstep' + (cur === key ? ' sel' : '') + (warn ? ' warn' : ''), onclick: () => goStep(key) },
-    h('span', { class: 'gnum' }, String(n)), h('span', { class: 'gtxt' }, h('b', {}, title), h('small', {}, sub)));
-  return h('nav', { class: 'gsteps' },
-    item('lists', 1, 'Listas', info.lists),
-    item('campaign', 2, 'Campanha', info.campaign),
-    item('config', 3, 'Configurações', info.config, info.configWarn),
-    item('track', 4, 'Acompanhar', info.track, info.trackWarn));
+/** A campanha ativa só está executando quando o executor e o navegador estão ligados. */
+function simpleCampaignStatus(a, c) {
+  if (c.archived) return { label: 'Arquivada', cls: 'idle' };
+  if (!c.active) return { label: 'Pausada', cls: 'idle' };
+  if (a.paused) return { label: 'Ativa · conta pausada', cls: 'warn' };
+  if (!a.runnerEnabled || !a.running) return { label: 'Ativa · aguardando início', cls: 'warn' };
+  if (!scheduleStatus(a).inside) return { label: 'Ativa · fora do horário', cls: 'warn' };
+  return { label: 'Executor ligado · em processamento', cls: 'ok' };
 }
 
+/** Iniciar aqui executa somente a campanha escolhida; outras ativas exigem confirmação. */
+async function startSimpleCampaign(a, c, camps) {
+  if (a.paused) { toast('A conta está pausada. Resolva a pausa antes de iniciar campanhas.', 7000); return; }
+  const others = camps.filter((x) => x.id !== c.id && x.active && !x.archived);
+  if (others.length && !window.confirm('Há ' + others.length + ' outra(s) campanha(s) ativa(s). Pausá-las para executar somente esta campanha?')) return;
+  try {
+    for (const other of others) await api.setCampaignActive(a.id, other.id, false);
+    if (!c.active) await api.setCampaignActive(a.id, c.id, true);
+    await api.startRunner(a.id);
+    state.simpleSelectedCampaignId = c.id;
+    state.simpleCampaignSection = 'track';
+    state.g = 'campaign';
+    await refresh();
+  } catch (error) {
+    toast('Não foi possível iniciar: ' + String(error?.message || error), 8000);
+    await refresh();
+  }
+}
+
+async function pauseSimpleCampaign(a, c, camps) {
+  try {
+    await api.setCampaignActive(a.id, c.id, false);
+    if (a.runnerEnabled && !camps.some((x) => x.id !== c.id && x.active && !x.archived))
+      await api.stopRunner(a.id);
+    await refresh();
+  } catch (error) { toast('Não foi possível pausar: ' + String(error?.message || error), 7000); }
+}
+
+async function setSimpleCampaignActive(a, c, active) {
+  try {
+    await api.setCampaignActive(a.id, c.id, active);
+    toast(active ? 'Campanha ativada na fila. Clique em Executar para iniciar.' : 'Campanha pausada; histórico preservado.');
+    await refresh();
+  } catch (error) { toast('Erro ao alterar campanha: ' + String(error?.message || error), 7000); }
+}
+
+async function archiveSimpleCampaign(a, c) {
+  if (a.runnerEnabled) { toast('Pare o executor da conta antes de arquivar.', 7000); return; }
+  if (!c.archived && !window.confirm('Arquivar esta campanha? Pessoas, etapas e histórico serão preservados.')) return;
+  try {
+    const result = await api.archiveCampaign(a.id, c.id, !c.archived);
+    if (result?.ok) {
+      toast(c.archived ? 'Campanha restaurada, sem execução' : 'Campanha arquivada, sem excluir dados');
+      state.simpleSelectedCampaignId = null;
+      await refresh();
+    }
+  } catch (error) { toast('Não foi possível arquivar: ' + String(error?.message || error), 7000); }
+}
+
+function openSimpleCampaign(id, section = 'workflow') {
+  state.mode = 'simple';
+  state.g = 'campaign';
+  state.simpleSelectedCampaignId = id;
+  state.simpleCampaignSection = section;
+  state.editCampaign = false;
+  renderView();
+}
+
+// ── Listas (dentro da criação de campanha) ───────────────────────────────────
 // ── ① Listas ──────────────────────────────────────────────────────────────
 async function listsPage(a, cols, camps) {
   const usedBy = (id) => camps.filter((c) => c.people.length && c.collectionIds?.includes?.(id)).map((c) => c.name);
@@ -219,8 +268,9 @@ async function engagementWizard(a, cols, w) {
           }));
           if (!result) { e.target.disabled = false; return; }
           state.creating = false; state.wiz = null;
-          state.mode = 'advanced'; state.tab = 'campaigns';
-          await openCampaignWorkspace(result.campaignId);
+          state.mode = 'simple'; state.g = 'campaign'; state.simpleSelectedCampaignId = result.campaignId;
+          state.simpleCampaignSection = 'workflow'; state.tab = 'campaigns';
+          await refresh();
           toast('Campanha criada e pausada. Revise e ative quando desejar.', 7000);
         } }, 'Criar campanha sem iniciar')));
   }
@@ -346,74 +396,101 @@ async function wizardPage(a, cols) {
   return h('div', { class: 'card stack wizard' }, dots, body);
 }
 
-async function openSimpleCampaignEditor(campaignId) {
-  await openCampaignWorkspace(campaignId);
-  state.campaignTab = 'workflow';
-  state.editCampaign = true;
-  renderView();
+/** Um único contexto por campanha: comandos, listas, parâmetros e acompanhamento juntos. */
+async function simpleCampaignDetail(a, cols, camps, stats) {
+  const id = state.simpleSelectedCampaignId;
+  const c = camps.find((x) => x.id === id);
+  if (!c) {
+    state.simpleSelectedCampaignId = null;
+    return h('div', { class: 'card stack' }, 'Campanha não localizada nesta conta.',
+      h('button', { onclick: () => { state.simpleSelectedCampaignId = null; renderView(); } }, 'Voltar às campanhas'));
+  }
+  const status = simpleCampaignStatus(a, c);
+  const section = state.simpleCampaignSection || 'workflow';
+  const tabs = [['workflow','Fluxo'],['lists','Listas'],['settings','Configurações'],['track','Acompanhamento']];
+  const content = section === 'lists'
+    ? await detailLists(a, c)
+    : section === 'settings'
+      ? advancedWorkflowEditor(a, c, () => { state.simpleCampaignSection = 'workflow'; state.editCampaign = false; renderView(); })
+      : section === 'track'
+        ? h('div', { class: 'stack' },
+            h('div', { class: 'card stack' },
+              h('strong', {}, 'Acompanhamento desta campanha'),
+              h('p', { class: 'muted' }, 'Somente confirmações verificadas contam como resultado. Interações incertas exigem revisão.'),
+              livePanel(a)),
+            detailStatistics(c))
+        : await detailWorkflow(a, c);
+  return h('div', { class: 'stack simple-campaign-detail' },
+    h('button', { class: 'link', onclick: () => { state.simpleSelectedCampaignId = null; state.editCampaign = false; renderView(); } }, '← Todas as campanhas'),
+    h('section', { class: 'card simple-campaign-focus' },
+      h('div', { class: 'simple-campaign-heading' },
+        h('div', { class: 'stack' },
+          h('h2', {}, c.name),
+          h('span', { class: 'pill ' + status.cls }, status.label),
+          h('span', { class: 'muted' }, (c.people?.length ?? 0) + ' contatos · ' + (c.actions?.length ?? 0) + ' etapas')),
+        h('div', { class: 'simple-campaign-actions' },
+          !c.archived && h('button', { class: 'primary', disabled: a.paused,
+            onclick: () => startSimpleCampaign(a, c, camps) },
+            a.runnerEnabled && a.running && c.active ? '▶ Acompanhar execução' : '▶ Executar esta campanha'),
+          !c.archived && c.active && h('button', { onclick: () => pauseSimpleCampaign(a, c, camps) }, '⏸ Pausar campanha'),
+          !c.archived && !c.active && h('button', { onclick: () => setSimpleCampaignActive(a, c, true),
+            title: 'Ativa na fila sem iniciar o navegador' }, 'Ativar na fila'),
+          h('button', { disabled: a.runnerEnabled, title: a.runnerEnabled ? 'Pare o executor antes de arquivar' : '',
+            onclick: () => archiveSimpleCampaign(a, c) }, c.archived ? 'Restaurar' : 'Arquivar')))),
+    h('nav', { class: 'simple-campaign-tabs', 'aria-label': 'Áreas desta campanha' },
+      ...tabs.map(([key, name]) => h('button', {
+        class: section === key ? 'selected' : '',
+        'aria-current': section === key ? 'page' : undefined,
+        onclick: () => { state.simpleCampaignSection = key; state.editCampaign = false; renderView(); },
+      }, name))),
+    content);
 }
 
-async function campaignPage(a, cols, camps) {
+async function campaignPage(a, cols, camps, stats) {
   if (state.chooseCampaignType) return intentionPicker();
   if (state.creating) return h('div', { class: 'stack' },
-    h('button', { class: 'link', onclick: () => { state.creating = false; state.wiz = null; renderView(); } }, '← Voltar'),
+    h('button', { class: 'link', onclick: () => { state.creating = false; state.wiz = null; renderView(); } }, '← Voltar às campanhas'),
     await wizardPage(a, cols));
-  // Mesmo sem campanhas correntes, mostrar as abas para recuperar arquivadas.
-  // O assistente de criação fica disponível no botão + Nova campanha.
-  // Uma área por conta; arquivo separado. O backend omite campanhas arquivadas
-  // da lista operacional, mas preserva sua estrutura e histórico.
+  if (state.simpleSelectedCampaignId)
+    return simpleCampaignDetail(a, cols, camps, stats);
   const archived = Boolean(state.simpleArchived);
   const all = await api.listCampaignSummaries(a.id, archived);
   const summaries = all.filter((c) => Boolean(c.archived) === archived);
-  const active = camps.find((c) => c.active);
-  const tab = (id, label) => h('button', {
-    class: archived === (id === 'archived') ? 'primary' : '',
-    'aria-current': archived === (id === 'archived') ? 'page' : undefined,
-    onclick: () => { state.simpleArchived = id === 'archived'; renderView(); },
-  }, label);
-  const list = summaries.map((c) => h('div', { class: 'card stack' },
-    h('div', { class: 'row', style: 'align-items:center;flex-wrap:wrap' },
-      h('span', { class: 'pill ' + (c.active ? 'ok' : '') },
-        c.archived ? 'Arquivada' : c.active ? 'Em execução' : 'Pausada'),
-      h('strong', { style: 'flex:1;min-width:200px' }, c.name),
-      h('span', { class: 'muted' }, c.contacts + ' contato(s) · ' + c.actions + ' etapa(s)')),
-    h('div', { class: 'row', style: 'flex-wrap:wrap;gap:8px' },
-      !c.archived && h('button', { class: 'primary', onclick: () => openSimpleCampaignEditor(c.id) }, 'Abrir e editar fluxo'),
-      !c.archived && h('button', { onclick: () => openSimpleCampaignEditor(c.id) }, 'Configurar etapas'),
-      !c.archived && h('button', { title: 'Abre o editor existente; ações com histórico não podem ser removidas ou reordenadas', onclick: () => openCampaignWorkspace(c.id) }, 'Ver pessoas e histórico'),
-      !c.archived && h('button', {
-        onclick: async () => {
-          const copy = await safe(() => api.duplicateCampaign(a.id, c.id));
-          if (copy?.campaignId) { toast('Cópia criada sem contatos ou histórico. Edite livremente o fluxo duplicado.'); await openSimpleCampaignEditor(copy.campaignId); }
-        },
-      }, 'Duplicar para modificar etapas'),
-      h('button', {
-        disabled: a.runnerEnabled,
-        title: a.runnerEnabled ? 'Pare apenas o executor desta conta antes de arquivar ou restaurar' : '',
-        onclick: async () => {
-          if (!c.archived && !window.confirm('Arquivar esta campanha? Ela será desativada, mas pessoas, etapas e histórico serão preservados.')) return;
-          const result = await safe(() => api.archiveCampaign(a.id, c.id, !c.archived));
-          if (result?.ok) { toast(c.archived ? 'Campanha restaurada sem ativar' : 'Campanha arquivada sem excluir dados'); await refresh(); }
-        },
-      }, c.archived ? 'Restaurar à lista de campanhas' : 'Arquivar campanha'))));
-  return h('div', { class: 'stack' },
-    h('div', { class: 'row', style: 'align-items:center;flex-wrap:wrap' },
+  return h('div', { class: 'stack simple-campaign-list' },
+    h('div', { class: 'row simple-campaign-list-header' },
       h('h2', { style: 'flex:1;margin:0' }, 'Campanhas desta conta'),
-      h('button', { class: 'primary', onclick: () => { state.simpleArchived = false; state.chooseCampaignType = true; state.creating = false; state.wiz = null; renderView(); } }, '+ Nova campanha')),
-    h('p', { class: 'muted' }, 'Campanhas e arquivo pertencem somente a esta conta LinkedIn. Arquivar não exclui contatos, histórico nem etapas; restaurar não inicia a execução.'),
-    h('nav', { class: 'row', 'aria-label': 'Campanhas e arquivadas', style: 'display:flex;gap:8px;border-bottom:1px solid var(--border, #ddd);padding-bottom:12px' },
-      tab('current', 'Campanhas (' + (archived ? camps.length : summaries.length) + ')'),
-      tab('archived', 'Arquivadas' + (archived ? ' (' + summaries.length + ')' : ''))),
-    !archived && active && h('div', { class: 'card stack' },
-      h('strong', {}, 'Campanha em andamento: ' + active.name),
-      h('p', { class: 'muted' }, 'Edite parâmetros no construtor visual. Para adicionar, remover ou reorganizar etapas em fluxos com histórico, duplique a campanha antes.'),
-      h('div', { class: 'row' },
-        h('button', { onclick: () => goStep('track') }, 'Acompanhar e aprovar'),
-        h('button', { onclick: () => openSimpleCampaignEditor(active.id) }, 'Abrir editor visual'))),
-    ...list,
+      h('button', { class: 'primary', onclick: () => {
+        state.simpleArchived = false; state.chooseCampaignType = true;
+        state.creating = false; state.wiz = null; renderView();
+      } }, '+ Nova campanha')),
+    h('nav', { class: 'simple-campaign-tabs', 'aria-label': 'Campanhas e arquivadas' },
+      ...[['current','Campanhas'],['archived','Arquivadas']].map(([key,name]) => h('button', {
+        class: archived === (key === 'archived') ? 'selected' : '',
+        'aria-current': archived === (key === 'archived') ? 'page' : undefined,
+        onclick: () => { state.simpleArchived = key === 'archived'; renderView(); },
+      }, name + (key === 'current' ? ' (' + camps.length + ')' : ''))),
+    ...summaries.map((c) => {
+      const status = simpleCampaignStatus(a, c);
+      const raw = camps.find((x) => x.id === c.id);
+      return h('section', { class: 'simple-campaign-row card' },
+        h('div', { class: 'simple-campaign-info' },
+          h('strong', { title: c.name }, c.name),
+          h('div', { class: 'row' },
+            h('span', { class: 'pill ' + status.cls }, status.label),
+            h('span', { class: 'muted' }, c.contacts + ' contatos · ' + c.actions + ' etapas'))),
+        h('div', { class: 'simple-campaign-actions' },
+          h('button', { class: 'primary', onclick: () => openSimpleCampaign(c.id) }, 'Abrir campanha'),
+          !c.archived && h('button', { disabled: a.paused, onclick: () => startSimpleCampaign(a, raw || c, camps) },
+            a.runnerEnabled && a.running && c.active ? 'Acompanhar' : '▶ Executar'),
+          !c.archived && c.active && h('button', { onclick: () => pauseSimpleCampaign(a, c, camps) }, '⏸ Pausar'),
+          !c.archived && !c.active && h('button', {
+            title: 'Ativar na fila sem começar a executar',
+            onclick: () => setSimpleCampaignActive(a, c, true) }, 'Ativar'),
+          h('button', { disabled: a.runnerEnabled, title: a.runnerEnabled ? 'Pare o executor antes de arquivar' : '',
+            onclick: () => archiveSimpleCampaign(a, c) }, c.archived ? 'Restaurar' : 'Arquivar')));
+    }),
     !summaries.length && h('div', { class: 'card muted' },
-      archived ? 'Nenhuma campanha arquivada nesta conta.' : 'Nenhuma campanha nesta conta. Crie uma nova campanha ou restaure uma arquivada.'),
-  );
+      archived ? 'Nenhuma campanha arquivada.' : 'Nenhuma campanha nesta conta. Clique em Nova campanha.'));
 }
 
 /** Ajusta somente a janela de posts explicitamente para campanha existente.
@@ -549,7 +626,7 @@ async function trackPage(a, camps, stats) {
 async function simpleView(a) {
   const [cols, camps, stats, settings] = await Promise.all([api.listCollections(a.id), api.listCampaigns(a.id), api.accountStats(a.id), api.getSettings()]);
   const active = camps.find((c) => c.active);
-  if (!state.g) state.g = !active ? 'campaign' : 'track';
+  if (!state.g || state.g === 'track') state.g = 'campaign';
   const people = cols.reduce((s, c) => s + c.size, 0);
   const info = {
     lists: cols.length ? `${cols.length} lista(s), ${people} pessoas` : 'importar planilha',
@@ -559,14 +636,15 @@ async function simpleView(a) {
     track: a.paused ? 'pausado' : !a.running ? 'parado' : active ? 'trabalhando' : '—',
     trackWarn: stats.pendingApprovals > 0 || stats.unhandledReplies > 0,
   };
-  const page = { lists: () => listsPage(a, cols, camps), campaign: () => campaignPage(a, cols, camps), config: () => configPage(a), track: () => trackPage(a, camps, stats) }[state.g] ?? (() => trackPage(a, camps, stats));
+  const page = { lists: () => listsPage(a, cols, camps), campaign: () => campaignPage(a, cols, camps, stats), config: () => configPage(a) }[state.g] ?? (() => campaignPage(a, cols, camps, stats));
   return h('div', { class: 'stack simple' },
-    statusBar(a, active),
-    stepper(state.g, info),
+    statusBar(a),
     await page(),
-    h('div', { class: 'gfoot muted' }, 'Ferramentas avançadas: ',
-      ...[['companies', 'Empresas e comitês'], ['signals', 'Sinais'], ['deliveries', 'Entregas'], ['diagnostics', 'Diagnóstico'], ['activity', 'Registro de atividade'], [null, 'Tela completa']]
-        .flatMap(([t, l], i) => [i ? ' · ' : '', h('button', { class: 'link', onclick: () => goAdvanced(t) }, l)])),
+    h('details', { class: 'simple-tools' },
+      h('summary', {}, 'Ferramentas avançadas'),
+      h('div', { class: 'row' },
+        ...[['companies', 'Empresas e comitês'], ['signals', 'Sinais'], ['deliveries', 'Entregas'], ['diagnostics', 'Diagnóstico'], ['activity', 'Registro de atividade'], [null, 'Tela completa']]
+          .map(([t, l]) => h('button', { class: 'link', onclick: () => goAdvanced(t) }, l)))),
   );
 }
 
