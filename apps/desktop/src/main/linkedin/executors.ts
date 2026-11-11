@@ -176,14 +176,13 @@ export function firstUnlikedCandidate(
   const expected = norm(cleanName);
   const id = publicId.toLowerCase();
   for (const post of posts) {
-    if (!post.text && !post.hasMedia) continue;
+    if (post.liked === true) continue; // curtido: ir ao proximo sem outras verificacoes
     if (post.isReshare && !options.includeReshares) continue;
     const actor = post.actorHref ? profileSlug(post.actorHref) : undefined;
     const actorKnown = !!actor && !/^(?:acoaa|acwaa)/i.test(actor);
     if (actorKnown && actor !== id) continue; // atividade de terceiro
     if (!actorKnown && (!expected || !post.actorName || norm(post.actorName) !== expected))
       return { post, why: 'Primeiro cartão encontrado, mas autoria não determinada', uncertain: true };
-    if (post.liked === true) continue; // já curtido: ir ao próximo
     if (post.liked === null)
       return { post, why: 'Primeiro possível post não curtido, mas estado de reação desconhecido', uncertain: true };
     // Primeiro liked === false da página: não exigir data nem URN para selecioná-lo.
