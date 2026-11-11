@@ -10,6 +10,10 @@ class NoUrlSlot extends Error {
     super('sem vaga de perfil pelo link');
   }
 }
+/** Sem URL pública verificável: não iniciar convite, mensagem nem retirada. */
+class IdentityUnverified extends Error {
+  constructor(message: string) { super(message); }
+}
 
 const guard = (fn: () => Promise<ExecutionResult>): Promise<ExecutionResult> =>
   baseGuard(async () => {
@@ -17,6 +21,7 @@ const guard = (fn: () => Promise<ExecutionResult>): Promise<ExecutionResult> =>
       return await fn();
     } catch (e) {
       if (e instanceof NoUrlSlot) return noUrlSlot(e.retryAt);
+      if (e instanceof IdentityUnverified) return { ok: false, reason: 'IDENTITY_UNVERIFIED', message: e.message };
       throw e;
     }
   });
@@ -51,6 +56,7 @@ async function openProfile(d: ExecutorDeps, p: Person): Promise<ProfileState | '
   const open = await gotoProfile(d, p);
   if (open !== 'ok') {
     if ('notFound' in open) return 'not_found';
+    if ('needsReview' in open) throw new IdentityUnverified(open.needsReview);
     throw new NoUrlSlot(open.retryAt);
   }
   return (await awaitProfile(d)) === 'ok' ? profileState(d) : 'not_found';

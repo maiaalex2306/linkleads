@@ -16,6 +16,7 @@ export type FailureReason =
   | 'REPLIED'             // pessoa respondeu: interrompe sequência
   | 'OPTED_OUT'
   | 'NOT_FOUND'
+  | 'IDENTITY_UNVERIFIED' // perfil sem /in/ verificado, conflito ou redirecionamento; revisão humana
   | 'LIMIT_REACHED'
   | 'THROTTLED'           // plataforma sinalizou limite/aviso
   | 'AWAITING_APPROVAL'   // aguardando aprovação humana (ex.: comentário da IA)
