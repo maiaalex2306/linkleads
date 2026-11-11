@@ -37,7 +37,7 @@ describe('navegação por identidade de perfil — etapa 2', () => {
   it('bloqueia redirecionamento para pessoa diferente mesmo com nome parecido', async () => {
     const { deps, exists } = mockBrowser('https://www.linkedin.com/in/felipe-dos-santos/');
     const r = await gotoProfile(deps, lead);
-    expect(r).toMatchObject({ notFound: expect.stringMatching(/endereço diferente/) });
+    expect(r).toMatchObject({ needsReview: expect.stringMatching(/Redirecionamento/) });
     expect(exists).not.toHaveBeenCalled();
   });
 
