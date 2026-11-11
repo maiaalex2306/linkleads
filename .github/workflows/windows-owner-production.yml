@@ -200,22 +200,58 @@ jobs:
           } finally {
             Remove-Item -LiteralPath $badDir -Recurse -Force -ErrorAction SilentlyContinue
           }
-      - name: Disponibilizar instalador com hash e instrucoes
+      - name: Criar ZIP unico com INSTALAR-LINKLEADS.cmd na raiz
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $release = 'apps/desktop/release'
+          $zipRoot = 'owner-package'
+          New-Item -ItemType Directory -Force -Path $zipRoot | Out-Null
+          $package = Join-Path $zipRoot 'LINKLEADS-INSTALADOR.zip'
+          $required = @('INSTALAR-LINKLEADS.cmd', 'BASELINE-LINKLEADS.ps1',
+            'REPARAR-ATALHO-LINKLEADS.cmd', 'SHA256.txt', 'LEIA-ME-INSTALACAO.txt')
+          $files = @()
+          foreach ($name in $required) {
+            $p = Join-Path $release $name
+            if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { throw "Arquivo obrigatorio ausente: $p" }
+            $files += $p
+          }
+          $installers = @(Get-ChildItem $release -Filter 'LinkLeads-Setup-*.exe' -File)
+          if ($installers.Count -ne 1) { throw 'Pacote deve conter exatamente um instalador Windows' }
+          $files += $installers[0].FullName
+          $stage = Join-Path $zipRoot 'conteudo'
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          foreach ($f in $files) { Copy-Item -LiteralPath $f -Destination $stage -Force }
+          Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $package -CompressionLevel Optimal
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $archive = [IO.Compression.ZipFile]::OpenRead((Resolve-Path $package).Path)
+          try {
+            $entries = @($archive.Entries | ForEach-Object { $_.FullName })
+            foreach ($name in $required) {
+              if ($entries -cnotcontains $name) { throw "ZIP sem $name na raiz" }
+            }
+            if ($entries -cnotcontains $installers[0].Name) { throw 'ZIP sem instalador na raiz' }
+            if (@($entries | Where-Object { $_ -match '/|\\' }).Count -ne 0) { throw 'ZIP possui subpastas inesperadas' }
+          } finally { $archive.Dispose() }
+          Write-Host "Pacote unico pronto: $package"
+      - name: Disponibilizar pacote de instalacao simples
         uses: actions/upload-artifact@v4
         with:
           name: LinkLeads-Producao-Windows-${{ github.sha }}
+          path: owner-package/LINKLEADS-INSTALADOR.zip
+          if-no-files-found: error
+          retention-days: 30
+      - name: Preservar evidencias visuais e NSIS
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: LinkLeads-Producao-Provas-${{ github.sha }}
           path: |
-            apps/desktop/release/LinkLeads-Setup-*.exe
-            apps/desktop/release/SHA256.txt
-            apps/desktop/release/INSTALAR-LINKLEADS.cmd
-            apps/desktop/release/BASELINE-LINKLEADS.ps1
-            apps/desktop/release/REPARAR-ATALHO-LINKLEADS.cmd
-            apps/desktop/release/LEIA-ME-INSTALACAO.txt
             visual-windows/*.png
             visual-windows/manifest.json
             nsis-smoke/nsis-install-report.json
             nsis-smoke/smoke-report.json
             nsis-smoke/installed-launcher.png
             nsis-smoke/visual-differences/report.json
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 30
