@@ -25,14 +25,21 @@ describe('instalacao assistida Windows', () => {
     expect(cmd).not.toContain('Get-FileHash');
     expect(cmd).toContain('SHA256.txt');
     expect(cmd).toContain('LL_BACKUP_ROOT');
-    expect(cmd).toContain('Copy-Item');
-    // Electron pode usar o nome do produto OU o nome npm com escopo como userData.
-    // Nunca iniciar uma atualizacao que salve somente um dos dois locais.
-    expect(cmd).toContain("Join-Path $env:APPDATA 'LinkLeads'");
-    expect(cmd).toContain("Join-Path $env:APPDATA '@linkleads'");
-    expect(cmd).toContain("'desktop'");
-    expect(cmd).toContain('Get-ChildItem -LiteralPath $src.dir -File -Recurse');
-    expect(cmd).toContain('Tamanho total do backup divergente');
+    const baseline = source('scripts/BASELINE-LINKLEADS.ps1');
+    expect(cmd).toContain('BASELINE-LINKLEADS.ps1');
+    expect(cmd).toContain('-Mode Backup');
+    expect(cmd).toContain('-InstallerPath "%LL_INSTALLER%"');
+    expect(cmd).toContain('if errorlevel 1');
+    // A rotina verificada usa os dois formatos reais de userData, contas, DB/WAL
+    // e sessao. O assistente NAO pode abrir NSIS antes do SHA256 do snapshot.
+    expect(baseline).toContain("Join-Path $env:APPDATA 'LinkLeads'");
+    expect(baseline).toContain("Join-Path $env:APPDATA '@linkleads'");
+    expect(baseline).toContain("'desktop'");
+    expect(baseline).toContain('Copy-Item -LiteralPath');
+    expect(baseline).toContain('Get-FileHash -LiteralPath');
+    expect(baseline).toContain('(Hash $to) -ne $file.sha256');
+    expect(baseline).toContain('Get-Process -Name');
+    expect(baseline).not.toMatch(/Remove-Item|rmSync|rmdir|\bdel\s+|\brd\s+/i);
     expect(cmd).toContain('Start-MpScan');
     expect(cmd).toContain('resultado-instalacao.json');
     expect(cmd).toContain('--check-only');
@@ -52,22 +59,26 @@ describe('instalacao assistida Windows', () => {
       writeFileSync(join(product, 'accounts.json'), 'CONTA-TESTE');
       writeFileSync(join(scoped, 'linkleads.db'), 'BANCO-TESTE');
 
-      const commandLine = source('scripts/INSTALAR-LINKLEADS.cmd')
-        .split(/\r?\n/).find((line) => line.startsWith('powershell.exe -NoProfile -Command "') && line.includes('$sources=@('));
-      expect(commandLine).toBeDefined();
-      const prefix = 'powershell.exe -NoProfile -Command "';
-      const payload = commandLine!.slice(prefix.length, -1);
-      const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', payload], {
-        encoding: 'utf8', timeout: 60_000,
-        env: { ...process.env, APPDATA: appData, LL_BACKUP_ROOT: backups },
+      const output = join(root, 'Reports');
+      const run = spawnSync('powershell.exe', [
+        '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File',
+        resolve(app, '..', '..', 'scripts', 'BASELINE-LINKLEADS.ps1'),
+        '-Mode', 'Backup', '-ReportDirectory', output, '-BackupRoot', backups,
+      ], {
+        encoding: 'utf8', timeout: 120_000,
+        env: { ...process.env, APPDATA: appData, LOCALAPPDATA: join(root, 'Local') },
       });
-      expect(result.status, (result.stdout || '') + (result.stderr || '')).toBe(0);
-      const snapshots = readdirSync(backups);
-      expect(snapshots).toHaveLength(1);
-      const snapshot = join(backups, snapshots[0]!);
-      expect(readFileSync(join(snapshot, 'LinkLeads', 'accounts.json'), 'utf8')).toBe('CONTA-TESTE');
-      expect(readFileSync(join(snapshot, 'ScopedDesktop', 'Partitions', 'conta-exemplo', 'linkleads.db'), 'utf8'))
+      expect(run.status, (run.stdout || '') + (run.stderr || '')).toBe(0);
+      const baselineResult = JSON.parse(readFileSync(join(output, 'resultado-baseline-linkleads.json'), 'utf8'));
+      expect(baselineResult.status).toBe('BACKUP_VERIFICADO');
+      expect(baselineResult.snapshot.verified).toBe(true);
+      expect(readdirSync(backups)).toHaveLength(1);
+      const snapshot = baselineResult.snapshot.path;
+      expect(readFileSync(join(snapshot, 'data-1', 'accounts.json'), 'utf8')).toBe('CONTA-TESTE');
+      expect(readFileSync(join(snapshot, 'data-2', 'Partitions', 'conta-exemplo', 'linkleads.db'), 'utf8'))
         .toBe('BANCO-TESTE');
+      expect(readFileSync(join(product, 'accounts.json'), 'utf8')).toBe('CONTA-TESTE');
+      expect(readFileSync(join(scoped, 'linkleads.db'), 'utf8')).toBe('BANCO-TESTE');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
