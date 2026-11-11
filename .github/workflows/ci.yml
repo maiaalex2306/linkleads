@@ -73,7 +73,7 @@ jobs:
       - run: npm ci
       - run: npm run build
       - name: Preparar Electron e Playwright
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install chromium
       - name: Executar fluxos Electron em site simulado
         run: |
           for t in ${{ matrix.suite }}; do
@@ -143,7 +143,7 @@ jobs:
           echo "APP_SETTINGS_BASE=$RUNNER_TEMP/linkleads-settings-approved/apps/desktop" >> "$GITHUB_ENV"
           echo "SETTINGS_APPROVED_SHA=$approved" >> "$GITHUB_ENV"
       - name: Preparar bibliotecas gráficas do Electron
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install chromium
       - name: Fotografar baseline e candidata e comparar pixels
         shell: bash
         run: |
@@ -196,7 +196,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
-      - run: npx playwright install --with-deps chromium
+      - run: npx playwright install chromium
       - run: npm run bundle -w @linkleads/desktop
       - name: Testar aplicativo empacotado
         run: LINKLEADS_E2E_APP=$PWD/apps/desktop/app-dist xvfb-run -a node apps/desktop/e2e/run.mjs

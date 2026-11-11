@@ -159,6 +159,38 @@ export function pickPost(posts: PostExtract[], publicId: string, s: LikeSettings
   return choosePost(posts, publicId, s, personName).post;
 }
 
+/**
+ * Regra de negócios: o alvo é o PRIMEIRO post da ordem visual cuja conta ativa
+ * ainda não curtiu (liked === false). Não usar idade ou URN para ORDENAR.
+ *
+ * Não é um comando de clique. A autorização e a identidade do alvo continuam
+ * sendo verificadas separadamente antes de qualquer interação externa.
+ * Uma curtida com estado desconhecido não equivale a "não curtido".
+ */
+export function firstUnlikedCandidate(
+  posts: PostExtract[], publicId: string, personName = '',
+  options: Pick<LikeSettings, 'includeReshares'> = {},
+): { post?: PostExtract; why: string; uncertain?: boolean } {
+  const norm = (v: string) => v.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+  const cleanName = personName.replace(/^(?:(?:Atividades|Activity|Publicações|Publications|Posts|Comentários|Comments)\s*[|·–-]\s*)+/i, '');
+  const expected = norm(cleanName);
+  const id = publicId.toLowerCase();
+  for (const post of posts) {
+    if (post.liked === true) continue; // curtido: ir ao proximo sem outras verificacoes
+    if (post.isReshare && !options.includeReshares) continue;
+    const actor = post.actorHref ? profileSlug(post.actorHref) : undefined;
+    const actorKnown = !!actor && !/^(?:acoaa|acwaa)/i.test(actor);
+    if (actorKnown && actor !== id) continue; // atividade de terceiro
+    if (!actorKnown && (!expected || !post.actorName || norm(post.actorName) !== expected))
+      return { post, why: 'Primeiro cartão encontrado, mas autoria não determinada', uncertain: true };
+    if (post.liked === null)
+      return { post, why: 'Primeiro possível post não curtido, mas estado de reação desconhecido', uncertain: true };
+    // Primeiro liked === false da página: não exigir data nem URN para selecioná-lo.
+    return { post, why: '' };
+  }
+  return { why: 'Nenhuma publicação do perfil com curtida comprovadamente ausente' };
+}
+
 /** Como pickPost, mas explica por que nenhum post serviu (para a tela). */
 export function choosePost(posts: PostExtract[], publicId: string, s: LikeSettings, personName = ''): { post?: PostExtract; why: string; uncertain?: boolean } {
   const maxAge = s.maxPostAgeDays ?? 365;
@@ -241,14 +273,36 @@ async function discoverUnlikedPost(
   for (let step = 0; step <= maxScrolls && Date.now() - start < 120_000; step++) {
     await d.driver.assertNotBlocked();
     const batch = await d.driver.read(extractPosts, d.driver.sel as unknown as Record<string, readonly string[]>, 150);
-    for (const p of batch) seen.set(p.urn, p);
-    // O post já curtido NÃO é candidato nesta ação; procurar o seguinte.
-    // Estado desconhecido, idade ilegível ou URN provisória também não autorizam clique.
-    const unread = [...seen.values()].filter((p) =>
-      !ignoredUrns.has(p.urn) && p.liked === false &&
-      isCanonicalPostUrn(p.urn) && p.age && parseRelativeAgeDays(p.age) !== undefined);
-    const found = choosePost(unread, publicId, { ...settings, maxPostAgeDays: ageLimit, allowAlreadyLiked: false }, personName);
-    if (found.post) return { post: found.post, posts: [...seen.values()], why: '' };
+    // ll-idx-N representa apenas a posicao de um lote, e pode se repetir ao
+    // rolar a pagina. Nunca usá-lo como chave persistente entre leituras.
+    for (const [index, p] of batch.entries()) {
+      const key = isCanonicalPostUrn(p.urn) ? p.urn : `unresolved:${step}:${index}`;
+      seen.set(key, p);
+    }
+    // Regra da conta: identificar primeiro o post nao curtido em ORDEM VISUAL.
+    // Autor, estado, URN e data continuam sendo gates separados de interacao.
+    const ordered = [...seen.values()].filter((p) => !ignoredUrns.has(p.urn));
+    const candidate = firstUnlikedCandidate(ordered, publicId, personName, settings);
+    if (candidate.post) {
+      const post = candidate.post;
+      if (candidate.uncertain)
+        return { posts: ordered, why: candidate.why + '. Confirmacao humana necessaria.', uncertain: true };
+      if (!isCanonicalPostUrn(post.urn))
+        return { posts: ordered,
+          why: 'Primeira publicacao nao curtida identificada na ordem da tela, mas seu ID e provisório. ' +
+            'A selecao esta correta; o vinculo com o post ainda deve ser resolvido antes de qualquer interacao.',
+          uncertain: true };
+      const days = post.age ? parseRelativeAgeDays(post.age) : undefined;
+      // A idade NAO eh requisito para selecionar o primeiro nao curtido.
+      // Se legivel, respeitar a janela configurada sem trocar silenciosamente
+      // por uma publicacao posterior.
+      if (days !== undefined && days > ageLimit)
+        return { posts: ordered,
+          why: 'O primeiro post nao curtido tem idade superior ao limite configurado (' +
+            ageLimit + ' dias). Nao foi substituido por outro post.',
+          uncertain: false };
+      return { post, posts: ordered, why: '' };
+    }
     if (step === maxScrolls) break;
     const before = await d.driver.read(() => {
       const el = document.scrollingElement ?? document.documentElement;
