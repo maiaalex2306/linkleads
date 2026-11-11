@@ -228,8 +228,20 @@ export function extractPosts(sel: Record<string, readonly string[]>, limit: numb
       .find((v) => v && v.length < 60 && AGE.test(v)) ?? null;
     const ageTxt = (labelled && /(?:^|\s)(?:h[áa]\s+)?\d+\s*(?:min|h|d|dia|day|sem|w|week|m[oêe]|mes|a|ano|y|year)\b/i.test(labelled)
       ? labelled : null) || absolute || permalinkAge || null;
+    // Perfil citado no corpo do texto NÃO é prova de autoria.
+    // Aceitar apenas links na área do autor/cabeçalho ou junto ao permalink temporal.
+    const inAuthorHeader = (link: HTMLAnchorElement) => {
+      if (link.closest('.update-components-actor, .feed-shared-actor, header')) return true;
+      let parent: Element | null = link.parentElement;
+      for (let depth = 0; parent && depth < 2; depth++, parent = parent.parentElement) {
+        if (parent.querySelector('button, [role="button"], [dir="ltr"], .update-components-text')) break;
+        if (parent.querySelector('a[href*="/posts/"], a[href*="/feed/update/"], time[datetime]'))
+          return true;
+      }
+      return false;
+    };
     const actorLinks = (Array.from(it.querySelectorAll('a[href*="/in/"]')) as HTMLAnchorElement[])
-      .filter((a) => !a.closest('.comments-comment-entity, .comments-comment-item, .comments-comment-box__form, [contenteditable]'));
+      .filter((a) => !a.closest('.comments-comment-entity, .comments-comment-item, .comments-comment-box__form, [contenteditable]') && inAuthorHeader(a));
     const verifiedActor = first(it, sel.postActorLink!) as HTMLAnchorElement | null;
     // A URL da autoria só pode ser inferida quando todos os links de perfil
     // observáveis fora da área de comentários apontam para a mesma pessoa.
