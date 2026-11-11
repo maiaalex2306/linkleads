@@ -225,6 +225,11 @@ jobs:
         run: |
           powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/test-baseline-preservation.ps1
           if ($LASTEXITCODE -ne 0) { throw 'Inventario/backup LINKLEADS reprovado' }
+      - name: Reproduzir teste do instalador no PowerShell 7 do workflow de producao
+        shell: pwsh
+        run: |
+          npm test -w @linkleads/desktop
+          if ($LASTEXITCODE -ne 0) { throw 'Teste do instalador reprovado no mesmo shell do workflow de producao' }
 
   windows-e2e-smoke:
     name: Windows Electron + instalador NSIS — prova de execução real
