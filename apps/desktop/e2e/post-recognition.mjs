@@ -119,6 +119,20 @@ try {
   posts = await scan();
   check(posts.length === 1 && posts[0].urn.startsWith('ll-idx-'),
     'dois permalinks divergentes permanecem provisórios', posts);
+  // Um data-urn clássico não autoriza interação se o mesmo cartão aponta
+  // para outro post em seu permalink: ambos ficam sem identidade executável.
+  await page.setContent(
+    '<main><div class="feed-shared-update-v2" data-urn="urn:li:activity:7381234567890128001">' +
+    '<div class="update-components-actor"><a href="https://www.linkedin.com/in/ana-silva/">Ana Silva</a>' +
+    '<span class="update-components-actor__sub-description">há 2 dias</span></div>' +
+    '<a href="/feed/update/urn:li:activity:7381234567890128002/">2 d</a>' +
+    '<div class="update-components-text">Este cartão contém um identificador clássico conflitante.</div>' +
+    '<button aria-pressed="false" aria-label="Like">Like</button></div></main>');
+  posts = await scan();
+  check(posts.every(p => p.urn !== 'urn:li:activity:7381234567890128001' &&
+    p.urn !== 'urn:li:activity:7381234567890128002'),
+    'data-urn e permalink divergentes nunca produzem alvo externo executável', posts);
+
   console.log('E2E FASE 3 — RECONHECIMENTO DE PUBLICAÇÕES OK');
 } catch (error) {
   console.error(error?.stack ?? error);

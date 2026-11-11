@@ -191,8 +191,10 @@ export function firstUnlikedCandidate(
     if (post.actorHref && !actor)
       return { post, why: 'Link do autor não é um perfil confiável do LinkedIn', uncertain: true };
     if (actorKnown && actor !== id) continue; // atividade de terceiro
-    if (!actorKnown && (!expected || !post.actorName || norm(post.actorName) !== expected))
-      return { post, why: 'Primeiro cartão encontrado, mas autoria não determinada', uncertain: true };
+    // Nome completo, mesmo exato, não identifica unicamente uma pessoa:
+    // existem homônimos. A autoria precisa ser comprovada pelo /in/ do lead.
+    if (!actorKnown)
+      return { post, why: 'Primeiro cartão encontrado, mas autoria não comprovada por URL do perfil', uncertain: true };
     if (post.liked === null)
       return { post, why: 'Primeiro possível post não curtido, mas estado de reação desconhecido', uncertain: true };
     // Primeiro liked === false da página: não exigir data nem URN para selecioná-lo.
@@ -209,15 +211,8 @@ export function choosePost(posts: PostExtract[], publicId: string, s: LikeSettin
   // A etiqueta de navegação nunca pode se tornar parte da identidade do autor.
   const cleanPersonName = personName.replace(/^(?:(?:Atividades|Activity|Publicações|Publications|Posts|Comentários|Comments)\s*[|·–-]\s*)+/i, '');
   const expected = norm(cleanPersonName);
-  const isOwn = (p: PostExtract) => {
-    const actor = p.actorHref ? profileSlug(p.actorHref) : undefined;
-    if (actor && actor === publicId.toLowerCase()) return true;
-    // IDs internos podem não coincidir com o slug, mas exigimos nome completo
-    // exato, nunca somente o sobrenome (pessoas homônimas podem ter sobrenome igual).
-    if ((!p.actorHref || (actor && /^(?:acoaa|acwaa)/i.test(actor))) && expected && p.actorName)
-      return norm(p.actorName) === expected;
-    return false;
-  };
+  const isOwn = (p: PostExtract) =>
+    !!p.actorHref && profileSlug(p.actorHref) === publicId.toLowerCase();
   let empty = 0;
   let reshare = 0;
   let others = 0;
@@ -231,8 +226,7 @@ export function choosePost(posts: PostExtract[], publicId: string, s: LikeSettin
     if (!p.text && !p.hasMedia) return (empty++, false);
     if (p.isReshare && !s.includeReshares) return (reshare++, false);
     const actor = p.actorHref ? profileSlug(p.actorHref) : undefined;
-    if ((p.actorHref && !actor) || (!actor && !p.actorName) ||
-        (actor && /^(?:acoaa|acwaa)/i.test(actor) && !p.actorName))
+    if (!actor || /^(?:acoaa|acwaa)/i.test(actor))
       return (uncertainActors++, false);
     if (!isOwn(p)) return (others++, false);
     // Qualquer consumidor de choosePost deve receber somente conteúdo verificável.
@@ -382,7 +376,13 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
             // O botão precisa aparecer na tela após o scroll. Conferir o estado
             // NOVAMENTE imediatamente antes do clique: nunca desfazer um like.
             const point = await d.driver.scrollIntoView('likeButton', { urn: post.urn, containerKey: 'postItem' });
-            if (!point) { ignored.add(post.urn); continue; }
+            if (!point) {
+              // Não substituir silenciosamente o PRIMEIRO post não curtido
+              // por um cartão posterior porque o botão do alvo não apareceu.
+              await d.reportUnrecognized?.().catch(() => undefined);
+              return { ok: false, reason: 'NO_REAL_EFFECT',
+                message: 'Primeira publicação não curtida identificada, mas seu botão de reação não ficou acessível. Nenhum outro post selecionado.' };
+            }
             const state = await d.driver.read(likeState, d.driver.sel as unknown as Record<string, readonly string[]>, post.urn);
             if (state === true) { ignored.add(post.urn); continue; }
             if (state !== false) {

@@ -104,11 +104,14 @@ describe('escolha de publicação com confirmação do estado', () => {
     expect(chosen.uncertain).toBe(true);
     expect(chosen.why).toMatch(/identidade do autor/);
   });
-  it('aceita nome completo exatamente igual quando a página não informa o slug', () => {
+  it('não atribui autoria por nome completo: homônimos também têm nomes iguais', () => {
     const posts = [{ ...one('urn:li:activity:666666666666', false),
       actorHref: null, actorName: 'Ana Silva' }];
-    expect(choosePost(posts, 'ana-silva', { maxPostAgeDays: 30 }, 'Ana Silva').post?.urn)
-      .toBe('urn:li:activity:666666666666');
+    const selected = choosePost(posts, 'ana-silva', { maxPostAgeDays: 30 }, 'Ana Silva');
+    expect(selected.post).toBeUndefined();
+    expect(selected.uncertain).toBe(true);
+    expect(selected.why).toMatch(/identidade do autor/);
+    expect(firstUnlikedCandidate(posts, 'ana-silva', 'Ana Silva').uncertain).toBe(true);
   });
   it('estado de curtida desconhecido é identificado como candidato de diagnóstico, nunca sucesso automático', () => {
     const p = one('urn:li:activity:333333333333', null);
@@ -168,9 +171,9 @@ describe('escolha de publicação com confirmação do estado', () => {
     expect(result.post?.urn).toBe(valid.urn);
   });
 
-  it('remove o prefixo de Atividades recebido do título do perfil sem perder a identidade', () => {
+  it('prefixo Atividades no título não altera a autoria confirmada por URL', () => {
     const post = { ...one('urn:li:activity:777777777778', false),
-      actorHref: null, actorName: 'Ana Silva', age: '150 d' };
+      actorHref: 'https://www.linkedin.com/in/ana-silva/', actorName: 'Ana Silva', age: '150 d' };
     const result = choosePost([post], 'ana-silva',
       { maxPostAgeDays: 365 }, 'Atividades | Ana Silva');
     expect(result.post?.urn).toBe(post.urn);
@@ -179,6 +182,15 @@ describe('escolha de publicação com confirmação do estado', () => {
 });
 
 describe('fase 3 — origem do autor e rolagem sem falsas identidades', () => {
+  it('identificador interno no link de autor não pode ser promovido a identidade pública por coincidência de nome', () => {
+    const p = { ...one('urn:li:activity:7381234567890128002', false),
+      actorHref: 'https://www.linkedin.com/in/ACwAAAIATasBA/', actorName: 'Ana Silva' };
+    const selected = choosePost([p], 'ana-silva', { maxPostAgeDays: 30 }, 'Ana Silva');
+    expect(selected.post).toBeUndefined();
+    expect(selected.uncertain).toBe(true);
+    expect(firstUnlikedCandidate([p], 'ana-silva', 'Ana Silva').uncertain).toBe(true);
+  });
+
   it('um link externo /in/ não comprova a autoria mesmo com nome coincidente', () => {
     const bad = { ...one('urn:li:activity:1111111111111111111', false),
       actorHref: 'https://outro-exemplo.com/in/ana-silva/' };

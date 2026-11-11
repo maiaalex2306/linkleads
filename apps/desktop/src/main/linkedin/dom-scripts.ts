@@ -72,12 +72,8 @@ export function llIsReact(el: Element): boolean {
 export function llPostContainers(sel: { postItem: readonly string[]; likeButton: readonly string[] }): Array<{ el: Element; urn: string }> {
   const out: Array<{ el: Element; urn: string }> = [];
   const seen = new Set<string>();
-  for (const c of sel.postItem) {
-    for (const el of Array.from(document.querySelectorAll(c))) {
-      const urn = el.getAttribute('data-urn');
-      if (urn && !seen.has(urn)) { seen.add(urn); out.push({ el, urn }); }
-    }
-  }
+  // Identidades dos cartões clássicos serão validadas pela MESMA rotina
+  // que interpreta permalinks no layout moderno. data-urn cru não é prova.
   // Continuar a descoberta: o feed pode misturar cartões antigos com cartões modernos sem data-urn.
   const root = document.querySelector('main') || document.body;
   // As atividades atuais podem mostrar "há 6 d · Editado", "2 semanas" ou "3 days".
@@ -107,17 +103,23 @@ export function llPostContainers(sel: { postItem: readonly string[]; likeButton:
       const type = m[1]!.toLowerCase() === 'ugcpost' ? 'ugcPost' : m[1]!.toLowerCase();
       return 'urn:li:' + type + ':' + m[2];
     };
-    const direct = normalize(el.getAttribute('data-urn') || '');
-    if (direct) return direct;
+    // data-urn exato pode conter IDs curtos nos ambientes de regressão.
+    // A forma completa continua obrigatória; nunca extrair dígitos soltos.
+    const rawDirect = el.getAttribute('data-urn') || '';
+    const direct = /^urn:li:(?:activity|ugcPost|share):\d+$/i.test(rawDirect)
+      ? rawDirect.replace(/^urn:li:ugcpost:/i, 'urn:li:ugcPost:')
+      : normalize(rawDirect);
     const links = Array.from(el.querySelectorAll(
       'a[href*="/feed/update/"], a[href*="/posts/"], a[href*="urn:li:"], a[href*="activity-"]',
     ));
     const permalinks = new Set(links.map((a) => normalize(a.getAttribute('href') || '')).filter((v): v is string => !!v));
-    // Dois IDs distintos no mesmo cartão podem vir de repost ou comentários.
-    // Não escolher arbitrariamente qual publicação será curtida.
-    if (permalinks.size > 1) return null;
-    if (permalinks.size === 1) return [...permalinks][0]!;
+    // O identificador no elemento e os permalinks precisam ser coerentes.
+    // Uma publicação citada ou um cartão mesclado pode trazer URNs distintas.
+    // Nesse caso a identidade é INCERTA, mesmo que data-urn esteja presente.
+    if (permalinks.size > 1 || (direct && permalinks.size === 1 && !permalinks.has(direct))) return null;
     const ids = new Set<string>();
+    if (direct) ids.add(direct);
+    for (const permalink of permalinks) ids.add(permalink);
     const attrs = [el, ...Array.from(el.querySelectorAll('[data-urn], [data-id], [data-activity-urn], [componentkey], [data-view-tracking-scope]'))];
     for (const node of attrs) {
       for (const attribute of Array.from(node.attributes)) {
@@ -125,9 +127,19 @@ export function llPostContainers(sel: { postItem: readonly string[]; likeButton:
         if (canonical) ids.add(canonical);
       }
     }
-    // Ambiguidade é erro de reconhecimento, não licença para executar.
+    // Subcartões com URNs distintas, mesmo sob um data-urn aparentemente
+    // válido, tornam a identidade ambígua: não misturar publicações.
+    // Ações só podem ser vinculadas à identidade ÚNICA do cartão.
     return ids.size === 1 ? [...ids][0]! : null;
   };
+  // Descoberta clássica: nunca propagar data-urn arbitrário, incompleto ou
+  // inconsistente com o permalink do próprio cartão para ações externas.
+  for (const selector of sel.postItem) {
+    for (const el of Array.from(document.querySelectorAll(selector))) {
+      const urn = urnOf(el);
+      if (urn && !seen.has(urn)) { seen.add(urn); out.push({ el, urn }); }
+    }
+  }
   const seeds: Element[] = [
     ...timeEls,
     ...Array.from(root.querySelectorAll('a[href*="activity"], a[href*="urn:li:"], [data-urn*="activity"], [data-id*="activity"]')),
@@ -186,18 +198,24 @@ export function extractPosts(sel: Record<string, readonly string[]>, limit: numb
     // A descrição deve vir da área de conteúdo do próprio cartão.
     // Nunca escolher "maior div": ela pode conter autor, rodapé, botões e comentários.
     const textEl = first(it, sel.postText!) as HTMLElement | null;
-    const excluded = [
+    const nonContent = [
       '.update-components-actor', '.feed-shared-actor', '.update-components-header',
       '.feed-shared-header', '.comments-comment-entity', '.comments-comment-item',
-      '.comments-comment-box__form', '[contenteditable="true"]', '[role="toolbar"]',
-      'button', '[role="button"]',
+      '.comments-comment-box__form', '.comments-comments-list',
+      '.feed-shared-social-action-bar', '.social-actions',
+      '[contenteditable="true"]', '[role="toolbar"]', 'button', '[role="button"]',
     ].join(', ');
     const validTextNode = (node: Element) => {
-      if (node.closest(excluded)) return false;
+      if (node.closest(nonContent)) return false;
       if (node.querySelector('button, [role="button"], time, [contenteditable]')) return false;
       return true;
     };
-    let text = textEl && validTextNode(textEl) ? (textEl.innerText || '').trim() : '';
+    // Um botão "ver mais" pode estar dentro da área oficial do texto.
+    // Aceitar esse bloco específico, mas nunca um nó genérico que reúna
+    // autor, comentários e botões de outros cartões.
+    let text = textEl && !textEl.closest(
+      '.update-components-actor, .feed-shared-actor, .comments-comment-entity, .comments-comment-item, .comments-comment-box__form',
+    ) ? (textEl.innerText || '').trim().slice(0, 6000) : '';
     if (!text) {
       // Elementos semânticos de conteúdo: pt-BR, en-US e layout moderno.
       // Se não existirem, falhar sem inventar conteúdo da navegação.
@@ -208,10 +226,11 @@ export function extractPosts(sel: Record<string, readonly string[]>, limit: numb
       const blocks = valid.filter((node) =>
         node.matches('[dir="ltr"], [data-test-id*="commentary"], [data-testid*="post-text"]'));
       if (blocks.length) {
-        // Bloco estrutural completo (não concatenar filhos repetidos).
-        text = blocks.map((node) => (node.innerText || '').trim())
-          .filter((v) => v && v.length <= 6000)
-          .sort((a, b) => b.length - a.length)[0] ?? '';
+        // Preservar blocos IRMÃOS na ordem de leitura, eliminando apenas
+        // descendentes duplicados de outro bloco semântico do mesmo post.
+        const roots = blocks.filter((node) => !blocks.some((other) => other !== node && other.contains(node)));
+        text = roots.map((node) => (node.innerText || '').trim())
+          .filter((v) => v && v.length <= 6000).join('\n\n').slice(0, 6000);
       } else {
         // Quando o corpo contém vários parágrafos irmãos, preservar todos na
         // ordem original, sem comentários e sem duplicar parágrafos aninhados.
