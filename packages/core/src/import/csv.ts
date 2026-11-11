@@ -31,12 +31,17 @@ export function parseCsv(text: string): string[][] {
 
 /** Extrai o slug público de uma URL de perfil (/in/<slug>). */
 export function publicIdFromUrl(url: string): string | undefined {
-  const m = url.trim().match(/linkedin\.com\/(?:in|pub)\/([^/?#]+)/i);
-  if (!m) return undefined;
   try {
-    return decodeURIComponent(m[1]!).toLowerCase();
+    const raw = url.trim();
+    const parsed = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
+    const host = parsed.hostname.toLowerCase();
+    // Não aceitar "fake-linkedin.com", paths de redirecionadores ou resultados de busca.
+    if (host !== 'linkedin.com' && !host.endsWith('.linkedin.com')) return undefined;
+    const match = parsed.pathname.match(/^\/(?:in|pub)\/([^/?#]+)/i);
+    if (!match) return undefined;
+    return decodeURIComponent(match[1]!).toLowerCase();
   } catch {
-    return m[1]!.toLowerCase();
+    return undefined;
   }
 }
 
