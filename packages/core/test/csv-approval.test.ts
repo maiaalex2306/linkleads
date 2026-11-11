@@ -150,6 +150,17 @@ describe('identidade de perfis — Etapa 2', () => {
     expect(r.people[0]?.custom?.linkleads_identity_source).toBe('sales_navigator_review');
   });
 
+  it('extrator secundário não transforma domínio falso em perfil válido', () => {
+    const csv = [
+      'nome;profile_url;observacao',
+      'Ana Silva;https://fake-linkedin.com/in/ana-silva/;sem link publico',
+      'Bruno Lima;https://evil.example/redirect/linkedin.com/in/bruno-lima/;outro link',
+    ].join('\n');
+    const r = importPeopleFromCsv(csv);
+    expect(r.people).toHaveLength(0);
+    expect(r.skipped).toHaveLength(2);
+  });
+
   it('links falsos, hosts e slug codificado inválido não viram identidade', () => {
     for (const url of [
       'https://fake-linkedin.com/in/ana/',
