@@ -11,7 +11,7 @@ $link = $shell.CreateShortcut($shortcut)
 $link.TargetPath = (Join-Path $PSHOME 'powershell.exe')
 $link.Arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + $launcher + '"'
 $link.WorkingDirectory = $repo
-$link.Description = 'LINKLEADS - git pull; npm.cmd run build; npm.cmd run dev -w @linkleads/desktop'
+$link.Description = 'LINKLEADS - abre a versao local; nao atualiza automaticamente o codigo'
 $link.WindowStyle = 1
 $link.Save()
 Write-Host "Atalho criado: $shortcut" -ForegroundColor Green
