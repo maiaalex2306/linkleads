@@ -85,13 +85,19 @@ try {
   }
  }
  if (-not $roots.Count -and -not $AllowEmpty) {throw 'Nenhuma pasta encontrada: baseline nao comprovado'}
+ # Nenhum modo pode criar relatorios sobre as pastas originais.
+ foreach($root in $roots) {
+  if (Overlaps $root.path $ReportDirectory) {
+   throw 'Relatorios nao podem sobrepor pastas de contas/sessao. Operacao bloqueada.'
+  }
+ }
  if ($Mode -eq 'Backup') {
   if (@(Get-Process -Name 'LinkLeads' -ErrorAction SilentlyContinue).Count -gt 0) {
    throw 'LinkLeads ainda esta aberto. Feche para proteger SQLite, WAL e cookies.'
   }
   foreach($root in $roots) {
-   if ((Overlaps $root.path $BackupRoot) -or (Overlaps $root.path $ReportDirectory)) {
-    throw 'Destino de backup/relatorio sobrepoe a pasta de dados. Operacao bloqueada.'
+   if (Overlaps $root.path $BackupRoot) {
+    throw 'Destino de backup sobrepoe a pasta de dados. Operacao bloqueada.'
    }
   }
  }
@@ -117,6 +123,11 @@ try {
   foreach($item in $allManifests) {
    $source=$item.source; $dest=Join-Path $snapshot $source.label
    New-Item -ItemType Directory -Force -Path $dest | Out-Null
+   # Preservar tambem diretorios vazios, sem seguir junctions.
+   foreach($folder in @(Get-ChildItem -LiteralPath $source.path -Directory -Recurse -Force)) {
+    $relative=$folder.FullName.Substring((Full $source.path).Length).TrimStart('\','/')
+    New-Item -ItemType Directory -Force -Path (Join-Path $dest $relative) | Out-Null
+   }
    foreach($file in $item.files) {
     $from=Join-Path $source.path $file.relativePath; $to=Join-Path $dest $file.relativePath
     $parent=Split-Path -Parent $to
