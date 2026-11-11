@@ -574,10 +574,11 @@ const slugOf = (url: string) => {
   }
 };
 
-export type OpenResult = 'ok' | { retryAt: Date | undefined } | { notFound: string };
+export type OpenResult = 'ok' | { retryAt: Date | undefined } | { notFound: string } | { review: string };
 
 /** Sem nome para buscar e sem vaga para abrir pelo link: espera a vaga abrir. */
 export function openFailed(r: Exclude<OpenResult, 'ok'>): ExecutionResult {
+  if ('review' in r) return { ok: false, reason: 'IDENTITY_REVIEW', message: r.review };
   if ('notFound' in r) return { ok: false, reason: 'NOT_FOUND', message: r.notFound };
   return noUrlSlot(r.retryAt);
 }
@@ -595,12 +596,12 @@ export async function gotoProfile(d: ExecutorDeps, p: Person, suffix = ''): Prom
   const slug = p.publicId?.toLowerCase();
   if (!slug || !/^[\p{L}\p{N}_.-]+$/u.test(slug) ||
       p.custom?.linkleads_identity_status === 'pending_review') {
-    return { notFound: 'Identidade sem URL pública verificável. Revisão manual necessária; ' +
+    return { review: 'Identidade sem URL pública verificável. Revisão manual necessária; ' +
       'nenhuma busca por nome ou ação sobre outro perfil será realizada.' };
   }
   const source = p.custom?.linkleads_profile_source_url;
   if (source && publicIdFromUrl(source) !== slug) {
-    return { notFound: 'A URL original não corresponde ao identificador do contato. ' +
+    return { review: 'A URL original não corresponde ao identificador do contato. ' +
       'Revisão manual obrigatória; nenhuma ação executada.' };
   }
   const target = `${profileUrl(p)}${suffix}`;
@@ -612,7 +613,7 @@ export async function gotoProfile(d: ExecutorDeps, p: Person, suffix = ''): Prom
   await d.driver.assertNotBlocked();
   const resolvedSlug = profileSlug(d.driver.wc.getURL());
   if (resolvedSlug !== slug) {
-    return { notFound: 'O perfil aberto possui URL ou domínio diferente do original. ' +
+    return { review: 'O perfil aberto possui URL ou domínio diferente do original. ' +
       'Revisão manual necessária; nenhum resultado por nome foi usado.' };
   }
   return 'ok';
