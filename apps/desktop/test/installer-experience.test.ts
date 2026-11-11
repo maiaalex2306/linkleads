@@ -73,6 +73,31 @@ describe('instalacao assistida Windows', () => {
     }
   });
 
+  it('nao confunde instalador encerrado com instalacao real: repara atalho e exige EXE', () => {
+    const installer = source('scripts/INSTALAR-LINKLEADS.cmd');
+    const repair = source('scripts/REPARAR-ATALHO-LINKLEADS.cmd');
+    const ci = source('.github/workflows/windows-owner-production.yml');
+    expect(installer).toContain('verificar_instalacao_e_reparar_atalho');
+    expect(installer).toContain('call "%~dp0REPARAR-ATALHO-LINKLEADS.cmd" --quiet');
+    expect(installer).toContain('resultado-atalho.json');
+    expect(repair).toContain('CreateShortcut');
+    expect(repair).toContain("GetFolderPath('DesktopDirectory')");
+    expect(repair).toContain('LinkLeads.exe nao encontrado');
+    expect(repair).toContain('expectedVersion');
+    expect(repair).toContain('installedVersion');
+    expect(repair).toContain('LinkLeads-Setup-');
+    expect(repair).toContain('if($match.Success)');
+    expect(repair).toContain('if(-not $exe)');
+    expect(repair).toContain('if(-not $expectedVersion');
+    expect(repair).toContain('resultado-atalho.json');
+    expect(repair).toContain("if($state -ne 'aprovado'){exit 1}");
+    expect(repair).not.toMatch(/Set-ExecutionPolicy|ExecutionPolicy\\s+Bypass|DisableRealtimeMonitoring/i);
+    expect(ci).toContain('apps/desktop/release/REPARAR-ATALHO-LINKLEADS.cmd');
+    expect(ci).toContain('Testar reparo do atalho sem tocar dados reais');
+    const fixture = source('scripts/test-shortcut-repair.ps1');
+    expect(fixture).toContain('FALHA DE SEGURANCA: reparador aprovou instalacao sem executavel');
+  });
+
   it('baixador usa workflow aprovado, GitHub autenticado e assistente verificado', () => {
     const cmd = source('scripts/BAIXAR-E-INSTALAR-LINKLEADS.cmd');
     expect(cmd).toContain('gh auth status');

@@ -107,7 +107,19 @@ jobs:
             throw 'Assistente contem instrucao de enfraquecimento das protecoes Windows'
           }
           Copy-Item -LiteralPath $script -Destination 'apps/desktop/release/INSTALAR-LINKLEADS.cmd' -Force
-          Write-Host 'Assistente Windows incluido ao lado do Setup e SHA256.txt'
+          $repair = 'scripts/REPARAR-ATALHO-LINKLEADS.cmd'
+          if (-not (Test-Path -LiteralPath $repair -PathType Leaf)) { throw 'Reparador de atalho ausente' }
+          $rawRepair = Get-Content -LiteralPath $repair -Raw
+          if ($rawRepair -match '(?i)Set-ExecutionPolicy|ExecutionPolicy\\s+Bypass|DisableRealtimeMonitoring') {
+            throw 'Reparador contem instrucao de enfraquecimento das protecoes Windows'
+          }
+          Copy-Item -LiteralPath $repair -Destination 'apps/desktop/release/REPARAR-ATALHO-LINKLEADS.cmd' -Force
+          Write-Host 'Assistente Windows e reparador de atalho incluidos ao lado do Setup e SHA256.txt'
+      - name: Testar reparo do atalho sem tocar dados reais
+        shell: pwsh
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/test-shortcut-repair.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'Reparador de atalho falhou nos testes isolados' }
       - name: Salvar diagnosticos de instalacao mesmo se falhar
         if: always()
         uses: actions/upload-artifact@v4
@@ -124,6 +136,7 @@ jobs:
           if ($files.Count -ne 1) { throw "Esperado um instalador de producao: obtidos $($files.Count)" }
           if ($files[0].Length -lt 1000000) { throw 'Instalador incompleto' }
           if (-not (Test-Path -LiteralPath (Join-Path $dir 'INSTALAR-LINKLEADS.cmd'))) { throw 'Assistente de instalacao nao foi empacotado' }
+          if (-not (Test-Path -LiteralPath (Join-Path $dir 'REPARAR-ATALHO-LINKLEADS.cmd'))) { throw 'Reparador de atalho nao foi empacotado' }
           $hash = Get-FileHash $files[0].FullName -Algorithm SHA256
           $hashLine = "$($files[0].Name) SHA256 $($hash.Hash)"
           Set-Content -Path (Join-Path $dir 'SHA256.txt') -Value $hashLine -Encoding utf8
@@ -137,6 +150,7 @@ jobs:
             'Dados locais: utiliza contas, sessoes e SQLite da instalacao normal'
             'INSTALACAO SIMPLIFICADA: apos extrair o ZIP, abra INSTALAR-LINKLEADS.cmd por duplo clique.'
             'O assistente verifica SHA256, preserva backup, solicita Defender, abre o setup e grava resultado-instalacao.json.'
+            'Se o setup nao gerar o atalho, REPARAR-ATALHO-LINKLEADS.cmd verifica o EXE instalado e cria o atalho no Desktop.'
             'O instalador cria automaticamente um atalho LinkLeads na area de trabalho e no Menu Iniciar.'
             'ANTES DE INSTALAR: fechar o LinkLeads e fazer backup completo dos dados locais.'
             "Assinatura Windows: $($signature.Status). Se nao estiver Valid, NAO distribuir a clientes."
@@ -182,6 +196,7 @@ jobs:
             apps/desktop/release/LinkLeads-Setup-*.exe
             apps/desktop/release/SHA256.txt
             apps/desktop/release/INSTALAR-LINKLEADS.cmd
+            apps/desktop/release/REPARAR-ATALHO-LINKLEADS.cmd
             apps/desktop/release/LEIA-ME-INSTALACAO.txt
             visual-windows/*.png
             visual-windows/manifest.json

@@ -82,10 +82,15 @@ if errorlevel 1 (
   goto :fail
 )
 
-set "LL_STAGE=verificar_atalho"
-powershell.exe -NoProfile -Command "$desktop=[Environment]::GetFolderPath('DesktopDirectory');$file=Join-Path $desktop 'LinkLeads.lnk';if(-not(Test-Path -LiteralPath $file -PathType Leaf)){Write-Error ('Atalho nao localizado em: '+$file);exit 1};Write-Host ('Atalho criado: '+$file) -ForegroundColor Green"
+set "LL_STAGE=verificar_instalacao_e_reparar_atalho"
+if not exist "%~dp0REPARAR-ATALHO-LINKLEADS.cmd" (
+  echo ERRO: reparador de atalho nao foi incluido no ZIP.
+  goto :fail
+)
+call "%~dp0REPARAR-ATALHO-LINKLEADS.cmd" --quiet
 if errorlevel 1 (
-  echo ATENCAO: instalacao terminou, mas o atalho nao foi confirmado.
+  echo ATENCAO: setup encerrou, mas LinkLeads.exe ou o atalho nao foram confirmados.
+  echo Consulte resultado-atalho.json para saber se o programa foi instalado.
   goto :fail
 )
 
@@ -125,5 +130,5 @@ pause
 exit /b 1
 
 :report
-powershell.exe -NoProfile -Command "$ErrorActionPreference='Stop';New-Item -ItemType Directory -Force -Path $env:LL_REPORT_DIR | Out-Null;$o=[ordered]@{schema='linkleads.owner.install.v1';at=(Get-Date).ToString('o');status=$env:LL_RESULT;stage=$env:LL_STAGE;installer=$env:LL_INSTALLER;hashValidated=($env:LL_HASH_OK -eq 'true');desktopShortcutFound=(Test-Path -LiteralPath (Join-Path ([Environment]::GetFolderPath('DesktopDirectory')) 'LinkLeads.lnk'))};$o | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $env:LL_REPORT_DIR 'resultado-instalacao.json') -Encoding UTF8"
+powershell.exe -NoProfile -Command "$ErrorActionPreference='Stop';New-Item -ItemType Directory -Force -Path $env:LL_REPORT_DIR | Out-Null;$repairPath=Join-Path $env:LL_REPORT_DIR 'resultado-atalho.json';$repair=if(Test-Path -LiteralPath $repairPath -PathType Leaf){Get-Content -LiteralPath $repairPath -Raw | ConvertFrom-Json}else{$null};$o=[ordered]@{schema='linkleads.owner.install.v1';at=(Get-Date).ToString('o');status=$env:LL_RESULT;stage=$env:LL_STAGE;installer=$env:LL_INSTALLER;hashValidated=($env:LL_HASH_OK -eq 'true');desktopShortcutFound=($null -ne $repair -and $repair.status -eq 'aprovado');executable=$repair.executable;shortcut=$repair.shortcut};$o | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $env:LL_REPORT_DIR 'resultado-instalacao.json') -Encoding UTF8"
 exit /b 0
