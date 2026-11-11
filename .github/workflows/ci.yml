@@ -3,7 +3,7 @@ name: CI
 # Descarte pipelines substituídos por novos commits do mesmo PR.
 # Evita consumo de runners e minutos em revisões obsoletas.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ github.sha }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: true
 
 on:
