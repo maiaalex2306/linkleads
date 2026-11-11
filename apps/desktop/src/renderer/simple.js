@@ -376,11 +376,13 @@ async function wizardPage(a, cols) {
       if (!r) { start.disabled = false; return; }
       for (const old of (await api.listCampaigns(a.id)).filter((x) => x.active && x.id !== r.campaignId)) await api.setCampaignActive(a.id, old.id, false);
       await api.setCampaignActive(a.id, r.campaignId, true);
-      if (!a.running) await safe(() => api.startInstance(a.id));
+      await safe(() => api.startRunner(a.id));
       state.wiz = null;
       state.creating = false;
-      state.g = 'track';
-      toast(`Campanha "${nm.value}" criada com ${r.enqueued} pessoa(s) e começando.`, 8000);
+      state.simpleSelectedCampaignId = r.campaignId;
+      state.simpleCampaignSection = 'track';
+      state.g = 'campaign';
+      toast(`Campanha "${nm.value}" criada com ${r.enqueued} pessoa(s). Acompanhamento aberto.`, 8000);
       refresh();
     } }, '▶ Criar campanha e começar');
     const line = (k, v) => h('div', { class: 'rline' }, h('span', { class: 'muted' }, k), h('b', {}, v));
