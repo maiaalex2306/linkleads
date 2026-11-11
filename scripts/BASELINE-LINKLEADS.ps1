@@ -27,7 +27,14 @@ function Overlaps([string]$a, [string]$b) {
    $x.StartsWith(($y+'\'),[StringComparison]::OrdinalIgnoreCase) -or
    $y.StartsWith(($x+'\'),[StringComparison]::OrdinalIgnoreCase)
 }
-function Hash([string]$path) { (Get-FileHash -LiteralPath $path -Algorithm SHA256 -ErrorAction Stop).Hash }
+function Hash([string]$path) {
+ # Usar API criptografica nativa: Get-FileHash depende de PSModulePath e pode
+ # desaparecer quando powershell.exe e iniciado por pwsh em runners Windows.
+ $sha = [System.Security.Cryptography.SHA256]::Create()
+ $stream = [System.IO.File]::Open($path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
+ try { return [System.BitConverter]::ToString($sha.ComputeHash($stream)).Replace('-', '') }
+ finally { $stream.Dispose(); $sha.Dispose() }
+}
 function Scan([string]$dir) {
  $root=Get-Item -LiteralPath $dir -Force
  if (($root.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {throw "Junction em raiz de dados: $dir"}
