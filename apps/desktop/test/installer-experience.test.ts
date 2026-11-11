@@ -68,8 +68,9 @@ describe('instalacao assistida Windows', () => {
         encoding: 'utf8', timeout: 120_000,
         env: { ...process.env, APPDATA: appData, LOCALAPPDATA: join(root, 'Local') },
       });
-      expect(run.status, (run.stdout || '') + (run.stderr || '')).toBe(0);
       const baselineResult = JSON.parse(readFileSync(join(output, 'resultado-baseline-linkleads.json'), 'utf8').replace(/^\uFEFF/, ''));
+      expect(run.status, (run.stdout || '') + (run.stderr || '') +
+        '\nBASELINE ERRORS: ' + JSON.stringify(baselineResult.errors ?? [])).toBe(0);
       expect(baselineResult.status).toBe('BACKUP_VERIFICADO');
       expect(baselineResult.snapshot.verified).toBe(true);
       expect(readdirSync(backups)).toHaveLength(1);
