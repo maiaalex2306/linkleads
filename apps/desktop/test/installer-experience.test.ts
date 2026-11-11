@@ -109,6 +109,23 @@ describe('instalacao assistida Windows', () => {
     expect(fixture).toContain('FALHA DE SEGURANCA: reparador aprovou instalacao sem executavel');
   });
 
+  it('launcher e instalador nao atualizam fonte nem apagam dados ao iniciar', () => {
+    const launch = source('scripts/start-linkleads.ps1');
+    const preserve = source('scripts/PRESERVAR-LINKLEADS.cmd');
+    const baseline = source('scripts/BASELINE-LINKLEADS.ps1');
+    const installer = source('scripts/INSTALAR-LINKLEADS.cmd');
+    const autoUpdateCommands = /\\bgit\\s+pull\\b|\\bgit\\s+reset\\s+--hard\\b|\\bgit\\s+clean\\s+-/i;
+    const recursiveDelete = /Remove-Item[^\\r\\n]*-Recurse|\\brmdir\\b|\\brd\\s+\\/s\\b|\\bdel\\s+\\/s\\b/i;
+    for (const file of [launch, preserve, baseline, installer]) {
+      expect(file).not.toMatch(autoUpdateCommands);
+      expect(file).not.toMatch(recursiveDelete);
+    }
+    expect(preserve).toContain('BASELINE-LINKLEADS.ps1');
+    expect(preserve).toContain('-Mode Backup');
+    expect(preserve).not.toContain('LinkLeads-Setup-');
+    expect(baseline).toContain('SHA256');
+  });
+
   it('baixador usa workflow aprovado, GitHub autenticado e assistente verificado', () => {
     const cmd = source('scripts/BAIXAR-E-INSTALAR-LINKLEADS.cmd');
     expect(cmd).toContain('gh auth status');
