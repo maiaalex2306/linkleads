@@ -346,13 +346,18 @@ ipcMain.handle('instance:live', (_e, id: string) => {
     // curtidas/comentários. Não anunciar "pronta" quando não pode executar.
     const readyActions = readyRows.map((row) => c.actions.find((action) => action.name === row.actionName))
       .filter((action): action is (typeof c.actions)[number] => !!action);
-    const required = new Set<BudgetKey>(readyActions.flatMap((action) => {
-      const keys = [...getActionDefinition(action.type).needs];
+    const exhaustedByRow = readyActions.map((action) => {
+      const keys: BudgetKey[] = [...getActionDefinition(action.type).needs];
       if (action.type === 'LikeAndComment' && action.settings?.commentEnabled === true)
         keys.push('comments');
-      return keys;
-    }));
-    const exhaustedAction = [...required].find((key) => remainingBudget(acc, key, read, t) <= 0);
+      return keys.filter((key) => remainingBudget(acc, key, read, t) <= 0);
+    });
+    // Só anunciar a campanha inteira como bloqueada se TODAS as etapas prontas
+    // estiverem impedidas por uma mesma quota. Outras etapas podem avançar.
+    const exhaustedAction = exhaustedByRow.length === readyRows.length &&
+      exhaustedByRow.every((keys) => keys.length > 0)
+      ? exhaustedByRow[0]?.find((key) => exhaustedByRow.every((keys) => keys.includes(key)))
+      : undefined;
     const allNeedDirectUrl = readyRows.length > 0 && readyRows.every((row) => {
       const action = c.actions.find((candidate) => candidate.name === row.actionName);
       return !!row.publicId && !!action && getActionDefinition(action.type).needs.includes('profile_load');
