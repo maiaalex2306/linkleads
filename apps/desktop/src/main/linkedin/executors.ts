@@ -565,28 +565,6 @@ const slugOf = (url: string) => {
   }
 };
 
-/** Procura, só dentro das sugestões/resultados da busca, um link visível para o perfil `slug`. */
-function findProfileLink(slug: string, scopes: readonly string[]): { x: number; y: number } | null {
-  const roots = scopes.flatMap((s) => Array.from(document.querySelectorAll(s)));
-  const links = roots.flatMap((r) => Array.from(r.querySelectorAll('a[href*="/in/"]'))) as HTMLAnchorElement[];
-  for (const a of links) {
-    let s = '';
-    try {
-      s = decodeURIComponent(new URL(a.href, location.href).pathname.split('/')[2] || '').toLowerCase();
-    } catch {
-      continue;
-    }
-    if (s !== slug) continue;
-    const r = a.getBoundingClientRect();
-    if (r.width > 0 && r.height > 0 && r.top >= 0 && r.bottom <= window.innerHeight) return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-  }
-  return null;
-}
-
-async function waitForProfileUrl(d: ExecutorDeps, slug: string, ms = 15_000): Promise<boolean> {
-  return d.driver.waitUntil(async () => slugOf(d.driver.wc.getURL()) === slug && !d.driver.wc.isLoading(), ms, 400);
-}
-
 /**
  * Digita na busca global e clica no resultado que `locate` apontar (sugestões; senão, página de resultados).
  * true = clicou e a página de perfil começou a abrir.
@@ -626,55 +604,6 @@ async function searchAndClick(d: ExecutorDeps, text: string, locate: (scopes: re
   const before = d.driver.wc.getURL();
   await d.driver.input.click(Math.round(link.x), Math.round(link.y));
   if (!(await d.driver.waitUntil(async () => /^\/in\//.test(new URL(d.driver.wc.getURL()).pathname) && !d.driver.wc.isLoading(), 15_000, 400))) return false;
-  d.driver.onNavigate?.(d.driver.wc.getURL(), before, 'click');
-  return true;
-}
-
-/**
- * Abre o perfil digitando o nome na busca do LinkedIn e clicando no resultado,
- * como uma pessoa faria (o Linked Helper chama isso de "in-page navigation").
- * Não consome o limite de "perfis abertos pelo link". Devolve false se não achou.
- */
-async function openProfileBySearch(d: ExecutorDeps, p: Person, slug: string): Promise<boolean> {
-  const name = [p.firstName, p.lastName].filter(Boolean).join(' ').trim();
-  if (!name || name.split(/\s+/).length < 2) return false;
-  if (!(await d.driver.exists('searchInput'))) return false;
-  const prev = d.driver.wc.getURL();
-  await d.driver.read((c: readonly string[]) => {
-    const el = c.map((s) => document.querySelector(s)).find(Boolean) as HTMLInputElement | undefined;
-    if (el) el.value = '';
-  }, d.driver.sel.searchInput);
-  if (!(await d.driver.click('searchInput'))) return false;
-  await d.driver.input.type(name);
-  // 1º: sugestões enquanto digita
-  const found: { link: { x: number; y: number } | null } = { link: null };
-  // só aceita a posição quando ela para de mudar (a lista de sugestões empurra a página ao abrir)
-  const scopes = { list: d.driver.sel.searchTypeahead as readonly string[] };
-  const look = async () => {
-    const a = await d.driver.read(findProfileLink, slug, scopes.list);
-    if (!a) return false;
-    await new Promise((r) => setTimeout(r, 350));
-    const b = await d.driver.read(findProfileLink, slug, scopes.list);
-    if (!b || Math.abs(a.x - b.x) > 1 || Math.abs(a.y - b.y) > 1) return false;
-    found.link = b;
-    return true;
-  };
-  await d.driver.waitUntil(look, 6_000, 400);
-  if (!found.link) {
-    // 2º: página de resultados da busca
-    await d.driver.press('Enter');
-    await d.driver.waitUntil(async () => /\/search\/results/.test(d.driver.wc.getURL()) && !d.driver.wc.isLoading(), 15_000, 500);
-    if (!/\/search\/results/.test(d.driver.wc.getURL())) return false;
-    d.driver.onNavigate?.(d.driver.wc.getURL(), prev, 'click');
-    await d.driver.input.think(1200, 2500);
-    scopes.list = [...d.driver.sel.searchResultsPage, 'main'];
-    await d.driver.waitUntil(look, 8_000, 500);
-  }
-  const link = found.link as { x: number; y: number } | null;
-  if (!link) return false;
-  const before = d.driver.wc.getURL();
-  await d.driver.input.click(Math.round(link.x), Math.round(link.y));
-  if (!(await waitForProfileUrl(d, slug))) return false;
   d.driver.onNavigate?.(d.driver.wc.getURL(), before, 'click');
   return true;
 }
@@ -791,12 +720,12 @@ export function noUrlSlot(retryAt: Date | undefined): ExecutionResult {
 }
 
 /**
- * Abre o perfil da pessoa do jeito mais seguro:
- * já está nele → nada; tem nome → pela busca; senão → pelo link (se ainda houver vaga no limite de links).
+ * Quando há publicId (/in/ da planilha), a navegação é EXCLUSIVAMENTE pela URL:
+ * uma busca textual nunca pode substituir a identidade de um lead por um homônimo.
+ * Contatos sem URL pública seguem pelo caminho legado de descoberta assistida.
  */
 export async function gotoProfile(d: ExecutorDeps, p: Person, suffix = ''): Promise<OpenResult> {
   if (!p.publicId) {
-    // veio só com Sales Navigator / número do membro: acha pela busca e aprende o /in/
     const r = await openUnknownProfile(d, p);
     if (r !== 'ok') return r;
     if (suffix) await d.driver.goto(`${profileUrl(p)}${suffix}`);
@@ -805,17 +734,14 @@ export async function gotoProfile(d: ExecutorDeps, p: Person, suffix = ''): Prom
   }
   const slug = p.publicId.toLowerCase();
   const target = `${profileUrl(p)}${suffix}`;
-  if (slugOf(d.driver.wc.getURL()) === slug) {
-    // já está no perfil: recarrega para ler o estado atual (não conta como novo perfil)
-    await d.driver.goto(target);
-    return 'ok';
-  }
-  if (d.limits && (await openProfileBySearch(d, p, slug).catch(() => false))) {
-    if (suffix) await d.driver.goto(target);
-    await d.driver.assertNotBlocked();
-    return 'ok';
-  }
-  if (d.limits && d.limits.left('profile_url') <= 0) return { retryAt: d.limits.freeAt('profile_url') };
+  const alreadyAtProfile = slugOf(d.driver.wc.getURL()) === slug;
+  if (!alreadyAtProfile && d.limits && d.limits.left('profile_url') <= 0)
+    return { retryAt: d.limits.freeAt('profile_url') };
   await d.driver.goto(target);
+  await d.driver.assertNotBlocked();
+  const resolvedSlug = slugOf(d.driver.wc.getURL());
+  if (resolvedSlug !== slug)
+    return { notFound: 'O LinkedIn abriu um endereço diferente do perfil do CSV; ' +
+      'nenhum resultado por nome foi utilizado. Confirme a URL original do lead.' };
   return 'ok';
 }
