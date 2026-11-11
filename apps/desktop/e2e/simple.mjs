@@ -37,23 +37,23 @@ try {
   await app.evaluate(({ dialog }, f) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [f] }); }, csv);
   await ui.reload();
   await ui.locator('.account-list .acc').first().click();
-  await ui.locator('.gsteps').waitFor();
+  await ui.getByRole('heading', { name: 'Campanhas desta conta' }).waitFor();
   // A biblioteca de campanhas deve continuar acessível mesmo quando a lista
   // operacional está vazia; isso permite restaurar campanhas arquivadas.
   await ui.getByRole('heading', { name: 'Campanhas desta conta' }).waitFor();
   await ui.getByRole('button', { name: 'Arquivadas' }).click();
-  await ui.getByText('Nenhuma campanha arquivada nesta conta.').waitFor();
+  await ui.getByText('Nenhuma campanha arquivada.').waitFor();
   check(true, 'aba Arquivadas acessível sem campanhas ativas');
   await ui.getByRole('button', { name: /Campanhas \(0\)/ }).click();
   await ui.getByRole('button', { name: '+ Nova campanha' }).click();
   check(await ui.getByRole('heading', { name: 'O que você quer fazer hoje?' }).isVisible(), 'assistente acessível por Nova campanha');
-  check(await ui.locator('.tabs').count() === 0, 'tela guiada: 4 etapas numeradas, sem a barra de abas');
+  check(await ui.locator('.gsteps').count() === 0, 'sem menu de quatro etapas fora do contexto da campanha');
   await ui.getByRole('button', { name: 'Prospecção e mensagens' }).click();
   check(true, 'assistente de objetivo abre campanha de prospecção');
   await ui.screenshot({ path: join(shots, 'guiada-1-listas.png') });
 
   // ① Listas
-  await ui.locator('.gstep', { hasText: 'Listas' }).click();
+  await ui.getByRole('button', { name: '⬆ Importar planilha na etapa 1' }).click();
   await ui.getByRole('button', { name: '⬆ Importar planilha' }).click();
   check(await ui.locator('.collection-row').count() === 1, 'importação apresentada como lista selecionável');
   await ui.getByRole('button', { name: 'Continuar para criar campanha →' }).click();
@@ -69,17 +69,18 @@ try {
   await ui.getByText('Revise e comece').waitFor();
   await ui.screenshot({ path: join(shots, 'guiada-4-revisar.png'), fullPage: true });
   await ui.getByRole('button', { name: '▶ Criar campanha e começar' }).click();
-  await ui.getByText(/Onde estão as 2 pessoas/).waitFor({ timeout: 30_000 });
+  await ui.locator('.simple-campaign-detail').waitFor({ timeout: 30_000 });
+  await ui.getByText('Acompanhamento desta campanha').waitFor();
   const [camp] = await call('listCampaigns', acc.id);
   check(camp.active && camp.actions[0].type === 'LikeAndComment', 'campanha criada, ativa, começando por curtir', camp.actions.map((a) => a.type));
   check(camp.actions.find((a) => a.type === 'SendInvite').settings.template === '{{custom.MSG-CONEXÃO}}' && camp.actions.filter((a) => a.type === 'MessageToPerson').length === 2, 'convite e mensagens vindos da planilha');
   check((await call('listAccounts'))[0].running, 'LinkedIn aberto e trabalhando sem precisar de outro clique');
-  await ui.locator('#live-box .now').first().waitFor();
+  await ui.locator('.simple-campaign-detail .simple-campaign-actions').waitFor();
   await ui.waitForTimeout(1500);
   await ui.screenshot({ path: join(shots, 'guiada-5-acompanhar.png'), fullPage: true });
 
   // ③ Configurações: ritmo em linguagem simples
-  await ui.locator('.gstep', { hasText: 'Configurações' }).click();
+  await ui.getByRole('button', { name: 'Configurar conta' }).click();
   await ui.getByRole('button', { name: 'Limites e ritmo' }).click();
   await ui.getByText('Conservador', { exact: true }).click();
   await ui.waitForTimeout(800);
@@ -89,7 +90,7 @@ try {
   await ui.getByRole('button', { name: 'Tela completa' }).click();
   await ui.locator('.tabs').waitFor();
   await ui.getByRole('button', { name: 'Tela guiada' }).click();
-  await ui.locator('.gsteps').waitFor();
+  await ui.locator('.simple-campaign-detail').waitFor();
   check(true, 'alterna entre a tela guiada e a tela completa');
 } catch (e) {
   fail(e.stack ?? e);
