@@ -88,7 +88,7 @@ describe('CSV robusto (planilhas reais)', () => {
     const r = importPeopleFromCsv(csv);
     expect(r.people.map((p) => [p.publicId, p.firstName, p.company])).toEqual([['ana-silva', 'Ana', 'ACME']]);
     expect(r.skipped.map((s) => s.reason)).toEqual([
-      'Só tem o link do Sales Navigator e nenhum nome para procurar o perfil',
+      'Sales Navigator sem URL pública /in/; requer revisão da identidade',
       'URL de página de empresa, não de perfil',
       'Sem URL de perfil',
     ]);
@@ -106,7 +106,7 @@ describe('CSV robusto (planilhas reais)', () => {
       ['m:33574315', undefined, '33574315', 'Priscila', 'Rocha', 'Volkswagen Caminhões e Ônibus', 'ACwAAAIATasBA_OC0NMUDatWeEBCssGNHCpTT6U', 'Olá Priscila!'],
       ['helena-m-baptista', 'helena-m-baptista', '99', 'Helena', 'Baptista', 'Bosch', undefined, 'Oi'],
     ]);
-    expect(r.skipped.map((x) => x.reason)).toEqual(['Só tem o link do Sales Navigator e nenhum nome para procurar o perfil']);
+    expect(r.skipped.map((x) => x.reason)).toEqual(['Sales Navigator sem URL pública /in/; requer revisão da identidade']);
   });
 
   it('mensagens prontas da planilha: {{custom.MSG-01}} e {{custom.MSG-CONEXÃO}} (com ou sem acento)', () => {
@@ -120,5 +120,43 @@ describe('CSV robusto (planilhas reais)', () => {
   it('com duas colunas de URL, usa a que for de perfil', () => {
     const r = importPeopleFromCsv('url,profileUrl\nhttps://www.linkedin.com/company/x/,https://www.linkedin.com/in/bruno/');
     expect(r.people[0]?.publicId).toBe('bruno');
+  });
+});
+
+describe('identidade de perfis — Etapa 2', () => {
+  it('preserva link canônico e classifica a origem', () => {
+    const r = importPeopleFromCsv('public_id;profile_url;full_name\nslug-errado;https://www.linkedin.com/in/slug-correto/?trk=x;Pessoa Correta');
+    expect(r.people).toHaveLength(1);
+    expect(r.people[0]?.publicId).toBe('slug-correto');
+    expect(r.people[0]?.custom).toMatchObject({
+      linkleads_profile_url: 'https://www.linkedin.com/in/slug-correto/',
+      linkleads_source_url: 'https://www.linkedin.com/in/slug-correto/?trk=x',
+      linkleads_identity_source: 'verified_profile_url',
+      linkleads_import_public_id_conflict: 'slug-errado',
+    });
+  });
+
+  it('rejeita dois perfis conflitantes na mesma linha', () => {
+    const r = importPeopleFromCsv('nome;profile_url;linkedin_url\nPessoa;https://www.linkedin.com/in/primeira/;https://www.linkedin.com/in/outra/');
+    expect(r.people).toHaveLength(0);
+    expect(r.skipped[0]?.reason).toMatch(/Conflito/);
+  });
+
+  it('Sales Navigator com nome não inventa publicId e marca revisão', () => {
+    const r = importPeopleFromCsv('full_name;profile_url;member_id\nCarlos Pereira;https://www.linkedin.com/sales/people/ACwXYZ,9rcn,NAME_SEARCH/;12345');
+    expect(r.people).toHaveLength(1);
+    expect(r.people[0]?.publicId).toBeUndefined();
+    expect(r.people[0]?.custom?.linkleads_identity_review_required).toBe('true');
+    expect(r.people[0]?.custom?.linkleads_identity_source).toBe('sales_navigator_review');
+  });
+
+  it('links falsos, hosts e slug codificado inválido não viram identidade', () => {
+    for (const url of [
+      'https://fake-linkedin.com/in/ana/',
+      'https://evil.example/linkedin.com/in/ana/',
+      'https://www.linkedin.com/in/ana%2Foutra/',
+      'https://www.linkedin.com/pub/ana/',
+      'https://www.linkedin.com/in/ana%5Coutro/',
+    ]) expect(publicIdFromUrl(url)).toBeUndefined();
   });
 });
