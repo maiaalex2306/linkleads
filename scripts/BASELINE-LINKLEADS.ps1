@@ -47,9 +47,16 @@ function Secure([string]$dir) {
  & icacls.exe $dir '/inheritance:r' '/grant:r' ('*'+$sid+':(OI)(CI)F') | Out-Null
  if ($LASTEXITCODE -ne 0) {throw "Nao foi possivel restringir ACL do backup: $dir"}
 }
+$unsafeReport=$false
 try {
- New-Item -ItemType Directory -Force -Path (Split-Path -Parent $reportPath) | Out-Null
  $repoRoot=Full (Join-Path $PSScriptRoot '..')
+ if (Overlaps $repoRoot $ReportDirectory) {
+  $unsafeReport=$true
+  throw 'Relatorios nao podem sobrepor codigo/pacote do LinkLeads.'
+ }
+ if ($Mode -eq 'Backup' -and (Overlaps $repoRoot $BackupRoot)) {
+  throw 'Backup nao pode sobrepor codigo/pacote do LinkLeads.'
+ }
  $package=Join-Path $repoRoot 'apps\desktop\package.json'
  if (Test-Path -LiteralPath $package) { $report.repo.version=(Get-Content -LiteralPath $package -Raw | ConvertFrom-Json).version }
  # Pacotes extraidos nao possuem .git. Nao executar git fora de checkout.
@@ -89,6 +96,7 @@ try {
  # Nenhum modo pode criar relatorios sobre as pastas originais.
  foreach($root in $roots) {
   if (Overlaps $root.path $ReportDirectory) {
+   $unsafeReport=$true
    throw 'Relatorios nao podem sobrepor pastas de contas/sessao. Operacao bloqueada.'
   }
  }
@@ -165,8 +173,13 @@ try {
  $report.errors+= $_.Exception.Message
  $report.status='REPROVADO'
 } finally {
- $report | ConvertTo-Json -Depth 9 | Set-Content -LiteralPath $reportPath -Encoding UTF8
- Write-Host ("BASELINE LINKLEADS: "+$report.status+" | "+$reportPath)
+ if (-not $unsafeReport) {
+  New-Item -ItemType Directory -Force -Path (Split-Path -Parent $reportPath) | Out-Null
+  $report | ConvertTo-Json -Depth 9 | Set-Content -LiteralPath $reportPath -Encoding UTF8
+  Write-Host ("BASELINE LINKLEADS: "+$report.status+" | "+$reportPath)
+ } else {
+  Write-Host 'BASELINE LINKLEADS: REPROVADO — relatorios em destino inseguro; nada foi alterado.'
+ }
 }
 if ($report.status -eq 'REPROVADO') {exit 1}
 exit 0
