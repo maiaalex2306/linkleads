@@ -37,7 +37,7 @@ export function publicIdFromUrl(url: string): string | undefined {
     const host = parsed.hostname.toLowerCase();
     // Não aceitar "fake-linkedin.com", paths de redirecionadores ou resultados de busca.
     if (host !== 'linkedin.com' && !host.endsWith('.linkedin.com')) return undefined;
-    const match = parsed.pathname.match(/^\/(?:in|pub)\/([^/?#]+)/i);
+    const match = parsed.pathname.match(/^\/in\/([^/?#]+)/i);
     if (!match || parsed.username || parsed.password || parsed.port) return undefined;
     const slug = decodeURIComponent(match[1]!).toLowerCase();
     if (!slug || slug === '.' || slug === '..' || slug.includes('/') || slug.includes('\\') || /[\s?#]/.test(slug)) return undefined;
@@ -127,11 +127,13 @@ export function importPeopleFromCsv(text: string, makeId: (publicId: string) => 
     } else if (exportedId) {
       custom.linkleads_import_public_id_unverified = exportedId;
     }
-    // sem /in/: Sales Navigator ou número do membro + nome → o app acha o perfil pela busca (como o Linked Helper)
+    // Sales Navigator, /pub/ e member_id sem /in/ permanecem em revisão; nunca escolher homônimos.
     const any = [...urlCandidates, ...cols].join(' ');
     const snId = (rec.snId?.split(',')[0] || any.match(/linkedin\.com\/sales\/(?:people|lead)\/([A-Za-z0-9_-]+)/i)?.[1]) || undefined;
     const memberId = rec.memberId && /^\d+$/.test(rec.memberId) ? rec.memberId : undefined;
     const hasName = !!((rec.firstName && rec.lastName) || (rec.fullName && rec.fullName.trim().split(/\s+/).length >= 2));
+    if (urlCandidates.length) custom.linkleads_source_url = urlCandidates[0]!;
+    if (!profileFromUrl && /linkedin\.com\/(?:pub)\//i.test(any)) custom.linkleads_identity_source = 'legacy_profile_review';
     let key = publicId;
     if (!key && (snId || memberId) && hasName) key = memberId ? `m:${memberId}` : `sn:${snId}`;
     if (!key) {
@@ -151,6 +153,7 @@ export function importPeopleFromCsv(text: string, makeId: (publicId: string) => 
       custom.linkleads_identity_source = custom.linkleads_identity_source ?? 'sales_navigator_review';
     }
     if (!publicId && memberId) custom.linkleads_identity_source = custom.linkleads_identity_source ?? 'member_id_review';
+    if (!publicId) custom.linkleads_identity_review_required = 'true';
     let { firstName, lastName } = rec;
     if (!firstName && rec.fullName) {
       // Alguns exports trazem o título "Atividades | Nome | LinkedIn" no campo Nome.
