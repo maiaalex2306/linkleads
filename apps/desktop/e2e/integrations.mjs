@@ -132,7 +132,6 @@ try {
   await ui.reload();
   await ui.locator('.account-list .acc').first().click();
   await ui.getByText('Outras ferramentas').click();
-  await ui.getByText('Outras ferramentas').click();
   await ui.getByRole('button', { name: 'Entregas' }).click();
   await ui.getByText('Enviar pendentes agora').waitFor();
   await ui.screenshot({ path: join(shots, 'fase4-entregas.png') });
