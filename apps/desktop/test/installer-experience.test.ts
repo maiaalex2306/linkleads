@@ -32,7 +32,7 @@ describe('instalacao assistida Windows', () => {
     expect(cmd).toContain("Join-Path $env:APPDATA '@linkleads'");
     expect(cmd).toContain("'desktop'");
     expect(cmd).toContain('Get-ChildItem -LiteralPath $src.dir -File -Recurse');
-    expect(cmd).toContain('Arquivo incompleto no backup');
+    expect(cmd).toContain('Tamanho total do backup divergente');
     expect(cmd).toContain('Start-MpScan');
     expect(cmd).toContain('resultado-instalacao.json');
     expect(cmd).toContain('--check-only');
