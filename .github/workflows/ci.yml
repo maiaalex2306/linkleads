@@ -3,7 +3,7 @@ name: CI
 # Descarte pipelines substituídos por novos commits do mesmo PR.
 # Evita consumo de runners e minutos em revisões obsoletas.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ github.sha }}
   cancel-in-progress: true
 
 on:
@@ -220,6 +220,11 @@ jobs:
         run: |
           powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/test-shortcut-repair.ps1
           if ($LASTEXITCODE -ne 0) { throw 'Reparador de atalho Windows reprovado' }
+      - name: P0 — inventario e backup preservando dados em fixture Windows
+        shell: powershell
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/test-baseline-preservation.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'Inventario/backup LINKLEADS reprovado' }
 
   windows-e2e-smoke:
     name: Windows Electron + instalador NSIS — prova de execução real
@@ -277,6 +282,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: LinkLeads-PR-NSIS-Smoke-${{ github.run_id }}
-          path: nsis-ci/
+          path: |
+            nsis-ci/nsis-install-report.json
+            nsis-ci/smoke-report.json
+            nsis-ci/installed-launcher.png
           if-no-files-found: warn
           retention-days: 14
