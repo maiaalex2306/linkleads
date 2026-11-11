@@ -590,7 +590,7 @@ export function noUrlSlot(retryAt: Date | undefined): ExecutionResult {
 export async function gotoProfile(d: ExecutorDeps, p: Person, suffix = ''): Promise<OpenResult> {
   const slug = p.publicId?.trim().toLowerCase();
   if (!slug) return { needsReview: 'Perfil sem URL pública /in/ verificada. Confira o lead do Sales Navigator e informe sua URL de perfil antes de prosseguir.' };
-  if (!/^[^/\\\\?#\\s]+$/.test(slug)) return { needsReview: 'Identificador público inválido. Confirme a URL original do perfil.' };
+  if (slug.includes('/') || slug.includes('\\') || /[\s?#]/.test(slug)) return { needsReview: 'Identificador público inválido. Confirme a URL original do perfil.' };
   const original = p.custom?.linkleads_profile_url;
   if (original && publicIdFromUrl(original) !== slug)
     return { needsReview: 'URL original e identificador armazenado divergem. Revisão de identidade obrigatória.' };
@@ -602,7 +602,7 @@ export async function gotoProfile(d: ExecutorDeps, p: Person, suffix = ''): Prom
       const host = current.hostname.toLowerCase();
       const baseHost = new URL(BASE).hostname.toLowerCase();
       if (host !== baseHost && host !== 'linkedin.com' && !host.endsWith('.linkedin.com')) return undefined;
-      const match = current.pathname.match(/^\\/in\\/([^/]+)/i);
+      const match = current.pathname.match(/^\/in\/([^/]+)/i);
       return match ? decodeURIComponent(match[1]!).toLowerCase() : undefined;
     } catch { return undefined; }
   };
