@@ -220,6 +220,11 @@ jobs:
         run: |
           powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/test-shortcut-repair.ps1
           if ($LASTEXITCODE -ne 0) { throw 'Reparador de atalho Windows reprovado' }
+      - name: P0 — inventario e backup preservando dados em fixture Windows
+        shell: powershell
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/test-baseline-preservation.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'Inventario/backup LINKLEADS reprovado' }
 
   windows-e2e-smoke:
     name: Windows Electron + instalador NSIS — prova de execução real
