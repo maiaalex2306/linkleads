@@ -159,6 +159,39 @@ export function pickPost(posts: PostExtract[], publicId: string, s: LikeSettings
   return choosePost(posts, publicId, s, personName).post;
 }
 
+/**
+ * Regra de negócios: o alvo é o PRIMEIRO post da ordem visual cuja conta ativa
+ * ainda não curtiu (liked === false). Não usar idade ou URN para ORDENAR.
+ *
+ * Não é um comando de clique. A autorização e a identidade do alvo continuam
+ * sendo verificadas separadamente antes de qualquer interação externa.
+ * Uma curtida com estado desconhecido não equivale a "não curtido".
+ */
+export function firstUnlikedCandidate(
+  posts: PostExtract[], publicId: string, personName = '',
+  options: Pick<LikeSettings, 'includeReshares'> = {},
+): { post?: PostExtract; why: string; uncertain?: boolean } {
+  const norm = (v: string) => v.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+  const cleanName = personName.replace(/^(?:(?:Atividades|Activity|Publicações|Publications|Posts|Comentários|Comments)\s*[|·–-]\s*)+/i, '');
+  const expected = norm(cleanName);
+  const id = publicId.toLowerCase();
+  for (const post of posts) {
+    if (!post.text && !post.hasMedia) continue;
+    if (post.isReshare && !options.includeReshares) continue;
+    const actor = post.actorHref ? profileSlug(post.actorHref) : undefined;
+    const actorKnown = !!actor && !/^(?:acoaa|acwaa)/i.test(actor);
+    if (actorKnown && actor !== id) continue; // atividade de terceiro
+    if (!actorKnown && (!expected || !post.actorName || norm(post.actorName) !== expected))
+      return { post, why: 'Primeiro cartão encontrado, mas autoria não determinada', uncertain: true };
+    if (post.liked === true) continue; // já curtido: ir ao próximo
+    if (post.liked === null)
+      return { post, why: 'Primeiro possível post não curtido, mas estado de reação desconhecido', uncertain: true };
+    // Primeiro liked === false da página: não exigir data nem URN para selecioná-lo.
+    return { post, why: '' };
+  }
+  return { why: 'Nenhuma publicação do perfil com curtida comprovadamente ausente' };
+}
+
 /** Como pickPost, mas explica por que nenhum post serviu (para a tela). */
 export function choosePost(posts: PostExtract[], publicId: string, s: LikeSettings, personName = ''): { post?: PostExtract; why: string; uncertain?: boolean } {
   const maxAge = s.maxPostAgeDays ?? 365;
