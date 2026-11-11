@@ -113,7 +113,9 @@ try {
   const traceEvents = traceData.trim().split('\n').filter(Boolean).map((line) => JSON.parse(line));
   if (!traceEvents.some((e) => e.event === 'action_start' && e.campaignId === camp.campaignId)) fail('TRACE não registrou início da ação');
   if (!traceEvents.some((e) => e.event === 'action_done' && e.actionId)) fail('TRACE não registrou resultado da ação');
-  if (!traceEvents.some((e) => e.event === 'click_target')) fail('TRACE não registrou clique do navegador');
+  // A curtida usa input nativo diretamente depois de resolver o post, sem a API de seletor click_target.
+  if (!traceEvents.some((e) => e.event === 'click_target' || e.event === 'input_click'))
+    fail('TRACE não registrou clique nativo do navegador');
   if (!traceEvents.some((e) => e.event === 'execute_result' && e.area === 'approval')) fail('TRACE não registrou aprovação');
   if (traceData.includes('Podemos conversar?') || traceData.includes('Águas do Vale')) fail('TRACE vazou conteúdo do CRM');
   console.log('TRACE E2E:', traceEvents.length, 'eventos em', traceFiles.length, 'arquivo(s)');
