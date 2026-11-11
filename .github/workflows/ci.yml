@@ -282,6 +282,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: LinkLeads-PR-NSIS-Smoke-${{ github.run_id }}
-          path: nsis-ci/
+          path: |
+            nsis-ci/nsis-install-report.json
+            nsis-ci/smoke-report.json
+            nsis-ci/installed-launcher.png
           if-no-files-found: warn
           retention-days: 14
