@@ -9,7 +9,8 @@ export type PersonActionStatus = 'queued' | 'processed' | 'successful' | 'failed
 export type JobStatus = 'queued' | 'running' | 'confirmed' | 'failed';
 
 export type FailureReason =
-  | 'NO_REAL_EFFECT'      // o clique aconteceu, mas o estado resultante não confirmou
+  | 'NO_REAL_EFFECT'      // ação enviada, mas o estado resultante não confirmou
+  | 'TARGET_UNVERIFIED'   // perfil/post/controle inconclusivo; nenhuma ação externa foi enviada
   | 'EXCLUDED'
   | 'REJECTED'            // rascunho rejeitado na aprovação
   | 'ICP_REJECTED'
