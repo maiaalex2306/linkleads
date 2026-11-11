@@ -10,13 +10,19 @@ import { isCanonicalPostUrn } from './post-identity.js';
 
 /** LINKLEADS_TEST_BASE_URL aponta para o site falso dos testes e2e; nunca usar em produção. */
 export const BASE = process.env.LINKLEADS_TEST_BASE_URL ?? 'https://www.linkedin.com';
-/** Slug do perfil a partir de um link da própria página (/in/<slug>), em qualquer host. */
+/** Um link de autor só é confiável se pertencer ao LinkedIn ou ao site E2E isolado. */
 export function profileSlug(href: string): string | undefined {
   try {
-    const m = new URL(href).pathname.match(/^\/(?:in|pub)\/([^/?#]+)/);
-    return m ? decodeURIComponent(m[1]!).toLowerCase() : undefined;
+    const url = new URL(href);
+    const testing = !!process.env.LINKLEADS_TEST_BASE_URL && url.origin === new URL(BASE).origin;
+    if (!testing && (url.protocol !== 'https:' ||
+        !(url.hostname === 'linkedin.com' || url.hostname.endsWith('.linkedin.com')))) return undefined;
+    const m = url.pathname.match(/^\/in\/([^/?#]+)/i);
+    if (!m) return undefined;
+    const slug = decodeURIComponent(m[1]!).toLowerCase();
+    return /[\\/\s?#\x00-\x1f]/.test(slug) ? undefined : slug;
   } catch {
-    return publicIdFromUrl(href);
+    return undefined;
   }
 }
 
@@ -182,6 +188,8 @@ export function firstUnlikedCandidate(
     if (post.isReshare && !options.includeReshares) continue;
     const actor = post.actorHref ? profileSlug(post.actorHref) : undefined;
     const actorKnown = !!actor && !/^(?:acoaa|acwaa)/i.test(actor);
+    if (post.actorHref && !actor)
+      return { post, why: 'Link do autor não é um perfil confiável do LinkedIn', uncertain: true };
     if (actorKnown && actor !== id) continue; // atividade de terceiro
     if (!actorKnown && (!expected || !post.actorName || norm(post.actorName) !== expected))
       return { post, why: 'Primeiro cartão encontrado, mas autoria não determinada', uncertain: true };
@@ -206,7 +214,7 @@ export function choosePost(posts: PostExtract[], publicId: string, s: LikeSettin
     if (actor && actor === publicId.toLowerCase()) return true;
     // IDs internos podem não coincidir com o slug, mas exigimos nome completo
     // exato, nunca somente o sobrenome (pessoas homônimas podem ter sobrenome igual).
-    if ((!actor || /^(?:acoaa|acwaa)/i.test(actor)) && expected && p.actorName)
+    if ((!p.actorHref || (actor && /^(?:acoaa|acwaa)/i.test(actor))) && expected && p.actorName)
       return norm(p.actorName) === expected;
     return false;
   };
@@ -223,7 +231,8 @@ export function choosePost(posts: PostExtract[], publicId: string, s: LikeSettin
     if (!p.text && !p.hasMedia) return (empty++, false);
     if (p.isReshare && !s.includeReshares) return (reshare++, false);
     const actor = p.actorHref ? profileSlug(p.actorHref) : undefined;
-    if ((!actor && !p.actorName) || (actor && /^(?:acoaa|acwaa)/i.test(actor) && !p.actorName))
+    if ((p.actorHref && !actor) || (!actor && !p.actorName) ||
+        (actor && /^(?:acoaa|acwaa)/i.test(actor) && !p.actorName))
       return (uncertainActors++, false);
     if (!isOwn(p)) return (others++, false);
     // Qualquer consumidor de choosePost deve receber somente conteúdo verificável.
@@ -317,7 +326,11 @@ async function discoverUnlikedPost(
       return { offset: el.scrollTop, height: el.scrollHeight, visible: el.clientHeight };
     });
     const next = await d.driver.read(extractPosts, d.driver.sel as unknown as Record<string, readonly string[]>, 150);
-    const newPost = next.some((p) => !seen.has(p.urn));
+    // ll-idx-* é apenas índice da leitura corrente. Compará-lo ao Map
+    // (unresolved:step:index) indicava progresso falso a cada rolagem.
+    // A detecção de novos cartões usa exclusivamente identidades estáveis;
+    // alterações de altura/posição continuam indicando paginação real.
+    const newPost = next.some((p) => isCanonicalPostUrn(p.urn) && !seen.has(p.urn));
     if (after.offset <= before.offset && after.height <= before.height && !newPost) stalled++;
     else stalled = 0;
     if (stalled >= 3) break; // fim do feed, sem movimento nem carga adicional
