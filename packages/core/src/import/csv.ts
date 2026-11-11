@@ -106,7 +106,7 @@ export function importPeopleFromCsv(text: string, makeId: (publicId: string) => 
     });
     // Uma URL /in/ verificavel prevalece sobre campos exportados. Duas URLs
     // de perfis diferentes na mesma linha sao conflito, nao prioridade arbitraria.
-    const embedded = cols.flatMap((v) => [...v.matchAll(/(?:https?:\/\/)?(?:[a-z]{2,3}\.)?linkedin\.com\/(?:in|pub)\/[^\s"',;)]+/gi)].map((m) => m[0]));
+    const embedded = cols.flatMap((v) => [...v.matchAll(/(?:^|[\s("'=:\u00ab])((?:https?:\/\/)?(?:[a-z]{2,3}\.)?linkedin\.com\/in\/[^\s"'<>,;)]+)/gi)].map((m) => m[1]!));
     const candidates = [...urlCandidates, ...embedded];
     const verified = candidates.map((url) => ({ url, slug: publicIdFromUrl(url) }))
       .filter((item): item is { url: string; slug: string } => !!item.slug);
