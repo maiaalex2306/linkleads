@@ -24,7 +24,7 @@ Esta etapa NÃO altera campanhas nem executa ações no LinkedIn. Protege o esta
 1. **Feche** o LINKLEADS e confirme que não existe processo `LinkLeads.exe` ativo.
 2. Extraia `LINKLEADS-INSTALADOR.zip` para uma pasta NOVA; não substitua pastas da instalação atual.
 3. Execute `PRESERVAR-LINKLEADS.cmd` na raiz.
-4. Leia `resultado-baseline-linkleads.json` no diretório `D:\LinkLeads\Relatorios` ou, na ausência de D:, `%USERPROFILE%\Documents\LinkLeads\Relatorios`.
+4. Leia `resultado-baseline-linkleads.json` no diretório `D:\LinkLeads-Seguro\Relatorios` ou, na ausência de D:, `%USERPROFILE%\Documents\LinkLeads-Seguro\Relatorios`.
 5. Somente `status=BACKUP_VERIFICADO` com `snapshot.verified=true` aprova a cópia; confira `snapshot.path`, `totals.files` e `totals.bytes`.
 6. **Não** compartilhe o diretório do snapshot em chamados: ele contém cookies e dados protegidos da sessão; envie apenas o relatório JSON redigido se necessário.
 
