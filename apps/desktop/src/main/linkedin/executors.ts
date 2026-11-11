@@ -293,16 +293,15 @@ async function discoverUnlikedPost(
             'A selecao esta correta; o vinculo com o post ainda deve ser resolvido antes de qualquer interacao.',
           uncertain: true };
       const days = post.age ? parseRelativeAgeDays(post.age) : undefined;
-      if (days === undefined)
+      // A idade NAO eh requisito para selecionar o primeiro nao curtido.
+      // Se legivel, respeitar a janela configurada sem trocar silenciosamente
+      // por uma publicacao posterior.
+      if (days !== undefined && days > ageLimit)
         return { posts: ordered,
-          why: 'Primeira publicacao nao curtida identificada, mas sua idade e desconhecida. ' +
-            'A configuracao de idade maxima nao pode ser validada automaticamente.',
-          uncertain: true };
-      const eligible = choosePost([post], publicId,
-        { ...settings, maxPostAgeDays: ageLimit, allowAlreadyLiked: false }, personName);
-      if (eligible.post) return { post: eligible.post, posts: ordered, why: '' };
-      // Nunca trocar por um post posterior apenas para satisfazer o seletor.
-      return { posts: ordered, why: eligible.why, uncertain: eligible.uncertain };
+          why: 'O primeiro post nao curtido tem idade superior ao limite configurado (' +
+            ageLimit + ' dias). Nao foi substituido por outro post.',
+          uncertain: false };
+      return { post, posts: ordered, why: '' };
     }
     if (step === maxScrolls) break;
     const before = await d.driver.read(() => {
