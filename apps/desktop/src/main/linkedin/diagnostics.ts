@@ -114,7 +114,7 @@ function firstUnlikedControlProbe(sel: Record<string, readonly string[]>, ordina
   const reactionControls = buttons.filter((b) => __llIsReact(b)).length;
   const commentControls = buttons.filter((b) => {
     const label = [b.getAttribute('aria-label') || '', (b as HTMLElement).innerText || ''].join(' ');
-    return /(?:^|\\b)(comentar|comment)(?:\\b|$)/i.test(label) &&
+    return /(?:^|\b)(comentar|comment)(?:\b|$)/i.test(label) &&
       !/(?:repost|compartilhar|share)/i.test(label);
   }).length;
   const editableFields = Array.from(root.querySelectorAll('[contenteditable="true"]')).filter(visible).length;
