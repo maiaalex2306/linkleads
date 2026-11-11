@@ -194,7 +194,7 @@ export function extractPosts(sel: Record<string, readonly string[]>, limit: numb
     ].join(', ');
     const validTextNode = (node: Element) => {
       if (node.closest(excluded)) return false;
-      if (node.querySelector('button, [role="button"], time, [contenteditable], a[href*="/in/"]')) return false;
+      if (node.querySelector('button, [role="button"], time, [contenteditable]')) return false;
       return true;
     };
     let text = textEl && validTextNode(textEl) ? (textEl.innerText || '').trim() : '';
@@ -204,9 +204,21 @@ export function extractPosts(sel: Record<string, readonly string[]>, limit: numb
       const body = Array.from(it.querySelectorAll(
         '[dir="ltr"], [data-test-id*="commentary"], [data-testid*="post-text"], blockquote, p',
       )) as HTMLElement[];
-      const values = body.filter(validTextNode).map((node) => (node.innerText || '').trim())
-        .filter((v) => v && v.length <= 6000);
-      text = values.sort((a, b) => b.length - a.length)[0] ?? '';
+      const valid = body.filter(validTextNode);
+      const blocks = valid.filter((node) =>
+        node.matches('[dir="ltr"], [data-test-id*="commentary"], [data-testid*="post-text"]'));
+      if (blocks.length) {
+        // Bloco estrutural completo (não concatenar filhos repetidos).
+        text = blocks.map((node) => (node.innerText || '').trim())
+          .filter((v) => v && v.length <= 6000)
+          .sort((a, b) => b.length - a.length)[0] ?? '';
+      } else {
+        // Quando o corpo contém vários parágrafos irmãos, preservar todos na
+        // ordem original, sem comentários e sem duplicar parágrafos aninhados.
+        const paragraphs = valid.filter((node) => node.matches('p, blockquote'));
+        const roots = paragraphs.filter((node) => !paragraphs.some((other) => other !== node && other.contains(node)));
+        text = roots.map((node) => (node.innerText || '').trim()).filter(Boolean).join('\n\n').slice(0, 6000);
+      }
     }
     text = text.replace(/\s*…\s*mais$|\s*\.\.\.\s*(more|mais)$/i, '').trim();
     let like = first(it, sel.likeButton!) as HTMLElement | null;
