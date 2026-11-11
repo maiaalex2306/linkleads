@@ -354,7 +354,7 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
               const unreadable = !found.posts.length && !empty;
               const file = (unreadable || found.uncertain) ?
                 await d.reportUnrecognized?.().catch(() => undefined) : undefined;
-              if (unreadable || found.uncertain) return { ok: false, reason: 'NO_REAL_EFFECT',
+              if (unreadable || found.uncertain) return { ok: false, reason: 'TARGET_UNVERIFIED',
                 message: found.why + (file ? '. Diagnóstico: ' + file : '') };
               return { ok: false, reason: 'NO_POST',
                 message: empty ? 'A pessoa não tem publicações' : found.why };
@@ -367,7 +367,7 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
             if (state === true) { ignored.add(post.urn); continue; }
             if (state !== false) {
               await d.reportUnrecognized?.().catch(() => undefined);
-              return { ok: false, reason: 'NO_REAL_EFFECT',
+              return { ok: false, reason: 'TARGET_UNVERIFIED',
                 message: 'Estado de curtida incerto imediatamente antes do clique; nenhuma interação enviada' };
             }
             const snapshot: PostSnapshot = { url: post.urn, text: post.text, postedAt: post.age ?? undefined, hasMedia: post.hasMedia };
@@ -376,7 +376,7 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
             await d.driver.input.click(point.x, point.y);
             return { ok: true, data: { post: post.urn } };
           }
-          return { ok: false, reason: 'NO_REAL_EFFECT',
+          return { ok: false, reason: 'TARGET_UNVERIFIED',
             message: 'Nenhum botão de curtir verificável após percorrer a página de atividades' };
         }),
       ),
@@ -403,7 +403,7 @@ interface CommentActionSettings extends CommentSettings {
 /** Publica um comentário num post e confirma que ele aparece. */
 export async function publishComment(d: ExecutorDeps, urn: string, text: string): Promise<ExecutionResult> {
   if (!isCanonicalPostUrn(urn)) return {
-    ok: false, reason: 'NO_REAL_EFFECT',
+    ok: false, reason: 'TARGET_UNVERIFIED',
     message: 'Publicação sem identificador canônico: comentário não enviado',
   };
   return guard(async () => {
@@ -415,18 +415,18 @@ export async function publishComment(d: ExecutorDeps, urn: string, text: string)
       const posts = await d.driver.read(extractPosts, selectorMap, 80);
       return posts.some((post) => post.urn === urn);
     }, 20_000);
-    if (!postReady) return { ok: false, reason: 'NO_REAL_EFFECT',
+    if (!postReady) return { ok: false, reason: 'TARGET_UNVERIFIED',
       message: 'Publicação canônica não localizada no permalink; nenhum comentário preparado' };
     let editor = await d.driver.read(commentEditorPoint, selectorMap, urn);
     if (!editor) {
       if (!(await d.driver.click('commentButton', { urn, containerKey: 'postItem' })))
-        return { ok: false, reason: 'NO_REAL_EFFECT',
+        return { ok: false, reason: 'TARGET_UNVERIFIED',
           message: 'Botão de comentar não encontrado na publicação identificada' };
       const ready = await d.driver.waitUntil(async () => {
         editor = await d.driver.read(commentEditorPoint, selectorMap, urn);
         return editor !== null;
       }, 8_000);
-      if (!ready || !editor) return { ok: false, reason: 'NO_REAL_EFFECT',
+      if (!ready || !editor) return { ok: false, reason: 'TARGET_UNVERIFIED',
         message: 'Editor da publicação não identificado; nenhuma digitação realizada' };
     }
     // Coordenadas derivadas exclusivamente do editor dentro do post canônico.
