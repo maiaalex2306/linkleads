@@ -88,7 +88,8 @@ describe('instalacao assistida Windows', () => {
     expect(repair).not.toMatch(/Set-ExecutionPolicy|ExecutionPolicy\\s+Bypass|DisableRealtimeMonitoring/i);
     expect(ci).toContain('apps/desktop/release/REPARAR-ATALHO-LINKLEADS.cmd');
     expect(ci).toContain('Testar reparo do atalho sem tocar dados reais');
-    expect(ci).toContain('FALHA DE SEGURANCA: reparador aprovou instalacao sem executavel');
+    const fixture = source('scripts/test-shortcut-repair.ps1');
+    expect(fixture).toContain('FALHA DE SEGURANCA: reparador aprovou instalacao sem executavel');
   });
 
   it('baixador usa workflow aprovado, GitHub autenticado e assistente verificado', () => {
