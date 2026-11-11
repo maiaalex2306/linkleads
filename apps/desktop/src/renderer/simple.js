@@ -71,7 +71,7 @@ function simpleCampaignStatus(a, c) {
   if (a.paused) return { label: 'Ativa · conta pausada', cls: 'warn' };
   if (!a.runnerEnabled || !a.running) return { label: 'Ativa · aguardando início', cls: 'warn' };
   if (!scheduleStatus(a).inside) return { label: 'Ativa · fora do horário', cls: 'warn' };
-  return { label: 'Executor ligado · em processamento', cls: 'ok' };
+  return { label: 'Ativa · executor ligado', cls: 'ok' };
 }
 
 /** Iniciar aqui executa somente a campanha escolhida; outras ativas exigem confirmação. */
