@@ -97,15 +97,17 @@ export function importPeopleFromCsv(text: string, makeId: (publicId: string) => 
       else if (key && !rec[key]) rec[key] = value; // a primeira coluna reconhecida vence (planilhas com colunas repetidas)
       else if (header[i]?.trim()) custom[header[i]!.trim()] = value;
     });
-    // 1º: public_id (exportação do Linked Helper); 2º: colunas de URL; 3º: qualquer link /in/ em qualquer célula
-    let publicId = rec.publicId && /^[^\s/]+$/.test(rec.publicId) ? rec.publicId.toLowerCase() : undefined;
-    if (!publicId) publicId = urlCandidates.map(publicIdFromUrl).find(Boolean);
-    if (!publicId) {
-      for (const v of cols) {
+    // A URL real do perfil é a identidade primária. O public_id exportado pode
+    // estar desatualizado ou pertencer a outro contato; nunca prevalece sobre /in/.
+    const profileFromUrl = urlCandidates.map(publicIdFromUrl).find(Boolean)
+      ?? cols.map((v) => {
         const m = v.match(/(?:https?:\/\/)?(?:[a-z]{2,3}\.)?linkedin\.com\/(?:in|pub)\/[^\s"',;)]+/i);
-        if (m) { publicId = publicIdFromUrl(m[0]); if (publicId) break; }
-      }
-    }
+        return m ? publicIdFromUrl(m[0]) : undefined;
+      }).find(Boolean);
+    const exportedId = rec.publicId && /^[^\s/]+$/.test(rec.publicId) ? rec.publicId.toLowerCase() : undefined;
+    const publicId = profileFromUrl ?? exportedId;
+    if (profileFromUrl && exportedId && profileFromUrl !== exportedId)
+      custom.linkleads_import_public_id_conflict = exportedId;
     // sem /in/: Sales Navigator ou número do membro + nome → o app acha o perfil pela busca (como o Linked Helper)
     const any = [...urlCandidates, ...cols].join(' ');
     const snId = (rec.snId?.split(',')[0] || any.match(/linkedin\.com\/sales\/(?:people|lead)\/([A-Za-z0-9_-]+)/i)?.[1]) || undefined;
@@ -128,7 +130,10 @@ export function importPeopleFromCsv(text: string, makeId: (publicId: string) => 
     if (snId) custom.sn_id = snId;
     let { firstName, lastName } = rec;
     if (!firstName && rec.fullName) {
-      const [f, ...rest] = rec.fullName.split(/\s+/);
+      // Alguns exports trazem o título "Atividades | Nome | LinkedIn" no campo Nome.
+      const clean = rec.fullName.replace(/^(?:(?:Atividades|Activity|Publicações|Publications|Posts)\s*[|·–-]\s*)+/i, '')
+        .replace(/\s*[|·–-]\s*LinkedIn\s*$/i, '').trim();
+      const [f, ...rest] = clean.split(/\s+/);
       firstName = f;
       lastName = lastName ?? (rest.join(' ') || undefined);
     }
