@@ -88,13 +88,13 @@ describe('CSV robusto (planilhas reais)', () => {
     const r = importPeopleFromCsv(csv);
     expect(r.people.map((p) => [p.publicId, p.firstName, p.company])).toEqual([['ana-silva', 'Ana', 'ACME']]);
     expect(r.skipped.map((s) => s.reason)).toEqual([
-      'Só tem o link do Sales Navigator e nenhum nome para procurar o perfil',
+      'Só tem link do Sales Navigator: revisão de identidade necessária',
       'URL de página de empresa, não de perfil',
       'Sem URL de perfil',
     ]);
   });
 
-  it('exportação do Linked Helper: aceita Sales Navigator + nome (o app acha o perfil pela busca)', () => {
+  it('exportação do Linked Helper: Sales Navigator permanece pendente e URL pública é verificada', () => {
     const csv = [
       'id;public_id;member_id;sn_member_id;profile_url;full_name;first_name;last_name;headline;current_company;location_name;NOME;MSG-01',
       '33574315;;33574315;ACwAAAIATasBA_OC0NMUDatWeEBCssGNHCpTT6U,9rcn,NAME_SEARCH;https://www.linkedin.com/sales/people/ACwAAAIATasBA_OC0NMUDatWeEBCssGNHCpTT6U,9rcn,NAME_SEARCH/;Priscila Rocha;Priscila;Rocha;Head de ESG;Volkswagen Caminhões e Ônibus;São Paulo;Priscila Rocha;Olá Priscila!',
@@ -105,8 +105,13 @@ describe('CSV robusto (planilhas reais)', () => {
     expect(r.people.map((p) => [p.id, p.publicId, p.memberId, p.firstName, p.lastName, p.company, p.custom?.sn_id, p.custom?.['MSG-01']])).toEqual([
       ['m:33574315', undefined, '33574315', 'Priscila', 'Rocha', 'Volkswagen Caminhões e Ônibus', 'ACwAAAIATasBA_OC0NMUDatWeEBCssGNHCpTT6U', 'Olá Priscila!'],
       ['helena-m-baptista', 'helena-m-baptista', '99', 'Helena', 'Baptista', 'Bosch', undefined, 'Oi'],
+      ['sn:ACwAAXYZ', undefined, undefined, undefined, undefined, undefined, 'ACwAAXYZ', undefined],
     ]);
-    expect(r.skipped.map((x) => x.reason)).toEqual(['Só tem o link do Sales Navigator e nenhum nome para procurar o perfil']);
+    expect(r.people[0]?.custom?.linkleads_identity_status).toBe('pending_review');
+    expect(r.people[0]?.custom?.linkleads_profile_type).toBe('sales_navigator');
+    expect(r.people[1]?.custom?.linkleads_identity_status).toBe('verified_url');
+    expect(r.people[2]?.custom?.linkleads_identity_status).toBe('pending_review');
+    expect(r.skipped).toHaveLength(0);
   });
 
   it('mensagens prontas da planilha: {{custom.MSG-01}} e {{custom.MSG-CONEXÃO}} (com ou sem acento)', () => {
@@ -120,5 +125,73 @@ describe('CSV robusto (planilhas reais)', () => {
   it('com duas colunas de URL, usa a que for de perfil', () => {
     const r = importPeopleFromCsv('url,profileUrl\nhttps://www.linkedin.com/company/x/,https://www.linkedin.com/in/bruno/');
     expect(r.people[0]?.publicId).toBe('bruno');
+  });
+});
+
+describe('identidade segura do lead importado', () => {
+  it('preserva origem e utiliza URL /in/ como identidade em vez de public_id divergente', () => {
+    const r = importPeopleFromCsv('public_id;profile_url;full_name\nperfil-antigo;https://www.linkedin.com/in/felipe-santos/;Atividades | Felipe Santos');
+    expect(r.people).toHaveLength(1);
+    expect(r.people[0]).toMatchObject({
+      id: 'felipe-santos', publicId: 'felipe-santos',
+      firstName: 'Felipe', lastName: 'Santos',
+      custom: {
+        linkleads_profile_source_url: 'https://www.linkedin.com/in/felipe-santos/',
+        linkleads_profile_type: 'public', linkleads_identity_status: 'verified_url',
+        linkleads_import_public_id_conflict: 'perfil-antigo',
+      },
+    });
+  });
+
+  it('não escolhe arbitrariamente entre duas URLs públicas divergentes', () => {
+    const csv = 'nome,url,profileUrl\nFelipe Santos,https://www.linkedin.com/in/felipe-santos/,https://www.linkedin.com/in/felipe-dos-santos/';
+    const result = importPeopleFromCsv(csv);
+    expect(result.people).toHaveLength(0);
+    expect(result.skipped[0]?.reason).toMatch(/URLs de perfis divergentes/);
+  });
+
+  it('mantém homônimos separados pelas URLs verificadas, não pelos nomes', () => {
+    const csv = 'nome,url\nFelipe Santos,https://www.linkedin.com/in/felipe-santos/\nFelipe Santos,https://www.linkedin.com/in/felipe-dos-santos/';
+    const result = importPeopleFromCsv(csv);
+    expect(result.people.map((p) => p.publicId)).toEqual(['felipe-santos', 'felipe-dos-santos']);
+  });
+
+  it('não confia em sites imitadores, redirecionadores, usuário embutido ou porta customizada', () => {
+    for (const url of [
+      'https://fake-linkedin.com/in/felipe/',
+      'https://evil.example/redirect/linkedin.com/in/felipe',
+      'https://www.linkedin.com.evil.example/in/felipe/',
+      'https://evil.example@evil.example/in/felipe/',
+      'https://user@www.linkedin.com/in/felipe/',
+      'https://www.linkedin.com:444/in/felipe/',
+      'javascript:linkedin.com/in/felipe/',
+      'https://www.linkedin.com/in/felipe%2Foutro/',
+    ]) expect(publicIdFromUrl(url)).toBeUndefined();
+  });
+
+  it('Sales Navigator e ID exportado sem /in/ ficam para revisão, sem gerar publicId', () => {
+    const csv = [
+      'public_id;member_id;profile_url;full_name',
+      'nao-comprovado;123;https://www.linkedin.com/sales/lead/ACwAAA;Felipe Santos',
+      'outro-id;;;Outra Pessoa',
+    ].join('\n');
+    const result = importPeopleFromCsv(csv);
+    expect(result.people).toHaveLength(2);
+    expect(result.people[0]).toMatchObject({
+      publicId: undefined,
+      custom: {
+        linkleads_identity_status: 'pending_review',
+        linkleads_profile_type: 'sales_navigator',
+        linkleads_import_public_id_unverified: 'nao-comprovado',
+      },
+    });
+    expect(result.people[1]?.publicId).toBeUndefined();
+    expect(result.people[1]?.custom?.linkleads_identity_status).toBe('pending_review');
+  });
+
+  it('URL inválida sem identidade alternativa é descartada, com motivo explícito', () => {
+    const result = importPeopleFromCsv('nome;profileUrl\nFelipe Santos;https://evil.example/redirect/linkedin.com/in/felipe');
+    expect(result.people).toHaveLength(0);
+    expect(result.skipped[0]?.reason).toMatch(/inválida/);
   });
 });

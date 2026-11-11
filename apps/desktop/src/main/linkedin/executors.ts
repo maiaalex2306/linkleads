@@ -10,13 +10,22 @@ import { isCanonicalPostUrn } from './post-identity.js';
 
 /** LINKLEADS_TEST_BASE_URL aponta para o site falso dos testes e2e; nunca usar em produção. */
 export const BASE = process.env.LINKLEADS_TEST_BASE_URL ?? 'https://www.linkedin.com';
-/** Slug do perfil a partir de um link da própria página (/in/<slug>), em qualquer host. */
+/** Perfil só é reconhecido em origem legítima do LinkedIn ou no site fictício de teste. */
 export function profileSlug(href: string): string | undefined {
   try {
-    const m = new URL(href).pathname.match(/^\/(?:in|pub)\/([^/?#]+)/);
-    return m ? decodeURIComponent(m[1]!).toLowerCase() : undefined;
+    const url = new URL(href);
+    const testOrigin = process.env.LINKLEADS_TEST_BASE_URL
+      ? new URL(process.env.LINKLEADS_TEST_BASE_URL).origin : undefined;
+    const trustedTest = !!testOrigin && url.origin === testOrigin;
+    if (!trustedTest && (url.protocol !== 'https:' ||
+      (url.hostname !== 'linkedin.com' && !url.hostname.endsWith('.linkedin.com')) ||
+      !!url.port || !!url.username || !!url.password)) return undefined;
+    const match = url.pathname.match(/^\/(?:in|pub)\/([^/?#]+)/i);
+    if (!match) return undefined;
+    const slug = decodeURIComponent(match[1]!).toLowerCase();
+    return /^[\p{L}\p{N}_.-]+$/u.test(slug) ? slug : undefined;
   } catch {
-    return publicIdFromUrl(href);
+    return undefined;
   }
 }
 
@@ -354,7 +363,7 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
               const unreadable = !found.posts.length && !empty;
               const file = (unreadable || found.uncertain) ?
                 await d.reportUnrecognized?.().catch(() => undefined) : undefined;
-              if (unreadable || found.uncertain) return { ok: false, reason: 'NO_REAL_EFFECT',
+              if (unreadable || found.uncertain) return { ok: false, reason: 'TARGET_UNVERIFIED',
                 message: found.why + (file ? '. Diagnóstico: ' + file : '') };
               return { ok: false, reason: 'NO_POST',
                 message: empty ? 'A pessoa não tem publicações' : found.why };
@@ -367,7 +376,7 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
             if (state === true) { ignored.add(post.urn); continue; }
             if (state !== false) {
               await d.reportUnrecognized?.().catch(() => undefined);
-              return { ok: false, reason: 'NO_REAL_EFFECT',
+              return { ok: false, reason: 'TARGET_UNVERIFIED',
                 message: 'Estado de curtida incerto imediatamente antes do clique; nenhuma interação enviada' };
             }
             const snapshot: PostSnapshot = { url: post.urn, text: post.text, postedAt: post.age ?? undefined, hasMedia: post.hasMedia };
@@ -376,7 +385,7 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
             await d.driver.input.click(point.x, point.y);
             return { ok: true, data: { post: post.urn } };
           }
-          return { ok: false, reason: 'NO_REAL_EFFECT',
+          return { ok: false, reason: 'TARGET_UNVERIFIED',
             message: 'Nenhum botão de curtir verificável após percorrer a página de atividades' };
         }),
       ),
@@ -403,7 +412,7 @@ interface CommentActionSettings extends CommentSettings {
 /** Publica um comentário num post e confirma que ele aparece. */
 export async function publishComment(d: ExecutorDeps, urn: string, text: string): Promise<ExecutionResult> {
   if (!isCanonicalPostUrn(urn)) return {
-    ok: false, reason: 'NO_REAL_EFFECT',
+    ok: false, reason: 'TARGET_UNVERIFIED',
     message: 'Publicação sem identificador canônico: comentário não enviado',
   };
   return guard(async () => {
@@ -415,18 +424,18 @@ export async function publishComment(d: ExecutorDeps, urn: string, text: string)
       const posts = await d.driver.read(extractPosts, selectorMap, 80);
       return posts.some((post) => post.urn === urn);
     }, 20_000);
-    if (!postReady) return { ok: false, reason: 'NO_REAL_EFFECT',
+    if (!postReady) return { ok: false, reason: 'TARGET_UNVERIFIED',
       message: 'Publicação canônica não localizada no permalink; nenhum comentário preparado' };
     let editor = await d.driver.read(commentEditorPoint, selectorMap, urn);
     if (!editor) {
       if (!(await d.driver.click('commentButton', { urn, containerKey: 'postItem' })))
-        return { ok: false, reason: 'NO_REAL_EFFECT',
+        return { ok: false, reason: 'TARGET_UNVERIFIED',
           message: 'Botão de comentar não encontrado na publicação identificada' };
       const ready = await d.driver.waitUntil(async () => {
         editor = await d.driver.read(commentEditorPoint, selectorMap, urn);
         return editor !== null;
       }, 8_000);
-      if (!ready || !editor) return { ok: false, reason: 'NO_REAL_EFFECT',
+      if (!ready || !editor) return { ok: false, reason: 'TARGET_UNVERIFIED',
         message: 'Editor da publicação não identificado; nenhuma digitação realizada' };
     }
     // Coordenadas derivadas exclusivamente do editor dentro do post canônico.
@@ -565,222 +574,11 @@ const slugOf = (url: string) => {
   }
 };
 
-/** Procura, só dentro das sugestões/resultados da busca, um link visível para o perfil `slug`. */
-function findProfileLink(slug: string, scopes: readonly string[]): { x: number; y: number } | null {
-  const roots = scopes.flatMap((s) => Array.from(document.querySelectorAll(s)));
-  const links = roots.flatMap((r) => Array.from(r.querySelectorAll('a[href*="/in/"]'))) as HTMLAnchorElement[];
-  for (const a of links) {
-    let s = '';
-    try {
-      s = decodeURIComponent(new URL(a.href, location.href).pathname.split('/')[2] || '').toLowerCase();
-    } catch {
-      continue;
-    }
-    if (s !== slug) continue;
-    const r = a.getBoundingClientRect();
-    if (r.width > 0 && r.height > 0 && r.top >= 0 && r.bottom <= window.innerHeight) return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-  }
-  return null;
-}
-
-async function waitForProfileUrl(d: ExecutorDeps, slug: string, ms = 15_000): Promise<boolean> {
-  return d.driver.waitUntil(async () => slugOf(d.driver.wc.getURL()) === slug && !d.driver.wc.isLoading(), ms, 400);
-}
-
-/**
- * Digita na busca global e clica no resultado que `locate` apontar (sugestões; senão, página de resultados).
- * true = clicou e a página de perfil começou a abrir.
- */
-async function searchAndClick(d: ExecutorDeps, text: string, locate: (scopes: readonly string[]) => Promise<{ x: number; y: number } | null>): Promise<boolean> {
-  if (!(await d.driver.exists('searchInput'))) return false;
-  const prev = d.driver.wc.getURL();
-  await d.driver.read((c: readonly string[]) => {
-    const el = c.map((s) => document.querySelector(s)).find(Boolean) as HTMLInputElement | undefined;
-    if (el) el.value = '';
-  }, d.driver.sel.searchInput);
-  if (!(await d.driver.click('searchInput'))) return false;
-  await d.driver.input.type(text);
-  const found: { link: { x: number; y: number } | null } = { link: null };
-  const scopes = { list: d.driver.sel.searchTypeahead as readonly string[] };
-  const look = async () => {
-    const a = await locate(scopes.list);
-    if (!a) return false;
-    await new Promise((r) => setTimeout(r, 350));
-    const b = await locate(scopes.list);
-    if (!b || Math.abs(a.x - b.x) > 1 || Math.abs(a.y - b.y) > 1) return false;
-    found.link = b;
-    return true;
-  };
-  await d.driver.waitUntil(look, 6_000, 400);
-  if (!found.link) {
-    await d.driver.press('Enter');
-    await d.driver.waitUntil(async () => /\/search\/results/.test(d.driver.wc.getURL()) && !d.driver.wc.isLoading(), 15_000, 500);
-    if (!/\/search\/results/.test(d.driver.wc.getURL())) return false;
-    d.driver.onNavigate?.(d.driver.wc.getURL(), prev, 'click');
-    await d.driver.input.think(1200, 2500);
-    scopes.list = [...d.driver.sel.searchResultsPage, 'main'];
-    await d.driver.waitUntil(look, 8_000, 500);
-  }
-  const link = found.link as { x: number; y: number } | null;
-  if (!link) return false;
-  const before = d.driver.wc.getURL();
-  await d.driver.input.click(Math.round(link.x), Math.round(link.y));
-  if (!(await d.driver.waitUntil(async () => /^\/in\//.test(new URL(d.driver.wc.getURL()).pathname) && !d.driver.wc.isLoading(), 15_000, 400))) return false;
-  d.driver.onNavigate?.(d.driver.wc.getURL(), before, 'click');
-  return true;
-}
-
-/**
- * Abre o perfil digitando o nome na busca do LinkedIn e clicando no resultado,
- * como uma pessoa faria (o Linked Helper chama isso de "in-page navigation").
- * Não consome o limite de "perfis abertos pelo link". Devolve false se não achou.
- */
-async function openProfileBySearch(d: ExecutorDeps, p: Person, slug: string): Promise<boolean> {
-  const name = [p.firstName, p.lastName].filter(Boolean).join(' ').trim();
-  if (!name || name.split(/\s+/).length < 2) return false;
-  if (!(await d.driver.exists('searchInput'))) return false;
-  const prev = d.driver.wc.getURL();
-  await d.driver.read((c: readonly string[]) => {
-    const el = c.map((s) => document.querySelector(s)).find(Boolean) as HTMLInputElement | undefined;
-    if (el) el.value = '';
-  }, d.driver.sel.searchInput);
-  if (!(await d.driver.click('searchInput'))) return false;
-  await d.driver.input.type(name);
-  // 1º: sugestões enquanto digita
-  const found: { link: { x: number; y: number } | null } = { link: null };
-  // só aceita a posição quando ela para de mudar (a lista de sugestões empurra a página ao abrir)
-  const scopes = { list: d.driver.sel.searchTypeahead as readonly string[] };
-  const look = async () => {
-    const a = await d.driver.read(findProfileLink, slug, scopes.list);
-    if (!a) return false;
-    await new Promise((r) => setTimeout(r, 350));
-    const b = await d.driver.read(findProfileLink, slug, scopes.list);
-    if (!b || Math.abs(a.x - b.x) > 1 || Math.abs(a.y - b.y) > 1) return false;
-    found.link = b;
-    return true;
-  };
-  await d.driver.waitUntil(look, 6_000, 400);
-  if (!found.link) {
-    // 2º: página de resultados da busca
-    await d.driver.press('Enter');
-    await d.driver.waitUntil(async () => /\/search\/results/.test(d.driver.wc.getURL()) && !d.driver.wc.isLoading(), 15_000, 500);
-    if (!/\/search\/results/.test(d.driver.wc.getURL())) return false;
-    d.driver.onNavigate?.(d.driver.wc.getURL(), prev, 'click');
-    await d.driver.input.think(1200, 2500);
-    scopes.list = [...d.driver.sel.searchResultsPage, 'main'];
-    await d.driver.waitUntil(look, 8_000, 500);
-  }
-  const link = found.link as { x: number; y: number } | null;
-  if (!link) return false;
-  const before = d.driver.wc.getURL();
-  await d.driver.input.click(Math.round(link.x), Math.round(link.y));
-  if (!(await waitForProfileUrl(d, slug))) return false;
-  d.driver.onNavigate?.(d.driver.wc.getURL(), before, 'click');
-  return true;
-}
-
-export type OpenResult = 'ok' | { retryAt: Date | undefined } | { notFound: string };
-
-const normName = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
-
-/**
- * Pura: entre os resultados/sugestões da busca, acha o link de perfil cujo cartão tem o NOME da pessoa
- * e (havendo homônimos) a empresa/cargo. Sem certeza → null (melhor não abrir o perfil errado).
- */
-function findPersonByName(full: string, hints: string[], scopes: readonly string[], firstAndCompany = false): { x: number; y: number } | null {
-  const norm = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
-  const name = norm(full);
-  const parts = name.split(' ');
-  const first = parts[0]!;
-  const last = parts[parts.length - 1]!;
-  const tokens = hints.flatMap((h) => norm(h).split(' ')).filter((t) => t.length >= 4 && !['ltda', 'brasil', 'industria', 'grupo', 'company'].includes(t));
-  const roots = scopes.flatMap((s) => Array.from(document.querySelectorAll(s)));
-  const seen = new Set<string>();
-  const cands: Array<{ x: number; y: number; score: number; href: string }> = [];
-  for (const root of roots) {
-    for (const a of Array.from(root.querySelectorAll('a[href*="/in/"]')) as HTMLAnchorElement[]) {
-      const href = a.href.split('?')[0]!;
-      const card = (a.closest('li, [data-chameleon-result-urn], .entity-result, [role="option"]') || a.parentElement?.parentElement || a) as HTMLElement;
-      const text = norm(card.textContent || '');
-      const r = a.getBoundingClientRect();
-      if (!(r.width > 0 && r.height > 0 && r.top >= 0 && r.bottom <= window.innerHeight)) continue;
-      const score = tokens.filter((t) => text.includes(t)).length;
-      // busca "nome + empresa": o sobrenome pode ter mudado (casamento, nome social); exige 1º nome E empresa/cargo
-      if (firstAndCompany ? !(text.includes(first) && score > 0) : !(text.includes(name) || (text.includes(first) && text.includes(last)))) continue;
-      const key = href;
-      if (seen.has(key)) {
-        const c = cands.find((x) => x.href === key)!;
-        c.score = Math.max(c.score, score);
-        continue;
-      }
-      seen.add(key);
-      cands.push({ x: r.left + r.width / 2, y: r.top + r.height / 2, score, href });
-    }
-  }
-  if (!cands.length) return null;
-  cands.sort((a, b) => b.score - a.score);
-  // um só com esse nome: ok; vários: só se a empresa/cargo desempatar
-  if (cands.length === 1 || (cands[0]!.score > 0 && cands[0]!.score > cands[1]!.score)) return { x: cands[0]!.x, y: cands[0]!.y };
-  return null;
-}
-
-/** Nome da página aberta confere com a pessoa? (h1 ou título da aba) */
-async function pageMatchesPerson(d: ExecutorDeps, p: Person): Promise<boolean> {
-  const data = await d.driver.read(extractProfile, d.driver.sel as unknown as Record<string, readonly string[]>).catch(() => null);
-  if (!data?.name) return false;
-  const page = normName(data.name);
-  const want = normName([p.firstName, p.lastName].filter(Boolean).join(' '));
-  const parts = want.split(' ');
-  return !!want && page.includes(parts[0]!) && page.includes(parts[parts.length - 1]!);
-}
-
-/**
- * Pessoa sem /in/ (veio do Sales Navigator): procura pelo nome na busca do LinkedIn comum,
- * confere nome + empresa/cargo, abre e GUARDA o link /in/ descoberto. Plano B: link pelo número do membro.
- */
-async function openUnknownProfile(d: ExecutorDeps, p: Person): Promise<OpenResult> {
-  const name = [p.firstName, p.lastName].filter(Boolean).join(' ').trim();
-  const hints = [p.company, p.headline, p.position].filter(Boolean) as string[];
-  const learn = () => {
-    const slug = slugOf(d.driver.wc.getURL());
-    if (!slug) return;
-    p.publicId = slug;
-    const cur = d.crm.getPerson(p.id);
-    d.crm.upsertPerson({ ...(cur ?? p), publicId: slug });
-  };
-  if (name) {
-    const ok = await searchAndClick(d, name, (scopes) => d.driver.read(findPersonByName, name, hints, scopes, false)).catch(() => false);
-    if (ok && (await awaitProfile(d)) === 'ok' && (await pageMatchesPerson(d, p))) {
-      learn();
-      return 'ok';
-    }
-    // 2ª tentativa: primeiro nome + empresa ("Diego MAHLE") — acha quem mudou o sobrenome no LinkedIn
-    const company = (p.company || '').split(/[,(|]/)[0]!.trim();
-    if (p.firstName && company) {
-      const ok2 = await searchAndClick(d, `${p.firstName} ${company}`, (scopes) => d.driver.read(findPersonByName, name, hints, scopes, true)).catch(() => false);
-      if (ok2 && (await awaitProfile(d)) === 'ok') {
-        learn();
-        return 'ok';
-      }
-    }
-  }
-  // plano B: abrir pelo número do membro / código do Sales Navigator (gasta vaga de "perfil pelo link").
-  // É o identificador exato da pessoa: não exige que o nome bata (o nome no LinkedIn pode ter mudado).
-  const sn = p.custom?.sn_id;
-  const urls = [p.memberId && `${BASE}/profile/view?id=${p.memberId}`, sn && `${BASE}/in/${sn}/`].filter(Boolean) as string[];
-  for (const u of urls) {
-    if (d.limits && d.limits.left('profile_url') <= 0) return { retryAt: d.limits.freeAt('profile_url') };
-    await d.driver.goto(u);
-    if (/\/in\//.test(d.driver.wc.getURL()) && (await awaitProfile(d)) === 'ok') {
-      learn();
-      return 'ok';
-    }
-  }
-  return { notFound: `Não achei o perfil de ${name || 'pessoa sem nome'}${hints[0] ? ` (${hints[0]})` : ''} pela busca do LinkedIn` };
-}
+export type OpenResult = 'ok' | { retryAt: Date | undefined } | { notFound: string } | { review: string };
 
 /** Sem nome para buscar e sem vaga para abrir pelo link: espera a vaga abrir. */
 export function openFailed(r: Exclude<OpenResult, 'ok'>): ExecutionResult {
+  if ('review' in r) return { ok: false, reason: 'IDENTITY_REVIEW', message: r.review };
   if ('notFound' in r) return { ok: false, reason: 'NOT_FOUND', message: r.notFound };
   return noUrlSlot(r.retryAt);
 }
@@ -791,31 +589,32 @@ export function noUrlSlot(retryAt: Date | undefined): ExecutionResult {
 }
 
 /**
- * Abre o perfil da pessoa do jeito mais seguro:
- * já está nele → nada; tem nome → pela busca; senão → pelo link (se ainda houver vaga no limite de links).
+ * Nunca trocar a identidade do lead por homônimos. Perfis Sales Navigator e
+ * publicId sem prova suficiente permanecem pendentes de revisão manual.
  */
 export async function gotoProfile(d: ExecutorDeps, p: Person, suffix = ''): Promise<OpenResult> {
-  if (!p.publicId) {
-    // veio só com Sales Navigator / número do membro: acha pela busca e aprende o /in/
-    const r = await openUnknownProfile(d, p);
-    if (r !== 'ok') return r;
-    if (suffix) await d.driver.goto(`${profileUrl(p)}${suffix}`);
-    await d.driver.assertNotBlocked();
-    return 'ok';
+  const slug = p.publicId?.toLowerCase();
+  if (!slug || !/^[\p{L}\p{N}_.-]+$/u.test(slug) ||
+      p.custom?.linkleads_identity_status === 'pending_review') {
+    return { review: 'Identidade sem URL pública verificável. Revisão manual necessária; ' +
+      'nenhuma busca por nome ou ação sobre outro perfil será realizada.' };
   }
-  const slug = p.publicId.toLowerCase();
+  const source = p.custom?.linkleads_profile_source_url;
+  if (source && publicIdFromUrl(source) !== slug) {
+    return { review: 'A URL original não corresponde ao identificador do contato. ' +
+      'Revisão manual obrigatória; nenhuma ação executada.' };
+  }
   const target = `${profileUrl(p)}${suffix}`;
-  if (slugOf(d.driver.wc.getURL()) === slug) {
-    // já está no perfil: recarrega para ler o estado atual (não conta como novo perfil)
-    await d.driver.goto(target);
-    return 'ok';
+  const alreadyAtProfile = profileSlug(d.driver.wc.getURL()) === slug;
+  if (!alreadyAtProfile && d.limits && d.limits.left('profile_url') <= 0) {
+    return { retryAt: d.limits.freeAt('profile_url') };
   }
-  if (d.limits && (await openProfileBySearch(d, p, slug).catch(() => false))) {
-    if (suffix) await d.driver.goto(target);
-    await d.driver.assertNotBlocked();
-    return 'ok';
-  }
-  if (d.limits && d.limits.left('profile_url') <= 0) return { retryAt: d.limits.freeAt('profile_url') };
   await d.driver.goto(target);
+  await d.driver.assertNotBlocked();
+  const resolvedSlug = profileSlug(d.driver.wc.getURL());
+  if (resolvedSlug !== slug) {
+    return { review: 'O perfil aberto possui URL ou domínio diferente do original. ' +
+      'Revisão manual necessária; nenhum resultado por nome foi usado.' };
+  }
   return 'ok';
 }

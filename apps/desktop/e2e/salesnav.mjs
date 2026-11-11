@@ -1,5 +1,5 @@
 // E2E: planilha exportada do Linked Helper com links do Sales Navigator (sem /in/).
-// O app aceita as linhas, acha o perfil pela busca do LinkedIn comum (nome + empresa) e guarda o /in/ descoberto.
+// O app aceita as linhas, mas exige revisão para confirmar o /in/ antes de qualquer interação.
 import { createRequire } from 'node:module';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -61,14 +61,16 @@ try {
 
   const people = (await call('listCampaigns', acc.id))[0].people;
   const by = (n) => people.find((p) => p.name.startsWith(n));
-  check(by('Ana').publicId === 'ana-silva' && by('Ana').actionName !== 'Visitar e extrair perfil', 'Ana (só Sales Navigator) achada pela busca e o /in/ guardado', by('Ana'));
-  check(by('Carlos').publicId === 'carlos-pereira-tyt', 'homônimos: escolheu o Carlos Pereira da Toyota (empresa confere), não o da Fiat', by('Carlos'));
-  check(by('Fulano').status === 'failed' && by('Fulano').reason === 'NOT_FOUND' && /Não achei o perfil de Fulano Inexistente/.test(by('Fulano').message || ''), 'quem não existe: falha explicada, sem abrir perfil errado', by('Fulano'));
-  const diego = people.find((p) => p.publicId === 'diego-siste');
-  check(diego && diego.name === 'Diego Siste' && diego.reason !== 'NOT_FOUND', 'sobrenome diferente no LinkedIn: abriu pelo número do membro e aceitou (Diego Barbosa → Diego Siste)', people.map((p) => [p.name, p.publicId, p.status, p.reason]));
+  check(['Ana', 'Carlos', 'Fulano', 'Diego'].every((name) => {
+    const p = by(name);
+    return p && !p.publicId && p.status === 'processed' && p.reason === 'IDENTITY_REVIEW';
+  }), 'Sales Navigator sem URL /in/ permanece em revisão, sem inferir identidade por nome ou empresa', people);
   const loads = site.state.profileLoads || [];
-  check(!loads.some((l) => l.slug === 'carlos-pereira-fia'), 'nunca abriu o homônimo errado', loads);
-  check(loads.filter((l) => ['ana-silva', 'carlos-pereira-tyt'].includes(l.slug)).every((l) => l.clicked), 'Ana e Carlos abertos pela busca (clique), não por link', loads);
+  check(loads.length === 0 && (site.state.searches ?? 0) === 0,
+    'nenhum perfil público ou homônimo foi aberto pela pesquisa', { loads, searches: site.state.searches });
+  check(site.state.likes === 0 && site.state.invites === 0 &&
+    site.state.comments.length === 0 && site.state.messages.length === 0,
+    'nenhuma ação externa é executada para identidade pendente');
 } catch (e) {
   fail(e.stack ?? e);
 } finally {

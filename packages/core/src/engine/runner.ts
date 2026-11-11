@@ -202,6 +202,15 @@ export class CampaignRunner {
       return 'ran';
     }
 
+    if (!result.ok && result.reason === 'IDENTITY_REVIEW') {
+      // Revisão de identidade não é falha transitória nem autorização de
+      // interação: mantém a pessoa visível e impede qualquer etapa posterior.
+      store.setStatus(campaign.id, action.id, person.id, 'processed', 'IDENTITY_REVIEW', result.message);
+      this.opts.onProgress?.({ type: 'done', campaign, action, person, step: i + 1,
+        total: campaign.actions.length, ok: false, reason: 'IDENTITY_REVIEW', message: result.message });
+      return 'ran';
+    }
+
     if (!result.ok && result.reason === 'AWAITING_APPROVAL') {
       // fica em `processed` até o usuário aprovar (ver resolveApproval)
       store.setStatus(campaign.id, action.id, person.id, 'processed', 'AWAITING_APPROVAL');

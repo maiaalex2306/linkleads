@@ -29,15 +29,41 @@ export function parseCsv(text: string): string[][] {
   return rows;
 }
 
-/** Extrai o slug público de uma URL de perfil (/in/<slug>). */
+/** Só reconhece perfil público em domínio genuíno do LinkedIn; não segue redirects. */
 export function publicIdFromUrl(url: string): string | undefined {
-  const m = url.trim().match(/linkedin\.com\/(?:in|pub)\/([^/?#]+)/i);
-  if (!m) return undefined;
   try {
-    return decodeURIComponent(m[1]!).toLowerCase();
+    const raw = url.trim();
+    const parsed = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
+    const host = parsed.hostname.toLowerCase();
+    if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password || parsed.port) return undefined;
+    if (host !== 'linkedin.com' && !host.endsWith('.linkedin.com')) return undefined;
+    const match = parsed.pathname.match(/^\/(?:in|pub)\/([^/?#]+)/i);
+    if (!match) return undefined;
+    const slug = decodeURIComponent(match[1]!).toLowerCase();
+    return /^[\p{L}\p{N}_.-]+$/u.test(slug) ? slug : undefined;
   } catch {
-    return m[1]!.toLowerCase();
+    return undefined;
   }
+}
+
+/** IDs de Sales Navigator não equivalem a uma URL pública /in/. */
+function salesNavId(url: string): string | undefined {
+  try {
+    const parsed = new URL(/^https?:\/\//i.test(url.trim()) ? url.trim() : `https://${url.trim()}`);
+    if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password || parsed.port) return undefined;
+    if (parsed.hostname !== 'linkedin.com' && !parsed.hostname.endsWith('.linkedin.com')) return undefined;
+    return parsed.pathname.match(/^\/sales\/(?:lead|people)\/([A-Za-z0-9_-]+)/i)?.[1];
+  } catch { return undefined; }
+}
+
+/** Encontra URLs públicas mencionadas em células textuais sem aceitar caminhos de redirecionadores. */
+function publicLinksInCell(cell: string): string[] {
+  const values: string[] = [];
+  const regex = /(^|[\s"'(])((?:https?:\/\/)?(?:[a-z0-9-]+\.)?linkedin\.com\/(?:in|pub)\/[^\s"',;)]+)/gi;
+  for (const match of cell.matchAll(regex)) {
+    if (publicIdFromUrl(match[2]!)) values.push(match[2]!);
+  }
+  return values;
 }
 
 const norm = (h: string) => h.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -77,7 +103,7 @@ export function importPeopleFromCsv(text: string, makeId: (publicId: string) => 
   const header = rows.shift() ?? [];
   const mapped = header.map((h) => HEADER_MAP[norm(h)]);
   const hasUrlColumn = mapped.includes('profileUrl');
-  if (!hasUrlColumn && !rows.some((r) => r.some((v) => /linkedin\.com\/(?:in|pub)\//i.test(v)))) {
+  if (!hasUrlColumn && !rows.some((r) => r.some((v) => publicLinksInCell(v).length > 0))) {
     throw new Error('Não achei links de perfil do LinkedIn (linkedin.com/in/…) no arquivo. Inclua uma coluna com a URL do perfil (ex.: "profileUrl", "linkedin_url" ou "url").');
   }
   const customColumns = header.filter((_, i) => !mapped[i]).map((h) => h.trim()).filter(Boolean);
@@ -97,30 +123,50 @@ export function importPeopleFromCsv(text: string, makeId: (publicId: string) => 
       else if (key && !rec[key]) rec[key] = value; // a primeira coluna reconhecida vence (planilhas com colunas repetidas)
       else if (header[i]?.trim()) custom[header[i]!.trim()] = value;
     });
-    // 1º: public_id (exportação do Linked Helper); 2º: colunas de URL; 3º: qualquer link /in/ em qualquer célula
-    let publicId = rec.publicId && /^[^\s/]+$/.test(rec.publicId) ? rec.publicId.toLowerCase() : undefined;
-    if (!publicId) publicId = urlCandidates.map(publicIdFromUrl).find(Boolean);
-    if (!publicId) {
-      for (const v of cols) {
-        const m = v.match(/(?:https?:\/\/)?(?:[a-z]{2,3}\.)?linkedin\.com\/(?:in|pub)\/[^\s"',;)]+/i);
-        if (m) { publicId = publicIdFromUrl(m[0]); if (publicId) break; }
-      }
+    // A URL pública determina a identidade. IDs exportados e URLs Sales Navigator
+    // são pistas de revisão, nunca autorização para escolher homônimos pela busca.
+    const allPublic = [...urlCandidates, ...cols.flatMap(publicLinksInCell)];
+    const validLinks = allPublic.map((source) => ({ source, slug: publicIdFromUrl(source) }))
+      .filter((link): link is { source: string; slug: string } => !!link.slug);
+    const distinct = [...new Set(validLinks.map((link) => link.slug))];
+    if (distinct.length > 1) {
+      return result.skipped.push({ line, reason: 'URLs de perfis divergentes: revisão obrigatória antes de importar' });
     }
-    // sem /in/: Sales Navigator ou número do membro + nome → o app acha o perfil pela busca (como o Linked Helper)
+    const publicId = distinct[0];
+    const sourceUrl = validLinks[0]?.source;
+    const exportedId = rec.publicId && /^[\p{L}\p{N}_.-]+$/u.test(rec.publicId)
+      ? rec.publicId.toLowerCase() : undefined;
+    if (publicId) {
+      custom.linkleads_profile_source_url = sourceUrl!;
+      custom.linkleads_profile_type = 'public';
+      custom.linkleads_identity_status = 'verified_url';
+    } else {
+      custom.linkleads_identity_status = 'pending_review';
+      if (exportedId) custom.linkleads_import_public_id_unverified = exportedId;
+    }
+    if (publicId && exportedId && publicId !== exportedId)
+      custom.linkleads_import_public_id_conflict = exportedId;
     const any = [...urlCandidates, ...cols].join(' ');
-    const snId = (rec.snId?.split(',')[0] || any.match(/linkedin\.com\/sales\/(?:people|lead)\/([A-Za-z0-9_-]+)/i)?.[1]) || undefined;
+    const snFromUrl = urlCandidates.map(salesNavId).find(Boolean);
+    const snId = rec.snId?.split(',')[0] || snFromUrl || undefined;
+    const sourceSalesUrl = urlCandidates.find((candidate) => !!salesNavId(candidate));
+    if (!publicId && sourceSalesUrl) {
+      custom.linkleads_profile_source_url = sourceSalesUrl;
+      custom.linkleads_profile_type = 'sales_navigator';
+    }
     const memberId = rec.memberId && /^\d+$/.test(rec.memberId) ? rec.memberId : undefined;
-    const hasName = !!((rec.firstName && rec.lastName) || (rec.fullName && rec.fullName.trim().split(/\s+/).length >= 2));
-    let key = publicId;
-    if (!key && (snId || memberId) && hasName) key = memberId ? `m:${memberId}` : `sn:${snId}`;
+    let key: string | undefined = publicId;
+    if (!key && memberId) key = `m:${memberId}`;
+    else if (!key && snId) key = `sn:${snId}`;
+    else if (!key && exportedId) key = `pending:${exportedId}`;
     if (!key) {
-      const reason = /linkedin\.com\/sales\//i.test(any) || snId
-        ? 'Só tem o link do Sales Navigator e nenhum nome para procurar o perfil'
+      const reason = /linkedin\.com\/sales\//i.test(any)
+        ? 'Só tem link do Sales Navigator: revisão de identidade necessária'
         : /linkedin\.com\/company\//i.test(any)
           ? 'URL de página de empresa, não de perfil'
           : /linkedin\.com\/(?:posts|feed)\//i.test(any)
             ? 'URL de publicação, não de perfil'
-            : urlCandidates.length ? 'URL de perfil inválida' : 'Sem URL de perfil';
+            : urlCandidates.length ? 'URL de perfil inválida: revisão necessária' : 'Sem URL de perfil';
       return result.skipped.push({ line, reason });
     }
     if (seen.has(key)) return result.skipped.push({ line, reason: 'Duplicado' });
@@ -128,7 +174,10 @@ export function importPeopleFromCsv(text: string, makeId: (publicId: string) => 
     if (snId) custom.sn_id = snId;
     let { firstName, lastName } = rec;
     if (!firstName && rec.fullName) {
-      const [f, ...rest] = rec.fullName.split(/\s+/);
+      // Alguns exports trazem o título "Atividades | Nome | LinkedIn" no campo Nome.
+      const clean = rec.fullName.replace(/^(?:(?:Atividades|Activity|Publicações|Publications|Posts)\s*[|·–-]\s*)+/i, '')
+        .replace(/\s*[|·–-]\s*LinkedIn\s*$/i, '').trim();
+      const [f, ...rest] = clean.split(/\s+/);
       firstName = f;
       lastName = lastName ?? (rest.join(' ') || undefined);
     }
