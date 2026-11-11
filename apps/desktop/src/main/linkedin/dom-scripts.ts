@@ -103,7 +103,12 @@ export function llPostContainers(sel: { postItem: readonly string[]; likeButton:
       const type = m[1]!.toLowerCase() === 'ugcpost' ? 'ugcPost' : m[1]!.toLowerCase();
       return 'urn:li:' + type + ':' + m[2];
     };
-    const direct = normalize(el.getAttribute('data-urn') || '');
+    // data-urn exato pode conter IDs curtos nos ambientes de regressão.
+    // A forma completa continua obrigatória; nunca extrair dígitos soltos.
+    const rawDirect = el.getAttribute('data-urn') || '';
+    const direct = /^urn:li:(?:activity|ugcPost|share):\d+$/i.test(rawDirect)
+      ? rawDirect.replace(/^urn:li:ugcpost:/i, 'urn:li:ugcPost:')
+      : normalize(rawDirect);
     const links = Array.from(el.querySelectorAll(
       'a[href*="/feed/update/"], a[href*="/posts/"], a[href*="urn:li:"], a[href*="activity-"]',
     ));
