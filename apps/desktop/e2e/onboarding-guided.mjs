@@ -117,6 +117,17 @@ try {
   check(!(await call('listCampaigns', acc.id)).find((x) => x.id === all[0].id).active,
     'pausar campanha desativa somente campanha');
 
+  ui.once('dialog', (dialog) => dialog.accept());
+  await ui.locator('.simple-campaign-row').first().getByRole('button', { name: 'Arquivar' }).click();
+  const archivedRows = await call('listCampaignSummaries', acc.id, true);
+  check(archivedRows.some((c) => c.id === all[0].id && c.archived),
+    'arquivar mantém campanha no arquivo, sem apagar seus contatos');
+  await ui.getByRole('button', { name: 'Arquivadas' }).click();
+  await ui.locator('.simple-campaign-row').first().getByRole('button', { name: 'Restaurar' }).click();
+  const restoredRows = await call('listCampaigns', acc.id);
+  check(restoredRows.some((c) => c.id === all[0].id && c.people.length === 2 && !c.active),
+    'restaurar preserva os dois contatos e não reinicia campanha');
+
   console.log('E2E ONBOARDING GUIDED OK');
 } catch (err) {
   console.error('FALHOU:', err?.stack ?? err);
