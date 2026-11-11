@@ -4,6 +4,15 @@
  */
 export function parseRelativeAgeDays(label: string): number | undefined {
   const s = label.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+  // Tags <time datetime> trazem a data absoluta da publicação: preferir
+  // a idade comprovada por timestamp a heurísticas sobre texto solto do feed.
+  if (/^\d{4}-\d{2}-\d{2}(?:t\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:z|[+-]\d{2}:?\d{2})?)?$/.test(s)) {
+    const timestamp = Date.parse(s);
+    if (!Number.isFinite(timestamp)) return undefined;
+    const diff = Date.now() - timestamp;
+    if (diff < -300_000) return undefined; // relógio ou postagem futura: não adivinhar
+    return Math.max(0, Math.floor(diff / 86_400_000));
+  }
   const m = s.match(/(\d+)\s*([a-z]+)/);
   if (!m) return /agora|now|just/.test(s) ? 0 : undefined;
   const n = Number(m[1]);
