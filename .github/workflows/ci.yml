@@ -161,11 +161,19 @@ jobs:
           echo "Nova referência da tela 03: $SETTINGS_APPROVED_SHA"
           xvfb-run -a node apps/desktop/e2e/visual-snapshots.mjs \
             --app-dir "$PWD/apps/desktop" --out "$PWD/visual-regression-report/current"
+          # PR #58 removeu o menu global de quatro passos: mudança intencional
+          # apenas na tela 04. O limite de 9% cobre o diff observado (7,48%).
+          # Só é válido contra a main imediatamente anterior (PR #57).
+          # Próximos commits voltam automaticamente ao limite padrão 0,6%.
+          approved_layout=()
+          if [[ "$BASE_SHA" == "444ed883802187f6645c09c8c600a58d9af1628a" ]]; then
+            approved_layout=(--approved-campaign-redesign "04-assistente-de-campanhas.png:0.09")
+          fi
           node apps/desktop/e2e/compare-visual-snapshots.mjs \
             --baseline "$PWD/visual-regression-report/base" \
             --candidate "$PWD/visual-regression-report/current" \
             --diff "$PWD/visual-regression-report/diff" \
-            --threshold 0.006 --channel-tolerance 25
+            --threshold 0.006 --channel-tolerance 25 "${approved_layout[@]}"
       - name: Preservar capturas e mapas de diferença para revisão
         if: always()
         uses: actions/upload-artifact@v4
