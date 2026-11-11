@@ -26,7 +26,7 @@ function liveHeader(a, L) {
       L.plan && L.plan.length ? h('div', {}, h('span', { class: 'muted' }, 'Depois, com esta mesma pessoa: '), L.plan.join(' → ')) : null],
     pausing: () => [h('div', { class: 'running-camp' }, '▶ Rodando a campanha ', h('b', {}, `"${L.campaign}"`)),
       h('div', { class: 'now' }, h('span', { class: 'pulse wait' }), h('strong', {}, `Pausa humana entre pessoas: próximo é ${L.nextPerson} em ${fmtLeft(L.pauseUntil, L.now)}`)),
-      h('div', { class: 'muted' }, 'O intervalo varia (20 s a 3 min) para parecer uma pessoa usando o LinkedIn.')],
+      h('div', { class: 'muted' }, 'Intervalo configurado entre contatos (20 s a 3 min). Pausas e limites não garantem ausência de restrições.')],
     inbox: () => [h('div', { class: 'now' }, h('span', { class: 'pulse' }), h('strong', {}, L.doing))],
     login: () => [h('div', { class: 'now' }, h('span', { class: 'pulse' }), h('strong', {}, L.doing))],
     idle: () => {
