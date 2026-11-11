@@ -183,8 +183,12 @@ export class CampaignRunner {
       const keys = result.data?.usageKeys;
       if (Array.isArray(keys)) {
         for (const key of new Set(keys)) {
-          if (key === 'likes' || key === 'comments')
+          if (key === 'likes' || key === 'comments') {
             store.recordUsage(account.id, key, this.now());
+            // Cada interação externa integra também o orçamento geral da conta.
+            // A navegação ao perfil já é contabilizada separadamente pelo navegador.
+            store.recordUsage(account.id, 'activity', this.now());
+          }
         }
       }
     } else if ((result.ok && !alreadyDone) || (!result.ok && result.reason === 'NO_REAL_EFFECT')) {
