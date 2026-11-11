@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { pickPost, choosePost } from '../src/main/linkedin/executors.js';
+import { pickPost, choosePost, firstUnlikedCandidate } from '../src/main/linkedin/executors.js';
 import type { PostExtract } from '../src/main/linkedin/dom-scripts.js';
 
 const one = (urn: string, liked: boolean | null): PostExtract => ({
@@ -8,6 +8,45 @@ const one = (urn: string, liked: boolean | null): PostExtract => ({
   actorName: 'Ana Silva', age: '2 d', hasMedia: false, isReshare: false,
   liked,
 });
+describe('primeira publicação não curtida — ordem da tela, independente da data e URN', () => {
+  it('pula as curtidas e escolhe exatamente a primeira não curtida', () => {
+    const posts = [
+      one('urn:li:activity:111111111111', true),
+      { ...one('ll-idx-0', false), age: null },
+      one('urn:li:activity:222222222222', false),
+    ];
+    expect(firstUnlikedCandidate(posts, 'ana-silva', 'Ana Silva').post?.urn).toBe('ll-idx-0');
+  });
+  it('não escolhe post de outro autor e não muda a ordem por idade', () => {
+    const posts = [
+      { ...one('urn:li:activity:111111111111', false), actorHref: 'https://www.linkedin.com/in/outro/' },
+      { ...one('urn:li:activity:222222222222', false), age: '150 d' },
+      { ...one('urn:li:activity:333333333333', false), age: '1 d' },
+    ];
+    expect(firstUnlikedCandidate(posts, 'ana-silva', 'Ana Silva').post?.urn)
+      .toBe('urn:li:activity:222222222222');
+  });
+  it('não presume que estado de curtida desconhecido seja não curtido', () => {
+    const posts = [one('urn:li:activity:111111111111', null), one('urn:li:activity:222222222222', false)];
+    const selected = firstUnlikedCandidate(posts, 'ana-silva', 'Ana Silva');
+    expect(selected.post?.urn).toBe('urn:li:activity:111111111111');
+    expect(selected.uncertain).toBe(true);
+    expect(selected.why).toMatch(/estado de reação desconhecido/);
+  });
+  it('não atribui post sem autoria conhecida à conta por suposição', () => {
+    const posts = [{ ...one('ll-idx-0', false), actorHref: null, actorName: null }];
+    expect(firstUnlikedCandidate(posts, 'ana-silva', 'Ana Silva').uncertain).toBe(true);
+  });
+  it('pode ignorar repost de terceiro quando não está configurado', () => {
+    const posts = [
+      { ...one('urn:li:activity:111111111111', false), isReshare: true },
+      one('urn:li:activity:222222222222', false),
+    ];
+    expect(firstUnlikedCandidate(posts, 'ana-silva', 'Ana Silva').post?.urn)
+      .toBe('urn:li:activity:222222222222');
+  });
+});
+
 describe('escolha de publicação com confirmação do estado', () => {
   it('ignora publicações curtidas e encontra a próxima ainda não curtida', () => {
     const posts = [
