@@ -115,7 +115,7 @@ describe('instalacao assistida Windows', () => {
     expect(workflow).toContain('Assistente nao encontrou o setup/SHA256 ao lado dele na raiz');
     // Upload do diretorio unico: a raiz do artefato deve conter os arquivos,
     // nunca uma estrutura apps/desktop/release ou visual-windows.
-    expect(workflow).toMatch(/name: LinkLeads-Producao-Windows-.*\n\s+path: pacote-linkleads\//);
+    expect(workflow).toMatch(/name: LinkLeads-Producao-Windows-[^\r\n]*\r?\n\s+path: pacote-linkleads\//);
     expect(workflow).not.toContain('path: |\n            apps/desktop/release/LinkLeads-Setup-*.exe');
   });
 
