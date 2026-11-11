@@ -74,6 +74,28 @@ try {
   posts = await scan();
   check(posts.length === 1 && posts[0].actorHref === null, 'duas autorias não podem ser atribuídas arbitrariamente', posts);
 
+  // Uma menção a outra pessoa no texto não pode ser confundida com o autor.
+  await page.setContent(
+    '<main><div class="feed-shared-update-v2" data-urn="urn:li:activity:9999999999999999999">' +
+    '<div class="update-components-text"><p>Obrigado a ' +
+    '<a href="https://www.linkedin.com/in/ana-silva/">Ana Silva</a> pelo apoio.</p></div>' +
+    '<button aria-pressed="false" aria-label="Like">Like</button></div></main>');
+  posts = await scan();
+  check(posts.length === 1 && posts[0].actorHref === null,
+    'perfil mencionado no corpo não se transforma em autor', posts);
+
+  // Repost com mídia: nenhum texto de comentário pode contaminar o resumo.
+  await page.setContent(
+    '<main><div class="feed-shared-update-v2" data-urn="urn:li:activity:1234567890123456789">' +
+    '<div class="update-components-header">Ana Silva repostou esta publicação</div>' +
+    '<div class="update-components-actor"><a href="https://www.linkedin.com/in/ana-silva/">Ana Silva</a>' +
+    '<span class="update-components-actor__sub-description">há 6 dias</span></div>' +
+    '<video src="/video.mp4"></video><button aria-pressed="false" aria-label="Like">Like</button>' +
+    '<div class="comments-comment-entity"><p>' + noise + '</p></div></div></main>');
+  posts = await scan();
+  check(posts.length === 1 && posts[0].hasMedia && posts[0].isReshare,
+    'republicação e mídia reconhecidas sem usar comentário como texto', posts);
+
   await page.setContent(
     '<main><div class="new-card"><a href="https://www.linkedin.com/in/ana-silva/">Ana Silva</a>' +
     '<a href="/posts/primeiro-activity-7381234567890128001-X">há 2 d</a>' +
