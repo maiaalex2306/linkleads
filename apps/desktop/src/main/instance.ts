@@ -252,7 +252,7 @@ export class AccountInstance {
       ...(e.type === 'scheduled' ? { scheduledAt: e.at.toISOString() } : {}),
     }, {
       accountId: this.account.id, campaignId: e.campaign.id, actionId: a?.id, personId: p.id,
-    }, e.type === 'done' && !e.ok && e.reason !== 'RETRY_LATER' && e.reason !== 'AWAITING_APPROVAL' ? 'warn' : 'info');
+    }, e.type === 'done' && !e.ok && e.reason !== 'RETRY_LATER' && e.reason !== 'AWAITING_APPROVAL' && e.reason !== 'IDENTITY_REVIEW' ? 'warn' : 'info');
     const L = this.live;
     if (e.type === 'start') {
       const name = personName(e.person);
@@ -272,7 +272,7 @@ export class AccountInstance {
       const name = personName(this.crm.getPerson(e.person.id) ?? e.person);
       const why = e.reason ? REASON_PT[e.reason] ?? e.reason : '';
       const text = e.ok ? `${e.action.name}: ${name}` : `${e.action.name}: ${name} — ${why}${e.retryAt ? ` (às ${hhmm(e.retryAt)})` : ''}${e.message && !e.ok ? ` · ${e.message}` : ''}`;
-      this.remember(text, e.ok ? true : e.reason === 'AWAITING_APPROVAL' || e.reason === 'RETRY_LATER' || e.reason === 'NO_POST' ? null : false);
+      this.remember(text, e.ok ? true : e.reason === 'AWAITING_APPROVAL' || e.reason === 'IDENTITY_REVIEW' || e.reason === 'RETRY_LATER' || e.reason === 'NO_POST' ? null : false);
       this.log(`${e.ok ? '✓' : '•'} ${text}`);
     } else if (e.type === 'pause') {
       Object.assign(L, { state: 'pausing', campaign: e.campaign.name, campaignId: e.campaign.id, doing: undefined, plan: undefined, pauseUntil: e.until.toISOString(), nextPerson: personName(e.nextPerson) });
