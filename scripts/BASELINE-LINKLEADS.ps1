@@ -52,7 +52,8 @@ try {
  $repoRoot=Full (Join-Path $PSScriptRoot '..')
  $package=Join-Path $repoRoot 'apps\desktop\package.json'
  if (Test-Path -LiteralPath $package) { $report.repo.version=(Get-Content -LiteralPath $package -Raw | ConvertFrom-Json).version }
- if (Get-Command git -ErrorAction SilentlyContinue) {
+ # Pacotes extraidos nao possuem .git. Nao executar git fora de checkout.
+ if ((Get-Command git -ErrorAction SilentlyContinue) -and (Test-Path -LiteralPath (Join-Path $repoRoot '.git'))) {
   $sha=& git -C $repoRoot rev-parse HEAD 2>$null
   if ($LASTEXITCODE -eq 0) {
    $report.repo.sha=($sha | Select-Object -First 1).Trim()
@@ -106,8 +107,13 @@ try {
   $files=@(Scan $root.path)
   $size=[long]0
   foreach($file in $files) {$size += [long]$file.bytes}
+  $binary=Join-Path $root.path 'LinkLeads.exe'
+  $exeInfo=if (Test-Path -LiteralPath $binary -PathType Leaf) {
+   $e=Get-Item -LiteralPath $binary
+   [ordered]@{version=$e.VersionInfo.ProductVersion;bytes=$e.Length;sha256=(Hash $binary)}
+  } else {$null}
   $report.sources += [ordered]@{
-   role=$root.kind; path=$root.path; label=$root.label;files=$files.Count;bytes=$size
+   role=$root.kind; path=$root.path; label=$root.label;files=$files.Count;bytes=$size;executable=$exeInfo
    accountsJson=([bool](@($files | Where-Object {$_.relativePath -eq 'accounts.json'}).Count))
    sqliteFiles=@($files | Where-Object {$_.relativePath -match '(?i)\.db$'}).Count
    sqliteWalFiles=@($files | Where-Object {$_.relativePath -match '(?i)\.db-wal$'}).Count
