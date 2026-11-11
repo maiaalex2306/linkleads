@@ -53,7 +53,7 @@ describe('instalacao assistida Windows', () => {
       writeFileSync(join(scoped, 'linkleads.db'), 'BANCO-TESTE');
 
       const commandLine = source('scripts/INSTALAR-LINKLEADS.cmd')
-        .split(/\\r?\\n/).find((line) => line.startsWith('powershell.exe -NoProfile -Command "') && line.includes('$sources=@('));
+        .split(/\r?\n/).find((line) => line.startsWith('powershell.exe -NoProfile -Command "') && line.includes('$sources=@('));
       expect(commandLine).toBeDefined();
       const prefix = 'powershell.exe -NoProfile -Command "';
       const payload = commandLine!.slice(prefix.length, -1);
