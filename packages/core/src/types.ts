@@ -10,6 +10,7 @@ export type JobStatus = 'queued' | 'running' | 'confirmed' | 'failed';
 
 export type FailureReason =
   | 'NO_REAL_EFFECT'      // o clique aconteceu, mas o estado resultante não confirmou
+  | 'TARGET_UNVERIFIED'   // alvo não verificado antes de uma interação externa
   | 'EXCLUDED'
   | 'REJECTED'            // rascunho rejeitado na aprovação
   | 'ICP_REJECTED'
