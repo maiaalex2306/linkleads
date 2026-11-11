@@ -274,14 +274,37 @@ async function discoverUnlikedPost(
   for (let step = 0; step <= maxScrolls && Date.now() - start < 120_000; step++) {
     await d.driver.assertNotBlocked();
     const batch = await d.driver.read(extractPosts, d.driver.sel as unknown as Record<string, readonly string[]>, 150);
-    for (const p of batch) seen.set(p.urn, p);
-    // O post já curtido NÃO é candidato nesta ação; procurar o seguinte.
-    // Estado desconhecido, idade ilegível ou URN provisória também não autorizam clique.
-    const unread = [...seen.values()].filter((p) =>
-      !ignoredUrns.has(p.urn) && p.liked === false &&
-      isCanonicalPostUrn(p.urn) && p.age && parseRelativeAgeDays(p.age) !== undefined);
-    const found = choosePost(unread, publicId, { ...settings, maxPostAgeDays: ageLimit, allowAlreadyLiked: false }, personName);
-    if (found.post) return { post: found.post, posts: [...seen.values()], why: '' };
+    // ll-idx-N representa apenas a posicao de um lote, e pode se repetir ao
+    // rolar a pagina. Nunca usá-lo como chave persistente entre leituras.
+    for (const [index, p] of batch.entries()) {
+      const key = isCanonicalPostUrn(p.urn) ? p.urn : `unresolved:${step}:${index}`;
+      seen.set(key, p);
+    }
+    // Regra da conta: identificar primeiro o post nao curtido em ORDEM VISUAL.
+    // Autor, estado, URN e data continuam sendo gates separados de interacao.
+    const ordered = [...seen.values()].filter((p) => !ignoredUrns.has(p.urn));
+    const candidate = firstUnlikedCandidate(ordered, publicId, personName, settings);
+    if (candidate.post) {
+      const post = candidate.post;
+      if (candidate.uncertain)
+        return { posts: ordered, why: candidate.why + '. Confirmacao humana necessaria.', uncertain: true };
+      if (!isCanonicalPostUrn(post.urn))
+        return { posts: ordered,
+          why: 'Primeira publicacao nao curtida identificada na ordem da tela, mas seu ID e provisório. ' +
+            'A selecao esta correta; o vinculo com o post ainda deve ser resolvido antes de qualquer interacao.',
+          uncertain: true };
+      const days = post.age ? parseRelativeAgeDays(post.age) : undefined;
+      if (days === undefined)
+        return { posts: ordered,
+          why: 'Primeira publicacao nao curtida identificada, mas sua idade e desconhecida. ' +
+            'A configuracao de idade maxima nao pode ser validada automaticamente.',
+          uncertain: true };
+      const eligible = choosePost([post], publicId,
+        { ...settings, maxPostAgeDays: ageLimit, allowAlreadyLiked: false }, personName);
+      if (eligible.post) return { post: eligible.post, posts: ordered, why: '' };
+      // Nunca trocar por um post posterior apenas para satisfazer o seletor.
+      return { posts: ordered, why: eligible.why, uncertain: eligible.uncertain };
+    }
     if (step === maxScrolls) break;
     const before = await d.driver.read(() => {
       const el = document.scrollingElement ?? document.documentElement;
