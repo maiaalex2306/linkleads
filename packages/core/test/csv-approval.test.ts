@@ -21,6 +21,8 @@ describe('CSV', () => {
     expect(publicIdFromUrl('https://www.linkedin.com/in/Maria-Silva-123/?trk=x')).toBe('maria-silva-123');
     expect(publicIdFromUrl('https://br.linkedin.com/in/jos%C3%A9-souza')).toBe('josé-souza');
     expect(publicIdFromUrl('https://example.com/maria')).toBeUndefined();
+    expect(publicIdFromUrl('https://fake-linkedin.com/in/felipe/')).toBeUndefined();
+    expect(publicIdFromUrl('https://evil.example/redirect/linkedin.com/in/felipe/')).toBeUndefined();
   });
 
   it('importa pessoas com sinônimos de cabeçalho e colunas extras', () => {
@@ -59,12 +61,33 @@ describe('aprovação humana', () => {
     const r = await runner.tick(campaign, account);
 
     expect(r.awaitingApproval).toBe(1);
+    expect(store.usageTimes('acc', 'likes', 0)).toHaveLength(1);
+    expect(store.usageTimes('acc', 'activity', 0)).toHaveLength(1);
     expect(store.statusOf('c', engagement!.id, 'p1')).toMatchObject({ status: 'processed', reason: 'AWAITING_APPROVAL' });
     // não é reprocessado no próximo tick
     expect(store.listQueued('c', engagement!.id, -1)).toHaveLength(0);
 
     resolveApproval(store, campaign, engagement!.id, 'p1', { executed: true });
     expect(store.statusOf('c', engagement!.id, 'p1')?.status).toBe('successful');
+  });
+
+  it('ação composta soma curtida e comentário ao limite geral, sem duplicar as chaves', async () => {
+    const campaign = { ...engagementCampaign({ id: 'combined', accountId: 'acc', name: 'Engajar', commentMode: 'auto' }), active: true };
+    const [, engagement] = campaign.actions;
+    const store = new InMemoryCampaignStore();
+    store.addPerson({ id: 'p1' });
+    store.enqueue('combined', engagement!.id, 'p1');
+    const executors = new ExecutorRegistry()
+      .register({ type: 'LikeAndComment', execute: async () => ({ ok: true, data: { usageKeys: ['likes', 'comments', 'likes'] } }) });
+    const account: Account = {
+      id: 'acc', label: 'x', tier: 'basic', paused: false, onboardedAt: '2026-01-01T00:00:00Z',
+      workingHours: { timezone: 'America/Sao_Paulo', days: [1, 2, 3, 4, 5], start: '09:00', end: '18:00' },
+    };
+    const runner = new CampaignRunner({ store, executors, now: () => new Date('2026-11-09T13:00:00Z'), sleep: async () => {} });
+    await runner.tick(campaign, account);
+    expect(store.usageTimes('acc', 'likes', 0)).toHaveLength(1);
+    expect(store.usageTimes('acc', 'comments', 0)).toHaveLength(1);
+    expect(store.usageTimes('acc', 'activity', 0)).toHaveLength(2);
   });
 });
 
@@ -120,5 +143,25 @@ describe('CSV robusto (planilhas reais)', () => {
   it('com duas colunas de URL, usa a que for de perfil', () => {
     const r = importPeopleFromCsv('url,profileUrl\nhttps://www.linkedin.com/company/x/,https://www.linkedin.com/in/bruno/');
     expect(r.people[0]?.publicId).toBe('bruno');
+  });
+});
+
+
+describe('identidade do perfil importado — regressões dos incidentes 11/11', () => {
+  it('URL /in prevalece sobre public_id desatualizado e preserva a divergência para diagnóstico', () => {
+    const csv = 'public_id;profile_url;full_name\nperfil-errado;https://www.linkedin.com/in/felipe-santos/;Felipe Santos';
+    const r = importPeopleFromCsv(csv);
+    expect(r.skipped).toHaveLength(0);
+    expect(r.people).toHaveLength(1);
+    expect(r.people[0]?.publicId).toBe('felipe-santos');
+    expect(r.people[0]?.id).toBe('felipe-santos');
+    expect(r.people[0]?.custom?.linkleads_import_public_id_conflict).toBe('perfil-errado');
+  });
+
+  it('não incorpora o título Atividades | ao nome importado', () => {
+    const csv = 'nome;profile_url\nAtividades | Felipe Santos;https://www.linkedin.com/in/felipe-santos/';
+    const r = importPeopleFromCsv(csv);
+    expect(r.people[0]?.firstName).toBe('Felipe');
+    expect(r.people[0]?.lastName).toBe('Santos');
   });
 });

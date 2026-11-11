@@ -8,6 +8,7 @@ import {
   DEFAULT_LIMIT_RULES,
   PROTECTED_LIMIT_RULES,
   LIMIT_LABELS,
+  getActionDefinition,
   limitStatus,
   remainingBudget,
   nextFreeAt,
@@ -332,7 +333,8 @@ ipcMain.handle('instance:live', (_e, id: string) => {
   const queues = crm.listCampaigns(id).filter((c) => c.active).map((c) => {
     const rows = crm.campaignPeople(c);
     const nowIso = t.toISOString();
-    const ready = rows.filter((r) => r.status === 'queued' && (!r.notBefore || r.notBefore <= nowIso)).length;
+    const readyRows = rows.filter((r) => r.status === 'queued' && (!r.notBefore || r.notBefore <= nowIso));
+    const ready = readyRows.length;
     const later = rows.filter((r) => r.status === 'queued' && r.notBefore && r.notBefore > nowIso).sort((a, b) => a.notBefore!.localeCompare(b.notBefore!));
     const failedRows = rows.filter((r) => r.status === 'failed');
     const reasons: Record<string, number> = {};
@@ -340,11 +342,39 @@ ipcMain.handle('instance:live', (_e, id: string) => {
     const retryable = acc.paused ? 0 : failedRows.filter((r) => isSafeManualRetry(r.reason)).length;
     const approval = rows.filter((r) => r.reason === 'AWAITING_APPROVAL').length;
     const done = rows.filter((r) => r.status === 'successful').length;
+    // Uma etapa pode estar pronta na fila e bloqueada pelo limite específico de
+    // curtidas/comentários. Não anunciar "pronta" quando não pode executar.
+    const readyActions = readyRows.map((row) => c.actions.find((action) => action.name === row.actionName))
+      .filter((action): action is (typeof c.actions)[number] => !!action);
+    const exhaustedByRow = readyActions.map((action) => {
+      const keys: BudgetKey[] = [...getActionDefinition(action.type).needs];
+      if (action.type === 'LikeAndComment' && action.settings?.commentEnabled === true)
+        keys.push('comments');
+      return keys.filter((key) => remainingBudget(acc, key, read, t) <= 0);
+    });
+    // Só anunciar a campanha inteira como bloqueada se TODAS as etapas prontas
+    // estiverem impedidas por uma mesma quota. Outras etapas podem avançar.
+    const exhaustedAction = exhaustedByRow.length === readyRows.length &&
+      exhaustedByRow.every((keys) => keys.length > 0)
+      ? exhaustedByRow[0]?.find((key) => exhaustedByRow.every((keys) => keys.includes(key)))
+      : undefined;
+    const allNeedDirectUrl = readyRows.length > 0 && readyRows.every((row) => {
+      const action = c.actions.find((candidate) => candidate.name === row.actionName);
+      return !!row.publicId && !!action && getActionDefinition(action.type).needs.includes('profile_load');
+    });
+    const directUrlExhausted = allNeedDirectUrl && remainingBudget(acc, 'profile_url', read, t) <= 0;
+    const quotaExplanation = (key: BudgetKey) => {
+      const freeAt = nextFreeAt(acc, key, read, t);
+      return `Limite de "${LIMIT_LABELS[key]}" esgotado; ${ready} pessoa(s) na fila` +
+        (freeAt ? `. Próxima vaga: ${hhmm(freeAt.toISOString())}.` : '.');
+    };
     let explain: string;
     if (!rows.length) explain = 'Campanha sem pessoas: adicione uma coleção a ela na aba Campanhas.';
     else if (ready && acc.paused) explain = `${ready} pessoa(s) prontas, mas a automação está PAUSADA nesta conta.`;
     else if (ready && !inside) explain = `${ready} pessoa(s) prontas, esperando o horário de trabalho (${acc.workingHours.start}–${acc.workingHours.end}).`;
-    else if (ready && blockedBy) explain = `${ready} pessoa(s) prontas, mas o limite "${LIMIT_LABELS[blockedBy.k]}" das últimas 24 h acabou${blockedBy.at ? `: libera às ${hhmm(blockedBy.at.toISOString())}` : ''}.`;
+    else if (ready && blockedBy) explain = quotaExplanation(blockedBy.k);
+    else if (ready && exhaustedAction) explain = quotaExplanation(exhaustedAction);
+    else if (ready && directUrlExhausted) explain = quotaExplanation('profile_url');
     else if (ready) explain = `${ready} pessoa(s) prontas: o app trabalha nelas agora ou no próximo ciclo.`;
     else if (later.length) explain = `Ninguém pronto agora. Próximo passo agendado: ${later[0]!.actionName} de ${later[0]!.name} em ${hhmm(later[0]!.notBefore!)}.`;
     else if (approval) explain = `Parada esperando VOCÊ: ${approval} rascunho(s) na aba Aprovações.`;

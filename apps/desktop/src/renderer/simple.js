@@ -414,13 +414,28 @@ async function simpleCampaignDetail(a, cols, camps, stats) {
   }
   const status = simpleCampaignStatus(a, c);
   const section = state.simpleCampaignSection || 'workflow';
-  const tabs = [['workflow','Fluxo'],['lists','Listas'],['settings','Configurações'],['track','Acompanhamento']];
+  const pendingDrafts = (await api.listDrafts(a.id, 'pending')).filter((d) => d.campaignId === c.id);
+  const pendingCount = pendingDrafts.length;
+  const tabs = [['workflow','Fluxo'],['lists','Listas'],['settings','Configurações'],['track','Acompanhamento'],
+    ['approvals', pendingCount ? `Aprovações (${pendingCount})` : 'Aprovações']];
   const content = section === 'lists'
     ? await detailLists(a, c)
     : section === 'settings'
       ? advancedWorkflowEditor(a, c, () => { state.simpleCampaignSection = 'workflow'; state.editCampaign = false; renderView(); })
+      : section === 'approvals'
+        ? h('section', { class: 'card stack', 'aria-label': 'Aprovações desta campanha' },
+            h('h3', {}, `Aprovações de "${c.name}"`),
+            h('p', { class: 'muted' }, 'Revise os textos pendentes desta campanha antes de qualquer envio.'),
+            await approvalsView(a, c.id, pendingDrafts))
       : section === 'track'
         ? h('div', { class: 'stack' },
+            pendingCount > 0 && h('section', { class: 'card stack attention', 'aria-label': 'Aprovações pendentes desta campanha' },
+              h('div', { class: 'row' },
+                h('strong', { style: 'flex:1' }, `${pendingCount} aprovação(ões) aguardando nesta campanha`),
+                h('button', { class: 'primary', onclick: () => {
+                  state.simpleCampaignSection = 'approvals'; renderView();
+                } }, 'Revisar aprovações')),
+              await approvalsView(a, c.id, pendingDrafts)),
             h('div', { class: 'card stack' },
               h('div', { class: 'row' },
                 h('strong', { style: 'flex:1' }, 'Acompanhamento desta campanha'),

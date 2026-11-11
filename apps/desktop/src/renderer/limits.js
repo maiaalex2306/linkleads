@@ -40,7 +40,7 @@ async function limitsPanelBody(a, onClose, box) {
     h('div', { class: 'row' }, h('strong', { style: 'flex:1' }, 'Limites desta conta'), h('button', { class: 'link', onclick: onClose }, 'fechar')),
     h('div', { class: 'muted' }, 'Cada regra vale para as últimas N horas (janela móvel, como no Linked Helper): uma vaga volta exatamente N horas depois de cada ação, não à meia-noite. ' +
       'A variação reduz o máximo de forma determinística por dia, mas não constitui garantia de segurança. Várias regras para a mesma atividade: vale a mais apertada (ex.: convites 100 por 7 dias e 20 por 24 horas). ' +
-      'Perfis abertos pelo link têm limite próprio (40/24 h): acima disso o LinkedIn costuma desconectar. Por isso o app abre os perfis pela busca, digitando o nome, sempre que a pessoa tem nome.'),
+      'Perfis abertos pelo link têm orçamento próprio (até 40 por janela móvel de 24 h nas proteções atuais). Para não acessar um homônimo, o app usa a URL exata quando ela existe; se o orçamento acabar, aguarda a próxima vaga em vez de pesquisar apenas pelo nome. Esses valores são referências operacionais do fornecedor, não limites oficiais nem garantia contra restrições.'),
     h('div', { class: 'limit-guard-box' },
       h('strong', {}, 'Proteções obrigatórias da conta'),
       h('p', { class: 'muted' },
