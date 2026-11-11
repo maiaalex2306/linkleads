@@ -106,6 +106,19 @@ describe('instalacao assistida Windows', () => {
     expect(cmd).toContain('INSTALAR-LINKLEADS.cmd');
     expect(cmd).not.toMatch(/Set-ExecutionPolicy|ExecutionPolicy\s+Bypass|DisableRealtimeMonitoring/i);
   });
+  it('publica um ZIP plano com o assistente imediatamente na raiz', () => {
+    const workflow = source('.github/workflows/windows-owner-production.yml');
+    expect(workflow).toContain('Montar ZIP plano');
+    expect(workflow).toContain("Join-Path $package 'INSTALAR-LINKLEADS.cmd'");
+    expect(workflow).toContain("Get-ChildItem -LiteralPath $package -Directory");
+    expect(workflow).toContain("if ($files.Count -ne $required.Count -or $dirs.Count -ne 0)");
+    expect(workflow).toContain('Assistente nao encontrou o setup/SHA256 ao lado dele na raiz');
+    // Upload do diretorio unico: a raiz do artefato deve conter os arquivos,
+    // nunca uma estrutura apps/desktop/release ou visual-windows.
+    expect(workflow).toMatch(/name: LinkLeads-Producao-Windows-[^\r\n]*\r?\n\s+path: pacote-linkleads\//);
+    expect(workflow).not.toContain('path: |\n            apps/desktop/release/LinkLeads-Setup-*.exe');
+  });
+
   it('pipeline inclui assistente no ZIP e valida atalho e SHA256 reais', () => {
     const ci = source('.github/workflows/windows-owner-production.yml');
     expect(ci).toContain('apps/desktop/release/INSTALAR-LINKLEADS.cmd');

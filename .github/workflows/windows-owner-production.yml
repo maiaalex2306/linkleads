@@ -148,7 +148,7 @@ jobs:
             $hashLine
             'AppId: br.com.linkleads.app (mesma identidade da instalacao normal)'
             'Dados locais: utiliza contas, sessoes e SQLite da instalacao normal'
-            'INSTALACAO SIMPLIFICADA: apos extrair o ZIP, abra INSTALAR-LINKLEADS.cmd por duplo clique.'
+            'INSTALACAO SIMPLIFICADA: os cinco arquivos ficam na RAIZ do ZIP; apos extrair, abra INSTALAR-LINKLEADS.cmd por duplo clique.'
             'O assistente verifica SHA256, preserva backup, solicita Defender, abre o setup e grava resultado-instalacao.json.'
             'Se o setup nao gerar o atalho, REPARAR-ATALHO-LINKLEADS.cmd verifica o EXE instalado e cria o atalho no Desktop.'
             'O instalador cria automaticamente um atalho LinkLeads na area de trabalho e no Menu Iniciar.'
@@ -188,21 +188,48 @@ jobs:
           } finally {
             Remove-Item -LiteralPath $badDir -Recurse -Force -ErrorAction SilentlyContinue
           }
+      - name: Montar ZIP plano — assistente na raiz do pacote
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = 'apps/desktop/release'
+          $package = 'pacote-linkleads'
+          if (Test-Path -LiteralPath $package) { throw 'Pacote temporario ja existe; nao misturar builds' }
+          New-Item -ItemType Directory -Path $package | Out-Null
+          $setups = @(Get-ChildItem -LiteralPath $source -File -Filter 'LinkLeads-Setup-*.exe')
+          if ($setups.Count -ne 1) { throw 'Pacote requer exatamente um LinkLeads-Setup-*.exe' }
+          $required = @(
+            $setups[0].Name,
+            'INSTALAR-LINKLEADS.cmd',
+            'REPARAR-ATALHO-LINKLEADS.cmd',
+            'SHA256.txt',
+            'LEIA-ME-INSTALACAO.txt'
+          )
+          foreach ($name in $required) {
+            $original = Join-Path $source $name
+            $destino = Join-Path $package $name
+            if (-not (Test-Path -LiteralPath $original -PathType Leaf)) { throw "Arquivo ausente: $name" }
+            Copy-Item -LiteralPath $original -Destination $destino -ErrorAction Stop
+            if (-not (Test-Path -LiteralPath $destino -PathType Leaf)) { throw "Falha ao copiar: $name" }
+            if ((Get-FileHash -LiteralPath $original -Algorithm SHA256).Hash -ne
+                (Get-FileHash -LiteralPath $destino -Algorithm SHA256).Hash) {
+              throw "Arquivo alterado na copia: $name"
+            }
+          }
+          $files = @(Get-ChildItem -LiteralPath $package -File)
+          $dirs = @(Get-ChildItem -LiteralPath $package -Directory)
+          if ($files.Count -ne $required.Count -or $dirs.Count -ne 0) {
+            throw 'ERRO: o ZIP deve ter exatamente cinco arquivos na raiz, sem subpastas'
+          }
+          & cmd.exe /c (Join-Path $package 'INSTALAR-LINKLEADS.cmd') --check-only
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Assistente nao encontrou o setup/SHA256 ao lado dele na raiz'
+          }
+          Write-Host 'PACOTE PLANO APROVADO: INSTALAR-LINKLEADS.cmd na raiz, junto ao EXE e ao SHA256'
       - name: Disponibilizar instalador com hash e instrucoes
         uses: actions/upload-artifact@v4
         with:
           name: LinkLeads-Producao-Windows-${{ github.sha }}
-          path: |
-            apps/desktop/release/LinkLeads-Setup-*.exe
-            apps/desktop/release/SHA256.txt
-            apps/desktop/release/INSTALAR-LINKLEADS.cmd
-            apps/desktop/release/REPARAR-ATALHO-LINKLEADS.cmd
-            apps/desktop/release/LEIA-ME-INSTALACAO.txt
-            visual-windows/*.png
-            visual-windows/manifest.json
-            nsis-smoke/nsis-install-report.json
-            nsis-smoke/smoke-report.json
-            nsis-smoke/installed-launcher.png
-            nsis-smoke/visual-differences/report.json
+          path: pacote-linkleads/
           if-no-files-found: error
           retention-days: 30
