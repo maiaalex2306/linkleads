@@ -84,7 +84,7 @@ try {
   polling = false;
   await poll;
   check(site.state.liked && site.state.comments.length === 1, 'curtiu e comentou o post', { liked: site.state.liked, comments: site.state.comments });
-  check((site.state.profileLoads || []).filter((l) => l.clicked).length >= 2, 'abriu o perfil pela busca, digitando o nome (curtir e convidar)', site.state.profileLoads);
+  check((site.state.profileLoads || []).filter((l) => l.slug === 'ana-silva' && !l.clicked).length >= 2, 'usou URL exata do CSV para curtir e convidar; não pesquisou homônimos', site.state.profileLoads);
   check(site.state.connection === 'pending' && /^Olá Ana/.test(site.state.inviteNote || ''), 'convite enviado logo depois do comentário, no mesmo dia', site.state.inviteNote);
   check([...seen].some((x) => /curtir|comentar/i.test(x)) && [...seen].some((x) => /convite/.test(x)),
     'painel "Agora" mostrou a ação composta e o convite enquanto aconteciam', [...seen]);
@@ -101,7 +101,7 @@ try {
   await ui.locator('#live-box').screenshot({ path: join(shots, 'painel-agora.png') });
   const stats = await call('accountStats', acc.id);
   const mt = (k) => stats.meters.find((m) => m.key === k).used;
-  check(mt('likes') === 1 && mt('comments') === 1 && mt('invites') === 1 && mt('profile_url') === 0, 'contadores: 1 curtida, 1 comentário, 1 convite e 0 perfis pelo link', stats.meters);
+  check(mt('likes') === 1 && mt('comments') === 1 && mt('invites') === 1 && mt('profile_url') >= 1, 'contadores: 1 curtida, 1 comentário, 1 convite e abertura de perfil por URL registrada', stats.meters);
   check(/1\//.test(await ui.locator('#health-box').innerText()), 'contadores aparecem atualizados na tela');
 
   await call('runNow', acc.id);
