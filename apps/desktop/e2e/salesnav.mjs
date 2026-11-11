@@ -1,5 +1,5 @@
 // E2E: planilha exportada do Linked Helper com links do Sales Navigator (sem /in/).
-// O app aceita as linhas, acha o perfil pela busca do LinkedIn comum (nome + empresa) e guarda o /in/ descoberto.
+// O app aceita os registros para revisão, mas nunca associa homônimos sem URL /in/ verificável.
 import { createRequire } from 'node:module';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -60,15 +60,12 @@ try {
   await call('runNow', acc.id);
 
   const people = (await call('listCampaigns', acc.id))[0].people;
-  const by = (n) => people.find((p) => p.name.startsWith(n));
-  check(by('Ana').publicId === 'ana-silva' && by('Ana').actionName !== 'Visitar e extrair perfil', 'Ana (só Sales Navigator) achada pela busca e o /in/ guardado', by('Ana'));
-  check(by('Carlos').publicId === 'carlos-pereira-tyt', 'homônimos: escolheu o Carlos Pereira da Toyota (empresa confere), não o da Fiat', by('Carlos'));
-  check(by('Fulano').status === 'failed' && by('Fulano').reason === 'NOT_FOUND' && /Não achei o perfil de Fulano Inexistente/.test(by('Fulano').message || ''), 'quem não existe: falha explicada, sem abrir perfil errado', by('Fulano'));
-  const diego = people.find((p) => p.publicId === 'diego-siste');
-  check(diego && diego.name === 'Diego Siste' && diego.reason !== 'NOT_FOUND', 'sobrenome diferente no LinkedIn: abriu pelo número do membro e aceitou (Diego Barbosa → Diego Siste)', people.map((p) => [p.name, p.publicId, p.status, p.reason]));
+  check(people.length === 4, 'quatro leads Sales Navigator preservados na campanha', people);
+  check(people.every((p) => !p.publicId && p.reason === 'IDENTITY_UNVERIFIED'),
+    'nenhum perfil recebe publicId inferido pelo nome ou empresa', people);
   const loads = site.state.profileLoads || [];
-  check(!loads.some((l) => l.slug === 'carlos-pereira-fia'), 'nunca abriu o homônimo errado', loads);
-  check(loads.filter((l) => ['ana-silva', 'carlos-pereira-tyt'].includes(l.slug)).every((l) => l.clicked), 'Ana e Carlos abertos pela busca (clique), não por link', loads);
+  check(loads.length === 0, 'nenhum perfil nem homônimo aberto sem URL pública verificada', loads);
+  check((site.state.searches ?? 0) === 0, 'não faz pesquisa global para adivinhar a identidade do lead', site.state.searches);
 } catch (e) {
   fail(e.stack ?? e);
 } finally {
