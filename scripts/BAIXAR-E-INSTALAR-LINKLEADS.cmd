@@ -41,7 +41,7 @@ if errorlevel 1 (
 )
 if exist "%LL_DEST%\LINKLEADS-INSTALADOR.zip" (
   echo Extraindo pacote unico com instalador na raiz...
-  powershell.exe -NoProfile -Command "$ErrorActionPreference='Stop';Expand-Archive -LiteralPath $env:LL_DEST\LINKLEADS-INSTALADOR.zip -DestinationPath $env:LL_DEST -Force"
+  powershell.exe -NoProfile -Command "$ErrorActionPreference='Stop';Expand-Archive -LiteralPath (Join-Path $env:LL_DEST 'LINKLEADS-INSTALADOR.zip') -DestinationPath $env:LL_DEST -Force"
   if errorlevel 1 (
     echo ERRO: pacote unico nao pode ser extraido.
     goto :fail
