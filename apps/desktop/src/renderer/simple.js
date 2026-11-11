@@ -632,27 +632,24 @@ async function trackPage(a, camps, stats) {
 }
 
 async function simpleView(a) {
-  const [cols, camps, stats, settings] = await Promise.all([api.listCollections(a.id), api.listCampaigns(a.id), api.accountStats(a.id), api.getSettings()]);
-  const active = camps.find((c) => c.active);
+  const [cols, camps, stats] = await Promise.all([
+    api.listCollections(a.id), api.listCampaigns(a.id), api.accountStats(a.id),
+  ]);
   if (!state.g || state.g === 'track') state.g = 'campaign';
-  const people = cols.reduce((s, c) => s + c.size, 0);
-  const info = {
-    lists: cols.length ? `${cols.length} lista(s), ${people} pessoas` : 'importar planilha',
-    campaign: active ? active.name : 'criar campanha',
-    config: !settings.hasAiKey ? '⚠ falta a chave da IA' : `${a.workingHours.start}–${a.workingHours.end} · ritmo seguro`,
-    configWarn: !settings.hasAiKey,
-    track: a.paused ? 'pausado' : !a.running ? 'parado' : active ? 'trabalhando' : '—',
-    trackWarn: stats.pendingApprovals > 0 || stats.unhandledReplies > 0,
-  };
-  const page = { lists: () => listsPage(a, cols, camps), campaign: () => campaignPage(a, cols, camps, stats), config: () => configPage(a) }[state.g] ?? (() => campaignPage(a, cols, camps, stats));
+  const page = { lists: () => listsPage(a, cols, camps),
+    campaign: () => campaignPage(a, cols, camps, stats),
+    config: () => configPage(a) }[state.g] || (() => campaignPage(a, cols, camps, stats));
   return h('div', { class: 'stack simple' },
     statusBar(a),
     await page(),
-    h('details', { class: 'simple-tools' },
-      h('summary', {}, 'Ferramentas avançadas'),
-      h('div', { class: 'row' },
-        ...[['companies', 'Empresas e comitês'], ['signals', 'Sinais'], ['deliveries', 'Entregas'], ['diagnostics', 'Diagnóstico'], ['activity', 'Registro de atividade'], [null, 'Tela completa']]
-          .map(([t, l]) => h('button', { class: 'link', onclick: () => goAdvanced(t) }, l)))),
+    h('div', { class: 'simple-toolsbar' },
+      h('button', { class: 'link', onclick: () => goAdvanced(null) }, 'Tela completa'),
+      h('details', { class: 'simple-tools' },
+        h('summary', {}, 'Outras ferramentas'),
+        h('div', { class: 'row' },
+          ...[['companies', 'Empresas e comitês'], ['signals', 'Sinais'],
+            ['deliveries', 'Entregas'], ['diagnostics', 'Diagnóstico'], ['activity', 'Registro de atividade']]
+            .map(([t, l]) => h('button', { class: 'link', onclick: () => goAdvanced(t) }, l))))),
   );
 }
 
