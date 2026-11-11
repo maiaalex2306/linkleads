@@ -376,7 +376,13 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
             // O botão precisa aparecer na tela após o scroll. Conferir o estado
             // NOVAMENTE imediatamente antes do clique: nunca desfazer um like.
             const point = await d.driver.scrollIntoView('likeButton', { urn: post.urn, containerKey: 'postItem' });
-            if (!point) { ignored.add(post.urn); continue; }
+            if (!point) {
+              // Não substituir silenciosamente o PRIMEIRO post não curtido
+              // por um cartão posterior porque o botão do alvo não apareceu.
+              await d.reportUnrecognized?.().catch(() => undefined);
+              return { ok: false, reason: 'NO_REAL_EFFECT',
+                message: 'Primeira publicação não curtida identificada, mas seu botão de reação não ficou acessível. Nenhum outro post selecionado.' };
+            }
             const state = await d.driver.read(likeState, d.driver.sel as unknown as Record<string, readonly string[]>, post.urn);
             if (state === true) { ignored.add(post.urn); continue; }
             if (state !== false) {
