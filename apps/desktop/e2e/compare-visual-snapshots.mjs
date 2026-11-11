@@ -12,6 +12,13 @@ const get = (name, fallback) => {
 const baseline = get('baseline'), candidate = get('candidate'), diff = get('diff');
 const limit = Number(get('threshold', '0.006'));
 const tolerance = Number(get('channel-tolerance', '25'));
+// Excecao temporária e explícita APENAS na comparação contra a main anterior.
+// O relatório mantém os pixels alterados e o teto individual.
+const approvedLayout = get('approved-campaign-redesign', '');
+const approvedName = '04-assistente-de-campanhas.png';
+const approvedMax = 0.09;
+if (approvedLayout && approvedLayout !== approvedName + ':' + approvedMax)
+  throw Error('Exceção visual não reconhecida: ' + approvedLayout);
 if (!baseline || !candidate || !diff || !(limit >= 0 && limit <= 1) ||
     !(tolerance >= 0 && tolerance <= 255))
   throw Error('Uso: --baseline pasta --candidate pasta --diff pasta [--threshold 0.006]');
@@ -36,15 +43,17 @@ try {
     const actual = decodePng(readFileSync(candFile));
     const result = pixelDiff(original, actual, tolerance);
     if (result.image) writeFileSync(join(out, name), encodePng(result.image));
-    const passed = !result.dimensionMismatch && result.mismatch <= limit;
-    const one = { name, passed, mismatch: Number(result.mismatch.toFixed(6)),
+    const isApproved = approvedLayout && name === approvedName;
+    const effectiveLimit = isApproved ? approvedMax : limit;
+    const passed = !result.dimensionMismatch && result.mismatch <= effectiveLimit;
+    const one = { name, passed, approvedDesignChange: Boolean(isApproved), limit: effectiveLimit, mismatch: Number(result.mismatch.toFixed(6)),
       changedPixels: result.changed, totalPixels: result.total,
       reference: { width: original.width, height: original.height },
       current: { width: actual.width, height: actual.height },
       diffImage: result.image ? name : null };
     report.cases.push(one);
     console.log((passed ? 'OK ' : 'FAIL ') + name + ' mudança=' + fmt(result.mismatch)
-      + ' / máximo=' + fmt(limit) +
+      + ' / máximo=' + fmt(effectiveLimit) + (isApproved ? ' (alteração de layout solicitada no PR #58)' : '') +
       (result.dimensionMismatch ? ' (dimensões diferentes)' : ''));
   }
   report.status = report.cases.every((c) => c.passed) ? 'passed' : 'failed';
@@ -60,7 +69,9 @@ try {
     '',
     '| Tela | Pixels diferentes | Resultado |', '|---|---:|---|',
     ...report.cases.map((c) => '| ' + c.name + ' | ' + fmt(c.mismatch) +
-      ' | ' + (c.passed ? 'Aprovado' : 'Reprovado') + ' |'),
+      ' | ' + (c.approvedDesignChange
+        ? (c.passed ? 'Mudança de layout aprovada (teto ' + fmt(c.limit) + ')' : 'Mudança de layout excedeu teto ' + fmt(c.limit))
+        : (c.passed ? 'Aprovado' : 'Reprovado')) + ' |'),
     '',
     'Limite máximo por tela: ' + fmt(limit) + '. Tolerância por canal: ' + tolerance + '/255.',
     report.error ? '\nErro: ' + report.error : '',
