@@ -112,9 +112,9 @@ export function llPostContainers(sel: { postItem: readonly string[]; likeButton:
     // Uma publicação citada ou um cartão mesclado pode trazer URNs distintas.
     // Nesse caso a identidade é INCERTA, mesmo que data-urn esteja presente.
     if (permalinks.size > 1 || (direct && permalinks.size === 1 && !permalinks.has(direct))) return null;
-    if (direct) return direct;
-    if (permalinks.size === 1) return [...permalinks][0]!;
     const ids = new Set<string>();
+    if (direct) ids.add(direct);
+    for (const permalink of permalinks) ids.add(permalink);
     const attrs = [el, ...Array.from(el.querySelectorAll('[data-urn], [data-id], [data-activity-urn], [componentkey], [data-view-tracking-scope]'))];
     for (const node of attrs) {
       for (const attribute of Array.from(node.attributes)) {
@@ -122,7 +122,9 @@ export function llPostContainers(sel: { postItem: readonly string[]; likeButton:
         if (canonical) ids.add(canonical);
       }
     }
-    // Ambiguidade é erro de reconhecimento, não licença para executar.
+    // Subcartões com URNs distintas, mesmo sob um data-urn aparentemente
+    // válido, tornam a identidade ambígua: não misturar publicações.
+    // Ações só podem ser vinculadas à identidade ÚNICA do cartão.
     return ids.size === 1 ? [...ids][0]! : null;
   };
   // Descoberta clássica: nunca propagar data-urn arbitrário, incompleto ou
@@ -191,18 +193,24 @@ export function extractPosts(sel: Record<string, readonly string[]>, limit: numb
     // A descrição deve vir da área de conteúdo do próprio cartão.
     // Nunca escolher "maior div": ela pode conter autor, rodapé, botões e comentários.
     const textEl = first(it, sel.postText!) as HTMLElement | null;
-    const excluded = [
+    const nonContent = [
       '.update-components-actor', '.feed-shared-actor', '.update-components-header',
       '.feed-shared-header', '.comments-comment-entity', '.comments-comment-item',
-      '.comments-comment-box__form', '[contenteditable="true"]', '[role="toolbar"]',
-      'button', '[role="button"]',
+      '.comments-comment-box__form', '.comments-comments-list',
+      '.feed-shared-social-action-bar', '.social-actions',
+      '[contenteditable="true"]', '[role="toolbar"]', 'button', '[role="button"]',
     ].join(', ');
     const validTextNode = (node: Element) => {
-      if (node.closest(excluded)) return false;
+      if (node.closest(nonContent)) return false;
       if (node.querySelector('button, [role="button"], time, [contenteditable]')) return false;
       return true;
     };
-    let text = textEl && validTextNode(textEl) ? (textEl.innerText || '').trim() : '';
+    // Um botão "ver mais" pode estar dentro da área oficial do texto.
+    // Aceitar esse bloco específico, mas nunca um nó genérico que reúna
+    // autor, comentários e botões de outros cartões.
+    let text = textEl && !textEl.closest(
+      '.update-components-actor, .feed-shared-actor, .comments-comment-entity, .comments-comment-item, .comments-comment-box__form',
+    ) ? (textEl.innerText || '').trim().slice(0, 6000) : '';
     if (!text) {
       // Elementos semânticos de conteúdo: pt-BR, en-US e layout moderno.
       // Se não existirem, falhar sem inventar conteúdo da navegação.
@@ -213,10 +221,11 @@ export function extractPosts(sel: Record<string, readonly string[]>, limit: numb
       const blocks = valid.filter((node) =>
         node.matches('[dir="ltr"], [data-test-id*="commentary"], [data-testid*="post-text"]'));
       if (blocks.length) {
-        // Bloco estrutural completo (não concatenar filhos repetidos).
-        text = blocks.map((node) => (node.innerText || '').trim())
-          .filter((v) => v && v.length <= 6000)
-          .sort((a, b) => b.length - a.length)[0] ?? '';
+        // Preservar blocos IRMÃOS na ordem de leitura, eliminando apenas
+        // descendentes duplicados de outro bloco semântico do mesmo post.
+        const roots = blocks.filter((node) => !blocks.some((other) => other !== node && other.contains(node)));
+        text = roots.map((node) => (node.innerText || '').trim())
+          .filter((v) => v && v.length <= 6000).join('\n\n').slice(0, 6000);
       } else {
         // Quando o corpo contém vários parágrafos irmãos, preservar todos na
         // ordem original, sem comentários e sem duplicar parágrafos aninhados.
