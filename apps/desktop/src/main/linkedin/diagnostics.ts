@@ -64,7 +64,11 @@ export interface DiagnosisReport {
   structure?: { hasMain: boolean; titleEndsWithLinkedIn: boolean; headings: Array<{ tag: string; classes: string; inMain: boolean; textLength: number; parents: string }> };
   /** posts: o que o app reconheceu e a estrutura em volta das DATAS dos posts (sem textos nem nomes) */
   posts?: { recognized: number; probes: unknown[]; canonical: number; provisional: number;
-    dated: number; undated: number; reactionKnown: number; reactionUnknown: number };
+    dated: number; undated: number; reactionKnown: number; reactionUnknown: number;
+    /** Somente metadados do PRIMEIRO cartão ainda não curtido na ordem da tela. */
+    firstUnliked?: { ordinal: number; canonical: boolean; dated: boolean;
+      reactionControls: number; commentControls: number; editableFields: number; sendControls: number;
+      selectorMatches: { reaction: number; comment: number; editor: number; submit: number } } | null };
 }
 
 /** Pura: estrutura em volta das datas dos posts ("há 1 sem") — tags, papéis, classes, nomes de atributos e rótulos de botões. */
@@ -88,6 +92,45 @@ function postsProbe() {
     const links = box ? Array.from(box.querySelectorAll('a[href]')).slice(0, 8).map((a) => (a.getAttribute('href') || '').replace(/^https?:\/\/[^/]+/, '').replace(/\/in\/[^/?]+/, '/in/[id]').replace(/\/posts\/[^_]+_/, '/posts/[id]_').slice(0, 90)) : [];
     return { timeTag: t.tagName.toLowerCase(), chain, buttons, links };
   });
+}
+
+declare function __llPostContainers(sel: { postItem: readonly string[]; likeButton: readonly string[] }): Array<{ el: Element; urn: string }>;
+declare function __llIsReact(el: Element): boolean;
+
+/**
+ * Inventário somente leitura, inspirado no diagnóstico do PJe-Calc.
+ * Identifica controles DENTRO do primeiro cartão não curtido.
+ * Não revela textos de posts/nomes/URLs e nunca envia interação.
+ */
+function firstUnlikedControlProbe(sel: Record<string, readonly string[]>, ordinal: number) {
+  const cards = __llPostContainers({ postItem: sel.postItem!, likeButton: sel.likeButton! });
+  const root = cards[ordinal]?.el;
+  if (!root) return null;
+  const visible = (element: Element) => {
+    const rect = element.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  };
+  const buttons = Array.from(root.querySelectorAll('button, [role="button"]')).filter(visible);
+  const reactionControls = buttons.filter((b) => __llIsReact(b)).length;
+  const commentControls = buttons.filter((b) => {
+    const label = [b.getAttribute('aria-label') || '', (b as HTMLElement).innerText || ''].join(' ');
+    return /(?:^|\\b)(comentar|comment)(?:\\b|$)/i.test(label) &&
+      !/(?:repost|compartilhar|share)/i.test(label);
+  }).length;
+  const editableFields = Array.from(root.querySelectorAll('[contenteditable="true"]')).filter(visible).length;
+  const sendControls = buttons.filter((b) =>
+    /^(?:publicar|post|enviar comentário|send comment)$/i.test(
+      (b.getAttribute('aria-label') || (b as HTMLElement).innerText || '').trim())).length;
+  const matches = (selectors: readonly string[]) => selectors.reduce((count, selector) => {
+    try { return count + (root.querySelector(selector) ? 1 : 0); } catch { return count; }
+  }, 0);
+  return {
+    reactionControls, commentControls, editableFields, sendControls,
+    selectorMatches: {
+      reaction: matches(sel.likeButton ?? []), comment: matches(sel.commentButton ?? []),
+      editor: matches(sel.commentEditor ?? []), submit: matches(sel.commentSubmit ?? []),
+    },
+  };
 }
 
 /** Pura: lista os títulos da página sem o texto (só tag, classes e tamanho). */
@@ -140,6 +183,21 @@ export async function diagnosePage(driver: PageDriver, appVersion: string): Prom
     reactionKnown: extracted.filter((p) => p.liked !== null).length,
     reactionUnknown: extracted.filter((p) => p.liked === null).length,
   };
+  const firstUnlikedIndex = extracted.findIndex((post) => post.liked === false);
+  const firstControls = firstUnlikedIndex >= 0
+    ? await driver.read(firstUnlikedControlProbe, sel, firstUnlikedIndex).catch(() => null)
+    : null;
+  const firstUnliked = firstUnlikedIndex >= 0 ? {
+    ordinal: firstUnlikedIndex + 1,
+    canonical: isCanonicalPostUrn(extracted[firstUnlikedIndex]!.urn),
+    dated: Boolean(extracted[firstUnlikedIndex]!.age &&
+      parseRelativeAgeDays(extracted[firstUnlikedIndex]!.age!) !== undefined),
+    reactionControls: firstControls?.reactionControls ?? 0,
+    commentControls: firstControls?.commentControls ?? 0,
+    editableFields: firstControls?.editableFields ?? 0,
+    sendControls: firstControls?.sendControls ?? 0,
+    selectorMatches: firstControls?.selectorMatches ?? { reaction: 0, comment: 0, editor: 0, submit: 0 },
+  } : null;
   return {
     at: new Date().toISOString(),
     appVersion,
@@ -152,6 +210,6 @@ export async function diagnosePage(driver: PageDriver, appVersion: string): Prom
     labels,
     buttons,
     structure: await driver.read(pageStructure).catch(() => undefined),
-    posts: isActivity ? { ...postCounts, probes: await driver.read(postsProbe).catch(() => []) } : undefined,
+    posts: isActivity ? { ...postCounts, firstUnliked, probes: await driver.read(postsProbe).catch(() => []) } : undefined,
   };
 }
