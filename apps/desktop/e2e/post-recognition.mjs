@@ -57,6 +57,20 @@ try {
     'comentário de terceiro não substitui autoria', posts.map(p => p.actorHref));
   check(posts[1].age?.includes('1 sem'), 'data apenas de metadados/permalink', posts.map(p => p.age));
 
+  // Publicações com vários parágrafos devem ser lidas integralmente.
+  await page.setContent(
+    '<main><div class="feed-shared-update-v2" data-urn="urn:li:activity:6666666666666666666">' +
+    '<div class="update-components-actor"><a href="https://www.linkedin.com/in/ana-silva/">Ana Silva</a>' +
+    '<span class="update-components-actor__sub-description">há 3 dias</span></div>' +
+    '<section><p>Primeiro parágrafo sobre qualidade operacional.</p>' +
+    '<p>Segundo parágrafo sobre redução de custos.</p></section>' +
+    '<button aria-pressed="false" aria-label="Like">Like</button>' +
+    '<div class="comments-comment-entity"><p>' + noise + '</p></div></div></main>');
+  posts = await scan();
+  check(posts.length === 1 && posts[0].text.includes('Primeiro parágrafo') &&
+    posts[0].text.includes('Segundo parágrafo') && !posts[0].text.includes('Ruído'),
+    'todos os parágrafos do post, sem comentários de terceiros', posts);
+
   await page.setContent(
     '<main><div class="feed-shared-update-v2" data-urn="urn:li:activity:7777777777777777777">' +
     '<a class="update-components-actor__meta-link" href="https://www.linkedin.com/in/ana-silva/">Ana Silva</a>' +
