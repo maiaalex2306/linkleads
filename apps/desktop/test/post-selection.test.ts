@@ -17,6 +17,18 @@ describe('primeira publicação não curtida — ordem da tela, independente da 
     ];
     expect(firstUnlikedCandidate(posts, 'ana-silva', 'Ana Silva').post?.urn).toBe('ll-idx-0');
   });
+  it('pula um cartão já curtido mesmo se estiver sem autor legível', () => {
+    const posts = [
+      { ...one('ll-idx-0', true), actorHref: null, actorName: null },
+      one('urn:li:activity:222222222222', false),
+    ];
+    expect(firstUnlikedCandidate(posts, 'ana-silva', 'Ana Silva').post?.urn)
+      .toBe('urn:li:activity:222222222222');
+  });
+  it('não exige texto no cartão para considerar um post ainda não curtido', () => {
+    const p = { ...one('urn:li:activity:222222222222', false), text: '', hasMedia: true };
+    expect(firstUnlikedCandidate([p], 'ana-silva', 'Ana Silva').post?.urn).toBe(p.urn);
+  });
   it('não escolhe post de outro autor e não muda a ordem por idade', () => {
     const posts = [
       { ...one('urn:li:activity:111111111111', false), actorHref: 'https://www.linkedin.com/in/outro/' },
