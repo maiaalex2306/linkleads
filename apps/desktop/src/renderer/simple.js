@@ -77,16 +77,14 @@ function simpleCampaignStatus(a, c) {
 /** Iniciar aqui executa somente a campanha escolhida; outras ativas exigem confirmação. */
 async function startSimpleCampaign(a, c, camps) {
   if (a.paused) { toast('A conta está pausada. Resolva a pausa antes de iniciar campanhas.', 7000); return; }
-  if (a.runnerEnabled && a.running && c.active) {
-    openSimpleCampaign(c.id, 'track');
-    return;
-  }
   const others = camps.filter((x) => x.id !== c.id && x.active && !x.archived);
   if (others.length && !window.confirm('Há ' + others.length + ' outra(s) campanha(s) ativa(s). Pausá-las para executar somente esta campanha?')) return;
   try {
+    // Mesmo com executor ligado, nunca abrir "Acompanhar" enquanto outra
+    // campanha continua ativa: o usuário pediu execução exclusiva da selecionada.
     for (const other of others) await api.setCampaignActive(a.id, other.id, false);
     if (!c.active) await api.setCampaignActive(a.id, c.id, true);
-    await api.startRunner(a.id);
+    if (!a.runnerEnabled || !a.running) await api.startRunner(a.id);
     state.simpleSelectedCampaignId = c.id;
     state.simpleCampaignSection = 'track';
     state.g = 'campaign';
