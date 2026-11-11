@@ -107,17 +107,19 @@ async function pauseSimpleCampaign(a, c, camps) {
 }
 
 async function setSimpleCampaignActive(a, c, active) {
+  if (active && a.runnerEnabled && !a.paused && !window.confirm('O executor da conta está ligado. Ativar esta campanha pode iniciar suas ações imediatamente. Deseja continuar?')) return;
   try {
     await api.setCampaignActive(a.id, c.id, active);
-    toast(active ? 'Campanha ativada na fila. Clique em Executar para iniciar.' : 'Campanha pausada; histórico preservado.');
+    toast(active ? (a.runnerEnabled ? 'Campanha ativada no executor da conta.' : 'Campanha ativada na fila. Clique em Executar para iniciar.') : 'Campanha pausada; histórico preservado.');
     await refresh();
   } catch (error) { toast('Erro ao alterar campanha: ' + String(error?.message || error), 7000); }
 }
 
 async function archiveSimpleCampaign(a, c) {
-  if (a.runnerEnabled) { toast('Pare o executor da conta antes de arquivar.', 7000); return; }
   if (!c.archived && !window.confirm('Arquivar esta campanha? Pessoas, etapas e histórico serão preservados.')) return;
+  if (a.runnerEnabled && !window.confirm('Para arquivar, é preciso parar o executor desta conta. Isso suspenderá temporariamente outras campanhas ativas. Continuar?')) return;
   try {
+    if (a.runnerEnabled) await api.stopRunner(a.id);
     const result = await api.archiveCampaign(a.id, c.id, !c.archived);
     if (result?.ok) {
       toast(c.archived ? 'Campanha restaurada, sem execução' : 'Campanha arquivada, sem excluir dados');
@@ -442,7 +444,7 @@ async function simpleCampaignDetail(a, cols, camps, stats) {
           !c.archived && c.active && h('button', { onclick: () => pauseSimpleCampaign(a, c, camps) }, '⏸ Pausar campanha'),
           !c.archived && !c.active && h('button', { onclick: () => setSimpleCampaignActive(a, c, true),
             title: 'Ativa na fila sem iniciar o navegador' }, 'Ativar na fila'),
-          h('button', { disabled: a.runnerEnabled, title: a.runnerEnabled ? 'Pare o executor antes de arquivar' : '',
+          h('button', { title: a.runnerEnabled ? 'Pode solicitar parar o executor antes de arquivar' : '',
             onclick: () => archiveSimpleCampaign(a, c) }, c.archived ? 'Restaurar' : 'Arquivar')))),
     h('nav', { class: 'simple-campaign-tabs', 'aria-label': 'Áreas desta campanha' },
       ...tabs.map(([key, name]) => h('button', {
@@ -493,7 +495,7 @@ async function campaignPage(a, cols, camps, stats) {
           !c.archived && !c.active && h('button', {
             title: 'Ativar na fila sem começar a executar',
             onclick: () => setSimpleCampaignActive(a, c, true) }, 'Ativar'),
-          h('button', { disabled: a.runnerEnabled, title: a.runnerEnabled ? 'Pare o executor antes de arquivar' : '',
+          h('button', { title: a.runnerEnabled ? 'Pode solicitar parar o executor antes de arquivar' : '',
             onclick: () => archiveSimpleCampaign(a, c) }, c.archived ? 'Restaurar' : 'Arquivar')));
     }),
     !summaries.length && h('div', { class: 'card muted' },
