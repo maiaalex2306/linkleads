@@ -14,11 +14,11 @@ if not exist "%~dp0BASELINE-LINKLEADS.ps1" (
   exit /b 1
 )
 if exist "D:\" (
-  set "LL_REPORT_DIR=D:\LinkLeads\Relatorios"
-  set "LL_BACKUP_ROOT=D:\LinkLeads\Backups"
+  set "LL_REPORT_DIR=D:\LinkLeads-Seguro\Relatorios"
+  set "LL_BACKUP_ROOT=D:\LinkLeads-Seguro\Backups"
 ) else (
-  set "LL_REPORT_DIR=%USERPROFILE%\Documents\LinkLeads\Relatorios"
-  set "LL_BACKUP_ROOT=%USERPROFILE%\Documents\LinkLeads\Backups"
+  set "LL_REPORT_DIR=%USERPROFILE%\Documents\LinkLeads-Seguro\Relatorios"
+  set "LL_BACKUP_ROOT=%USERPROFILE%\Documents\LinkLeads-Seguro\Backups"
 )
 powershell.exe -NoProfile -File "%~dp0BASELINE-LINKLEADS.ps1" -Mode Backup -ReportDirectory "%LL_REPORT_DIR%" -BackupRoot "%LL_BACKUP_ROOT%"
 if errorlevel 1 (
