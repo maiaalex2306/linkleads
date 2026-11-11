@@ -21,6 +21,8 @@ describe('CSV', () => {
     expect(publicIdFromUrl('https://www.linkedin.com/in/Maria-Silva-123/?trk=x')).toBe('maria-silva-123');
     expect(publicIdFromUrl('https://br.linkedin.com/in/jos%C3%A9-souza')).toBe('josé-souza');
     expect(publicIdFromUrl('https://example.com/maria')).toBeUndefined();
+    expect(publicIdFromUrl('https://fake-linkedin.com/in/felipe/')).toBeUndefined();
+    expect(publicIdFromUrl('https://evil.example/redirect/linkedin.com/in/felipe/')).toBeUndefined();
   });
 
   it('importa pessoas com sinônimos de cabeçalho e colunas extras', () => {
