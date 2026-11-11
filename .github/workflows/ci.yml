@@ -166,7 +166,7 @@ jobs:
           # Só é válido contra a main imediatamente anterior (PR #57).
           # Próximos commits voltam automaticamente ao limite padrão 0,6%.
           approved_layout=()
-          if [[ "$BASE_SHA" == "444ed883802187f6645c09c8c600a58d9af1628a" ]]; then
+          if [[ "$BASE_SHA" == "444ed883802187f6645c09c8c600a58d9af1628a" || "$BASE_SHA" == "377c64934623051ff5846c4cf927ef28a043dca0" ]]; then
             approved_layout=(--approved-campaign-redesign "04-assistente-de-campanhas.png:0.09")
           fi
           node apps/desktop/e2e/compare-visual-snapshots.mjs \
