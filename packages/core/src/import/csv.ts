@@ -40,7 +40,7 @@ export function publicIdFromUrl(url: string): string | undefined {
     const match = parsed.pathname.match(/^\/(?:in|pub)\/([^/?#]+)/i);
     if (!match || parsed.username || parsed.password || parsed.port) return undefined;
     const slug = decodeURIComponent(match[1]!).toLowerCase();
-    if (!slug || slug === '.' || slug === '..' || /[\\/\\s\u0000-\u001f]/.test(slug)) return undefined;
+    if (!slug || slug === '.' || slug === '..' || slug.includes('/') || slug.includes('\\') || /[\s?#]/.test(slug)) return undefined;
     return slug;
   } catch {
     return undefined;
@@ -136,7 +136,7 @@ export function importPeopleFromCsv(text: string, makeId: (publicId: string) => 
     if (!key && (snId || memberId) && hasName) key = memberId ? `m:${memberId}` : `sn:${snId}`;
     if (!key) {
       const reason = /linkedin\.com\/sales\//i.test(any) || snId
-        ? 'Só tem o link do Sales Navigator e nenhum nome para procurar o perfil'
+        ? 'Sales Navigator sem URL pública /in/; requer revisão da identidade'
         : /linkedin\.com\/company\//i.test(any)
           ? 'URL de página de empresa, não de perfil'
           : /linkedin\.com\/(?:posts|feed)\//i.test(any)
