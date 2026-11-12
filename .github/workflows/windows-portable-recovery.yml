@@ -1,4 +1,4 @@
-name: Windows - recuperacao portatil sem NSIS
+name: Windows - INSTALADOR OFICIAL D LINKLEADS
 on:
   push:
     branches: [main, fix/windows-portable-recovery-20261112, feature/phase3-identity-salesnav-20261112]
@@ -30,7 +30,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Typecheck falhou' }
           npm run build
           if ($LASTEXITCODE -ne 0) { throw 'Build falhou' }
-      - name: Gerar aplicativo Windows sem instalador
+      - name: Empacotar aplicativo para instalador fixo D LINKLEADS
         shell: pwsh
         env:
           LINKLEADS_OWNER_TEST_BUILD: '1'
