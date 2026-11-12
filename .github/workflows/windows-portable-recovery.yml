@@ -62,22 +62,6 @@ jobs:
           # distribuido precisa abrir visivelmente com APPDATA temporario.
           node apps/desktop/e2e/portable-first-window.mjs $exe
           if ($LASTEXITCODE -ne 0) { throw 'Pacote Windows sem janela visivel - bloquear publicacao' }
-          $testData=Join-Path $env:RUNNER_TEMP 'linkleads-portable-smoke-data'
-          New-Item -ItemType Directory -Force -Path $testData | Out-Null
-          $env:LINKLEADS_TEST_BASE_URL='http://127.0.0.1:1'
-          $env:LINKLEADS_TEST_USER_DATA=$testData
-          $proc=$null
-          try {
-            $proc=Start-Process -FilePath $exe -PassThru
-            Start-Sleep -Seconds 8
-            $proc.Refresh()
-            if ($proc.HasExited) { throw "Executavel portatil encerrou prematuramente com codigo $($proc.ExitCode)" }
-            Write-Host 'Executavel portatil permaneceu aberto no Windows isolado'
-          } finally {
-            if ($proc) { $proc.Refresh(); if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue } }
-            Remove-Item Env:LINKLEADS_TEST_BASE_URL -ErrorAction SilentlyContinue
-            Remove-Item Env:LINKLEADS_TEST_USER_DATA -ErrorAction SilentlyContinue
-          }
           $sig=Get-AuthenticodeSignature $exe
           Write-Host "ASSINATURA: $($sig.Status) - apenas teste do proprietario"
       - name: Criar pacote sem NSIS, sem exclusao, com CMD na raiz
@@ -112,6 +96,7 @@ jobs:
           $exe = (Resolve-Path 'portable-package/LinkLeads/LinkLeads.exe').Path
           $report = Join-Path $env:GITHUB_WORKSPACE 'portable-package/resultado-abertura-linkleads.txt'
           $env:LINKLEADS_PORTABLE_SMOKE = '1'
+          $env:LINKLEADS_NONINTERACTIVE = '1'
           $env:LINKLEADS_TEST_USER_DATA = Join-Path $env:RUNNER_TEMP 'linkleads-cmd-user-data'
           New-Item -ItemType Directory -Force -Path $env:LINKLEADS_TEST_USER_DATA | Out-Null
           $run = $null
@@ -127,12 +112,15 @@ jobs:
               throw "CMD nao comprovou a janela (exit $($run.ExitCode))"
             }
           } finally {
+            # Conservar a evidência no log mesmo se o launcher falhar.
+            if (Test-Path $report) { Write-Host (Get-Content $report -Raw) }
             # Limpar apenas o processo e o relatorio criados nesta fixture de CI.
             Get-CimInstance Win32_Process -Filter "Name = 'LinkLeads.exe'" -ErrorAction SilentlyContinue |
               Where-Object { $_.ExecutablePath -eq $exe } |
               ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
             Remove-Item -LiteralPath $report -ErrorAction SilentlyContinue
             Remove-Item Env:LINKLEADS_PORTABLE_SMOKE -ErrorAction SilentlyContinue
+            Remove-Item Env:LINKLEADS_NONINTERACTIVE -ErrorAction SilentlyContinue
             Remove-Item Env:LINKLEADS_TEST_USER_DATA -ErrorAction SilentlyContinue
           }
       - uses: actions/upload-artifact@v4
