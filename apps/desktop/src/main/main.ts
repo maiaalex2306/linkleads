@@ -2,7 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, safeStorage } from 'electron';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
-import { resolveTestUserData } from './test-user-data.js';
+import { isFullyQualifiedTestRoot, resolveTestUserData } from './test-user-data.js';
 import { fileURLToPath } from 'node:url';
 import {
   DEFAULT_LIMIT_RULES,
@@ -58,9 +58,18 @@ const isolatedTestData = resolveTestUserData(
   process.env.LINKLEADS_TEST_USER_DATA,
   process.env.XDG_CONFIG_HOME,
 );
-if (isolatedTestData) {
-  mkdirSync(isolatedTestData, { recursive: true });
-  app.setPath('userData', isolatedTestData);
+// Smoke do EXE distribuido: exercita o fluxo REAL de interface, sem fake site,
+// mas fornece userData isolado e obrigatório. APPDATA sozinho não isola
+ // app.getPath('userData') no Windows, por isso a substituição explícita.
+const portableSmoke = process.env.LINKLEADS_PORTABLE_SMOKE === '1';
+const smokeUserData = portableSmoke ? process.env.LINKLEADS_TEST_USER_DATA?.trim() : undefined;
+if (portableSmoke && (!smokeUserData || !isFullyQualifiedTestRoot(smokeUserData))) {
+  throw new Error('Smoke Windows sem LINKLEADS_TEST_USER_DATA absoluto: abortado antes de abrir dados reais');
+}
+const safeTestUserData = smokeUserData ?? isolatedTestData;
+if (safeTestUserData) {
+  mkdirSync(safeTestUserData, { recursive: true });
+  app.setPath('userData', safeTestUserData);
 } else if (process.env.LINKLEADS_PREVIEW_BUILD === '1') {
   // Instalador de avaliação: não compartilha SQLite, sessões, contas ou chaves
   // com a instalação operacional. O canal vem embutido no bundle.
@@ -847,11 +856,23 @@ function handleDeepLink(raw: string | undefined) {
 app.on('second-instance', (_e, argv, _cwd, extra) => {
   const newer = (extra as { build?: string } | undefined)?.build;
   if (newer && newer !== BUILD.id && BUILD.id !== 'dev') {
-    // abriram uma versão compilada depois desta: reinicia para carregar o código novo
-    void instances.stopAll().catch(() => undefined).finally(() => {
-      app.relaunch();
-      app.exit(0);
-    });
+    // Nunca fazer app.relaunch() aqui: ele reinicia a versão ANTIGA,
+    // não o executável novo. O operador deve fechar o processo anterior.
+    trace.record('lifecycle', 'different_build_blocked', {
+      runningBuild: BUILD.id, requestedBuild: newer,
+    }, {}, 'warn');
+    if (launcher && !launcher.isDestroyed()) {
+      if (launcher.isMinimized()) launcher.restore();
+      launcher.show();
+      launcher.focus();
+      void dialog.showMessageBox(launcher, {
+        type: 'warning',
+        title: 'LINKLEADS — outra versão em execução',
+        message: 'Feche a versão anterior para abrir o LINKLEADS atualizado.',
+        detail: 'A versão antiga não será reiniciada automaticamente. Feche o aplicativo e execute o arquivo ABRIR-LINKLEADS-PORTATIL.cmd da versão nova.',
+        buttons: ['Entendi'],
+      });
+    }
     return;
   }
   handleDeepLink(findDeepLinkArg(argv));
