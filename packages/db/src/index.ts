@@ -262,6 +262,21 @@ export class SqliteCampaignStore implements CampaignStore {
     return r ? rowToPerson(r) : undefined;
   }
 
+  findByMemberId(memberId: string): Person | undefined {
+    const r = this.db.prepare('SELECT * FROM people WHERE member_id = ?').get(memberId) as Row | undefined;
+    return r ? rowToPerson(r) : undefined;
+  }
+
+  /** Sem tabela nova nem migração destrutiva: índice lógico para os hashes de CSV
+   * existentes no campo custom_json. Se houver mais de um, não une arbitrariamente.
+   */
+  findBySnId(snId: string): Person | undefined {
+    const matches = this.db.prepare(
+      "SELECT * FROM people WHERE json_extract(custom_json, '$.sn_id') = ? LIMIT 2",
+    ).all(snId) as Row[];
+    return matches.length === 1 ? rowToPerson(matches[0]!) : undefined;
+  }
+
   listQueued(_campaignId: string, actionId: string, limit: number, now: Date = new Date()): Person[] {
     const rows = this.db
       .prepare(
@@ -403,8 +418,30 @@ export class LocalCrm extends SqliteCampaignStore {
     this.db.exec('BEGIN');
     try {
       for (const p of people) {
-        const existing = p.publicId ? this.findByPublicId(p.publicId) : undefined;
-        const merged: Person = existing ? { ...existing, ...stripEmpty(p), id: existing.id, custom: { ...existing.custom, ...p.custom } } : p;
+        const identities = [
+          p.publicId ? this.findByPublicId(p.publicId) : undefined,
+          p.memberId ? this.findByMemberId(p.memberId) : undefined,
+          p.custom?.sn_id ? this.findBySnId(p.custom.sn_id) : undefined,
+        ].filter((x): x is Person => Boolean(x));
+        const ids = [...new Set(identities.map((x) => x.id))];
+        if (ids.length > 1) throw new Error(
+          'Conflito de identidade: public_id, member_id e sn_hash_id apontam para registros diferentes. Não unir automaticamente.');
+        const existing = identities[0];
+        const merged: Person = existing ? {
+          ...existing, ...stripEmpty(p), id: existing.id,
+          publicId: existing.publicId ?? p.publicId,
+          custom: {
+            ...existing.custom, ...p.custom,
+            // Reimportar um CSV antigo nunca volta uma identidade já resolvida para PENDING.
+            ...(existing.publicId ? {
+              linkleads_resolution_status: 'RESOLVED',
+              linkleads_identity_review_required: 'false',
+              linkleads_identity_source: existing.custom?.linkleads_identity_source ?? 'verified_profile_url',
+              linkleads_profile_url: existing.custom?.linkleads_profile_url ??
+                'https://www.linkedin.com/in/' + encodeURIComponent(existing.publicId) + '/',
+            } : {}),
+          },
+        } : p;
         this.upsertPerson(merged);
         if (p.email) this.addContact(merged.id, 'email', p.email, 'import');
         added += Number(ins.run(collectionId, merged.id).changes);
