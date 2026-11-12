@@ -2,7 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, safeStorage } from 'electron';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
-import { resolveTestUserData } from './test-user-data.js';
+import { isFullyQualifiedTestRoot, resolveTestUserData } from './test-user-data.js';
 import { fileURLToPath } from 'node:url';
 import {
   DEFAULT_LIMIT_RULES,
@@ -58,9 +58,18 @@ const isolatedTestData = resolveTestUserData(
   process.env.LINKLEADS_TEST_USER_DATA,
   process.env.XDG_CONFIG_HOME,
 );
-if (isolatedTestData) {
-  mkdirSync(isolatedTestData, { recursive: true });
-  app.setPath('userData', isolatedTestData);
+// Smoke do EXE distribuido: exercita o fluxo REAL de interface, sem fake site,
+// mas fornece userData isolado e obrigatório. APPDATA sozinho não isola
+ // app.getPath('userData') no Windows, por isso a substituição explícita.
+const portableSmoke = process.env.LINKLEADS_PORTABLE_SMOKE === '1';
+const smokeUserData = portableSmoke ? process.env.LINKLEADS_TEST_USER_DATA?.trim() : undefined;
+if (portableSmoke && (!smokeUserData || !isFullyQualifiedTestRoot(smokeUserData))) {
+  throw new Error('Smoke Windows sem LINKLEADS_TEST_USER_DATA absoluto: abortado antes de abrir dados reais');
+}
+const safeTestUserData = smokeUserData ?? isolatedTestData;
+if (safeTestUserData) {
+  mkdirSync(safeTestUserData, { recursive: true });
+  app.setPath('userData', safeTestUserData);
 } else if (process.env.LINKLEADS_PREVIEW_BUILD === '1') {
   // Instalador de avaliação: não compartilha SQLite, sessões, contas ou chaves
   // com a instalação operacional. O canal vem embutido no bundle.
