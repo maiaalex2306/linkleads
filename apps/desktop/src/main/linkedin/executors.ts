@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { ActionExecutor, BudgetKey, ExecutionContext, ExecutionResult, Person, PostSnapshot } from '@linkleads/core';
-import { detectJobChange, getActionDefinition, parseRelativeAgeDays, publicIdFromUrl } from '@linkleads/core';
+import { detectJobChange, getActionDefinition, memberIdFromSalesHash, parseRelativeAgeDays, publicIdFromUrl } from '@linkleads/core';
 import type { CommentSettings, LlmClient, PostInterpreter } from '@linkleads/ai';
 import type { IntegrationCrm } from '@linkleads/db';
 import type { EnrichmentProvider } from '@linkleads/integrations';
@@ -651,6 +651,10 @@ export async function gotoProfile(d: ExecutorDeps, p: Person, suffix = ''): Prom
   let slug = p.publicId?.trim().toLowerCase();
   if (slug && (slug.includes('/') || slug.includes('\\') || /[\s?#]/.test(slug)))
     return { needsReview: 'Identificador público inválido. Confira a URL do perfil.' };
+  const derivedMemberId = memberIdFromSalesHash(p.custom?.sn_id ?? p.custom?.linkleads_sn_hash_core);
+  if (p.custom?.linkleads_member_id_conflict ||
+    (derivedMemberId && p.memberId && derivedMemberId !== p.memberId))
+    return { needsReview: 'Conflito entre member_id e hash Sales Navigator no mesmo lead. Não tentar navegação até revisar os identificadores.' };
   const original = p.custom?.linkleads_profile_url;
   if (slug && original && publicIdFromUrl(original) !== slug)
     return { needsReview: 'URL original e identificador armazenado divergem. Revisão de identidade obrigatória.' };
