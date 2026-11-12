@@ -1,9 +1,9 @@
-name: Windows - LinkLeads producao para teste do proprietario
+name: LEGADO - NSIS Windows (nao distribuir)
 
+# Fluxo antigo mantido apenas para diagnostico historico.
+# O instalador OFICIAL e o de D:\LINKLEADS gerado em windows-portable-recovery.yml.
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
 
 permissions:
   contents: read
