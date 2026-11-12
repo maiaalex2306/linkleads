@@ -55,7 +55,7 @@ jobs:
           - name: Equipe e diagnóstico
             suite: "team diagnostics"
           - name: Prospecção e Sales Navigator
-            suite: "prospecting salesnav comment-duplicate profile-visit-scroll"
+            suite: "prospecting salesnav salesnav-hash-resolution comment-duplicate profile-visit-scroll"
           - name: Curtir e comentar — ação única
             suite: "post-recognition unified-engagement salesnav-unified-engagement engagement-scroll"
           - name: Login e limites
