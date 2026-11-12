@@ -50,6 +50,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Persistencia isolada reprovada' }
           node apps/desktop/e2e/unified-engagement.mjs
           if ($LASTEXITCODE -ne 0) { throw 'E2E engagement reprovado' }
+          node apps/desktop/e2e/salesnav-unified-engagement.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'E2E Sales Navigator, perfil, curtir e comentar reprovado' }
           $exe=(Resolve-Path 'apps/desktop/release/win-unpacked/LinkLeads.exe').Path
           if ((Get-Item $exe).Length -lt 1000000) { throw 'Exe aparentemente incompleto' }
           $testData=Join-Path $env:RUNNER_TEMP 'linkleads-portable-smoke-data'
@@ -99,3 +101,37 @@ jobs:
           path: portable-package/
           if-no-files-found: error
           retention-days: 30
+
+  publish-owner-candidate:
+    name: Publicar pacote Windows acessivel em Releases (main)
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: portable-windows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: LinkLeads-PORTATIL-Sem-NSIS-${{ github.sha }}
+          path: portable-package
+      - name: Gerar ZIP final e publicar release de avaliacao
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f portable-package/LinkLeads/LinkLeads.exe
+          test -f portable-package/ABRIR-LINKLEADS-PORTATIL.cmd
+          short="${GITHUB_SHA:0:8}"
+          tag="v0.5.11-perfis-${short}"
+          zipfile="LINKLEADS-PERFIS-CURTIDAS-COMENTARIOS-${short}.zip"
+          (
+            cd portable-package
+            zip -q -r "../${zipfile}" .
+          )
+          sha256sum "${zipfile}" > "${zipfile}.sha256"
+          gh release create "${tag}" "${zipfile}" "${zipfile}.sha256" \
+            --target "${GITHUB_SHA}" --prerelease \
+            --title "LINKLEADS 0.5.11 - Perfis, Curtidas e Comentarios (avaliacao)" \
+            --notes "Pacote portatil Windows sem NSIS e sem rotina de backup obrigatoria. Abra o CMD na raiz depois de extrair o ZIP. Compilacao, testes simulados e inicializacao Windows aprovados no CI; funcionamento na conta LinkedIn real precisa de homologacao supervisionada. Nenhuma exclusao de dados da versao anterior."
