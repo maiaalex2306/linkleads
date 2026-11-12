@@ -142,6 +142,7 @@ export function importPeopleFromCsv(text: string, makeId: (publicId: string) => 
     if (!profileFromUrl && /linkedin\.com\/(?:pub)\//i.test(any)) custom.linkleads_identity_source = 'legacy_profile_review';
     let key = publicId;
     if (!key && (snId || memberId)) key = memberId ? `m:${memberId}` : `sn:${snId}`;
+    if (!key && exportedId) key = `candidate:${exportedId}`;
     if (!key) {
       const reason = /linkedin\.com\/sales\//i.test(any) || snId
         ? 'Sales Navigator sem URL pública /in/; requer revisão da identidade'
