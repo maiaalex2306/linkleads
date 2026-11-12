@@ -1,12 +1,13 @@
 import { createHash } from 'node:crypto';
 import type { ActionExecutor, BudgetKey, ExecutionContext, ExecutionResult, Person, PostSnapshot } from '@linkleads/core';
-import { detectJobChange, getActionDefinition, parseRelativeAgeDays, publicIdFromUrl } from '@linkleads/core';
+import { detectJobChange, getActionDefinition, memberIdFromSalesHash, parseRelativeAgeDays, publicIdFromUrl } from '@linkleads/core';
 import type { CommentSettings, LlmClient, PostInterpreter } from '@linkleads/ai';
 import type { IntegrationCrm } from '@linkleads/db';
 import type { EnrichmentProvider } from '@linkleads/integrations';
 import { commentEditorPoint, commentSubmitPoint, matchingCommentCount, editorText, extractPosts, extractProfile, likeState, profileReady, type PostExtract } from './dom-scripts.js';
 import { BlockedError, type PageDriver } from './page-driver.js';
 import { isCanonicalPostUrn } from './post-identity.js';
+import { parseSalesSource, profileResolutionRoutes, samePersonName, type ProfileRoute } from './profile-resolver.js';
 
 /** LINKLEADS_TEST_BASE_URL aponta para o site falso dos testes e2e; nunca usar em produção. */
 export const BASE = process.env.LINKLEADS_TEST_BASE_URL ?? 'https://www.linkedin.com';
@@ -570,6 +571,12 @@ export function navigationKeys(url: string, prevUrl: string, how: 'url' | 'click
     if (same) return []; // mesma pessoa (ex.: perfil → atividade → contato): não é nova página de perfil
     return how === 'url' ? ['activity', 'profile_load', 'profile_url'] : ['activity', 'profile_load'];
   }
+  // A tentativa de resolver um perfil por Sales Navigator / member_id também
+  // consome navegação: não ultrapassar os limites ao alternar estratégias.
+  if (/^\/sales\/(?:people|lead|profile)\//.test(path) || /^\/profile\/view\/?$/.test(path)) {
+    if (url === prevUrl) return [];
+    return how === 'url' ? ['activity', 'profile_load', 'profile_url'] : ['activity', 'profile_load'];
+  }
   const comp = path.match(/^\/company\/([^/]+)/);
   if (comp) return prev.startsWith(`/company/${comp[1]}`) ? [] : how === 'url' ? ['activity', 'company_url'] : ['activity'];
   if (path.startsWith('/search/results')) return ['search_pages'];
@@ -600,23 +607,17 @@ export function noUrlSlot(retryAt: Date | undefined): ExecutionResult {
   return { ok: false, reason: 'RETRY_LATER', retryAfterMs: ms, message: 'Limite de perfis abertos pelo link atingido; abre de novo quando a vaga liberar' };
 }
 
-/** Extrai a URL Sales Navigator original do CSV, sem inventar um link /in/. */
+/** Extrai URL Sales Navigator do CSV, sem inventar /in/ a partir do hash. */
 export function sourceSalesNavigatorUrl(p: Person): string | undefined {
-  const raw = p.custom?.linkleads_source_url?.trim();
-  if (!raw) return undefined;
-  try {
-    const url = new URL(raw);
-    if (url.protocol !== 'https:' || url.username || url.password || url.port ||
-      !(url.hostname === 'linkedin.com' || url.hostname.endsWith('.linkedin.com'))) return undefined;
-    const match = url.pathname.match(/^\/sales\/(?:people|lead|profile)\/([A-Za-z0-9_-]+)(?:,[A-Za-z0-9_-]+)*\/?$/);
-    if (!match) return undefined;
-    if (p.custom?.sn_id && p.custom.sn_id !== match[1]) return undefined;
-    return url.origin + url.pathname + url.search;
-  } catch { return undefined; }
+  const sales = parseSalesSource(p.custom?.linkleads_source_url);
+  if (!sales) return undefined;
+  const raw = p.custom?.sn_id ?? p.custom?.linkleads_sn_hash_core;
+  if (raw && raw.split(',')[0] !== sales.core) return undefined;
+  return sales.url;
 }
 
-/** Apenas links explícitos para o próprio perfil, nunca resultados de buscas ou homônimos.
- * Função serializável, executada somente para leitura dentro da página Sales Navigator.
+/** Links de perfil visíveis associados à própria página, não resultados de pesquisa.
+ * Função serializável executada isoladamente no contexto DOM da plataforma.
  */
 function salesPagePublicProfileLinks(): string[] {
   const root = document.querySelector('main') ?? document;
@@ -624,76 +625,129 @@ function salesPagePublicProfileLinks(): string[] {
   return Array.from(root.querySelectorAll('a[href*="/in/"]'))
     .filter((el) => {
       const a = el as HTMLAnchorElement;
-      const words = [a.textContent, a.getAttribute('aria-label'), a.getAttribute('title')]
+      const text = [a.textContent, a.getAttribute('aria-label'), a.getAttribute('title')]
         .filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
       const bounds = a.getBoundingClientRect();
-      return bounds.width > 0 && bounds.height > 0 && label.test(words);
-    })
-    .map((el) => (el as HTMLAnchorElement).href)
-    .filter(Boolean);
+      return bounds.width > 0 && bounds.height > 0 && label.test(text);
+    }).map((el) => (el as HTMLAnchorElement).href);
 }
 
-/** Primeiro o link exato fornecido no CSV; só aceita /in/ observado na página.
- * Preserva a identidade e a campanha existentes. Sem buscas por nome nem guess de hashes.
+const routeTestUrl = (url: string): string => {
+  if (!process.env.LINKLEADS_TEST_BASE_URL) return url;
+  const input = new URL(url);
+  return BASE + input.pathname + input.search;
+};
+
+/**
+ * Resolução de perfil por evidência:
+ * 1. URL pública já verificada: navegar e conferir slug.
+ * 2. URL pública candidata exportada, link SN original, hash isolado,
+ *    rota legada por member_id — em ordem e SEM endpoints privados.
+ * 3. Aceitar somente perfil /in/ observado e compatível com os dados do lead.
+ * 4. Persistir no ID ORIGINAL, preservando campanha e fila.
+ * A ausência de resposta na conta Basic não autoriza escolher homônimos.
  */
 export async function gotoProfile(d: ExecutorDeps, p: Person, suffix = ''): Promise<OpenResult> {
   let slug = p.publicId?.trim().toLowerCase();
-  const source = !slug ? sourceSalesNavigatorUrl(p) : undefined;
-  if (!slug && !source)
-    return { needsReview: 'Lead sem URL /in/ e sem endereço Sales Navigator válido no CSV. Revise o link original antes de prosseguir.' };
   if (slug && (slug.includes('/') || slug.includes('\\') || /[\s?#]/.test(slug)))
-    return { needsReview: 'Identificador público inválido. Confirme a URL original do perfil.' };
+    return { needsReview: 'Identificador público inválido. Confira a URL do perfil.' };
+  const derivedMemberId = memberIdFromSalesHash(p.custom?.sn_id ?? p.custom?.linkleads_sn_hash_core);
+  if (p.custom?.linkleads_member_id_conflict ||
+    (derivedMemberId && p.memberId && derivedMemberId !== p.memberId))
+    return { needsReview: 'Conflito entre member_id e hash Sales Navigator no mesmo lead. Não tentar navegação até revisar os identificadores.' };
   const original = p.custom?.linkleads_profile_url;
   if (slug && original && publicIdFromUrl(original) !== slug)
     return { needsReview: 'URL original e identificador armazenado divergem. Revisão de identidade obrigatória.' };
 
-  const sameLinkedInProfile = (url: string) => profileSlug(url);
-  const alreadyAt = slug && sameLinkedInProfile(d.driver.wc.getURL()) === slug;
-  if (!alreadyAt && d.limits && d.limits.left('profile_url') <= 0)
+  const routes = slug ? [] : profileResolutionRoutes(p);
+  if (!slug && routes.length === 0)
+    return { needsReview: 'Sem rota de perfil: informe URL /in/, link Sales Navigator, hash ou member_id numérico.' };
+  if (d.limits && d.limits.left('profile_url') <= 0 &&
+    (!slug || profileSlug(d.driver.wc.getURL()) !== slug))
     return { retryAt: d.limits.freeAt('profile_url') };
 
-  if (!slug && source) {
-    // E2E usa a origem falsa; produção usa a URL exata do CSV.
-    const input = new URL(source);
-    const salesUrl = process.env.LINKLEADS_TEST_BASE_URL
-      ? BASE + input.pathname + input.search : source;
-    await d.driver.goto(salesUrl);
-    await d.driver.assertNotBlocked();
-    slug = sameLinkedInProfile(d.driver.wc.getURL());
-    if (!slug) {
-      const links = await d.driver.read(salesPagePublicProfileLinks).catch(() => [] as string[]);
-      const ids = [...new Set(links.map(sameLinkedInProfile).filter((id): id is string => !!id))];
-      if (ids.length !== 1)
-        return { needsReview: ids.length > 1
-          ? 'Sales Navigator mostrou múltiplos perfis /in/: revisão necessária, sem escolher homônimos.'
-          : 'URL Sales Navigator do CSV acessada, mas não revelou link público nesta sessão. Verifique o acesso ao perfil.' };
-      slug = ids[0]!;
-      await d.driver.goto(BASE + '/in/' + encodeURIComponent(slug) + '/');
-      await d.driver.assertNotBlocked();
-      if (sameLinkedInProfile(d.driver.wc.getURL()) !== slug)
-        return { needsReview: 'O link público exibido no Sales Navigator redirecionou para outra identidade.' };
+  if (!slug) {
+    const attempts: string[] = [];
+    let verifiedRoute: ProfileRoute | undefined;
+    for (const route of routes) {
+      if (d.limits && d.limits.left('profile_url') <= 0)
+        return { retryAt: d.limits.freeAt('profile_url') };
+      try {
+        await d.driver.goto(routeTestUrl(route.url));
+        await d.driver.assertNotBlocked();
+      } catch (e) {
+        if (e instanceof BlockedError) throw e; // checkpoint/login: não continuar tentando
+        attempts.push(route.method + ': navegação indisponível');
+        continue;
+      }
+      let observed = profileSlug(d.driver.wc.getURL());
+      if (!observed && (route.method === 'sales_source')) {
+        const links = await d.driver.read(salesPagePublicProfileLinks).catch(() => [] as string[]);
+        const slugs = [...new Set(links.map(profileSlug).filter((s): s is string => !!s))];
+        if (slugs.length > 1) { attempts.push(route.method + ': múltiplos perfis possíveis'); continue; }
+        if (slugs.length === 1) {
+          observed = slugs[0]!;
+          try {
+            await d.driver.goto(BASE + '/in/' + encodeURIComponent(observed) + '/');
+            await d.driver.assertNotBlocked();
+          } catch (e) {
+            if (e instanceof BlockedError) throw e;
+            attempts.push(route.method + ': link público inacessível');
+            continue;
+          }
+        }
+      }
+      if (!observed || profileSlug(d.driver.wc.getURL()) !== observed) {
+        attempts.push(route.method + ': sem URL pública verificável');
+        continue;
+      }
+      if (route.method === 'exported_public_candidate' &&
+        !route.url.includes('/in/' + encodeURIComponent(observed) + '/')) {
+        attempts.push(route.method + ': destino divergente do arquivo');
+        continue;
+      }
+      // Mesmo quando a plataforma redireciona, conferir o nome exibido:
+      // previne associação inadvertida a um perfil de terceiro.
+      const profile = await d.driver.read(extractProfile,
+        d.driver.sel as unknown as Record<string, readonly string[]>)
+        .catch(() => ({ name: null, company: null }));
+      const expectedName = !!p.firstName && !!p.lastName;
+      if (expectedName && !samePersonName(p, profile.name)) {
+        attempts.push(route.method + ': nome do perfil não corresponde ao lead');
+        continue;
+      }
+      if (route.requiresNameConfirmation && !expectedName) {
+        attempts.push(route.method + ': confirmação de nome necessária');
+        continue;
+      }
+      const duplicate = d.crm.findByPublicId(observed);
+      if (duplicate && duplicate.id !== p.id) {
+        return { needsReview: 'A URL resolvida já pertence a outro registro. Reconcilie as identidades antes de continuar.' };
+      }
+      slug = observed;
+      verifiedRoute = route;
+      break;
     }
-    const associated = d.crm.findByPublicId(slug);
-    if (associated && associated.id !== p.id)
-      return { needsReview: 'Esta URL /in/ já pertence a outro lead no CRM. Revisão antes de unir identidades.' };
-  }
-
-  if (!slug) return { needsReview: 'URL pública não identificada para este lead.' };
-  const finalUrl = BASE + '/in/' + encodeURIComponent(slug) + '/' + suffix;
-  if (!source || suffix || sameLinkedInProfile(d.driver.wc.getURL()) !== slug) {
-    await d.driver.goto(finalUrl);
-    await d.driver.assertNotBlocked();
-  }
-  if (sameLinkedInProfile(d.driver.wc.getURL()) !== slug)
-    return { needsReview: 'Redirecionamento para perfil ou domínio diferente do cadastro. Nenhum homônimo será selecionado.' };
-  if (source) {
-    // Gravar somente APÓS conferir o destino final e evitar corromper dados da fila.
+    if (!slug || !verifiedRoute)
+      return { needsReview: 'Perfil não resolvido. Tentativas: ' + attempts.join('; ').slice(0, 800) +
+        '. Conta Basic pode não disponibilizar rotas do Sales Navigator; não selecionar homônimos.' };
+    // Salvar no MESMO registro antes das atividades. A confirmação do destino
+    // já aconteceu; falha posterior em atividades não desfaz a identidade.
     p.publicId = slug;
     p.custom = { ...(p.custom ?? {}),
       linkleads_profile_url: 'https://www.linkedin.com/in/' + encodeURIComponent(slug) + '/',
-      linkleads_identity_source: 'sales_navigator_resolved',
+      linkleads_identity_source: verifiedRoute.method === 'sales_source' ? 'sales_navigator_resolved'
+        : verifiedRoute.method === 'member_legacy' ? 'member_id_resolved' : 'identifier_resolved',
+      linkleads_identity_method: verifiedRoute.method,
+      linkleads_resolution_status: 'RESOLVED',
       linkleads_identity_review_required: 'false' };
     d.crm.upsertPerson(p);
   }
+
+  const finalUrl = BASE + '/in/' + encodeURIComponent(slug) + '/' + suffix;
+  await d.driver.goto(finalUrl);
+  await d.driver.assertNotBlocked();
+  if (profileSlug(d.driver.wc.getURL()) !== slug)
+    return { needsReview: 'Redirecionamento para perfil ou domínio diferente da identidade resolvida.' };
   return 'ok';
 }

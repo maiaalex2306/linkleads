@@ -9,15 +9,15 @@ const lead: Person = {
   lastName: 'Santos',
 };
 
-function mockBrowser(redirect?: string, initial = 'https://www.linkedin.com/feed/') {
+function mockBrowser(redirect?: string | ((url: string) => string), initial = 'https://www.linkedin.com/feed/') {
   let current = initial;
-  const goto = vi.fn(async (url: string) => { current = redirect ?? url; });
+  const goto = vi.fn(async (url: string) => { current = typeof redirect === 'function' ? redirect(url) : redirect ?? url; });
   const exists = vi.fn(() => { throw new Error('Não deve pesquisar pelo nome'); });
   const deps = {
     driver: {
       wc: { getURL: () => current },
       goto,
-      read: vi.fn(async () => []),
+      read: vi.fn(async (fn: { name?: string }) => fn.name === 'salesPagePublicProfileLinks' ? [] : ({ name: 'Carlos Pereira', company: 'Toyota' })),
       assertNotBlocked: vi.fn(async () => undefined),
       exists,
     },
@@ -51,13 +51,18 @@ describe('navegação por identidade de perfil — etapa 2', () => {
     expect(exists).not.toHaveBeenCalled();
   });
 
-  it('não busca por nome, empresa ou membro quando só há Sales Navigator', async () => {
-    const { deps, goto, exists } = mockBrowser();
-    const person: Person = { id: 'sn:ACwAAA', firstName: 'Carlos', lastName: 'Pereira',
+  it('usa rota legada documentada por member_id, sem inventar slug', async () => {
+    const { deps, goto, exists } = mockBrowser((url) =>
+      url.includes('/profile/view?id=12345') ? 'https://www.linkedin.com/in/carlos-pereira/' : url);
+    const person: Person = { id: 'm:12345', firstName: 'Carlos', lastName: 'Pereira',
       memberId: '12345', company: 'Toyota', custom: { sn_id: 'ACwAAA' } };
+    const upsertPerson = vi.fn();
+    deps.crm = { upsertPerson, findByPublicId: vi.fn(() => undefined) } as unknown as ExecutorDeps['crm'];
     const result = await gotoProfile(deps, person);
-    expect(result).toHaveProperty('needsReview');
-    expect(goto).not.toHaveBeenCalled();
+    expect(result).toBe('ok');
+    expect(goto).toHaveBeenCalledWith('https://www.linkedin.com/profile/view?id=12345');
+    expect(person.publicId).toBe('carlos-pereira');
+    expect(person.custom?.linkleads_identity_method).toBe('member_legacy');
     expect(exists).not.toHaveBeenCalled();
   });
 

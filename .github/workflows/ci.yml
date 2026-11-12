@@ -3,7 +3,7 @@ name: CI
 # Descarte pipelines substituídos por novos commits do mesmo PR.
 # Evita consumo de runners e minutos em revisões obsoletas.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ github.sha }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 on:
@@ -55,7 +55,7 @@ jobs:
           - name: Equipe e diagnóstico
             suite: "team diagnostics"
           - name: Prospecção e Sales Navigator
-            suite: "prospecting salesnav comment-duplicate profile-visit-scroll"
+            suite: "prospecting salesnav salesnav-hash-resolution comment-duplicate profile-visit-scroll"
           - name: Curtir e comentar — ação única
             suite: "post-recognition unified-engagement salesnav-unified-engagement engagement-scroll"
           - name: Login e limites

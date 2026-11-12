@@ -1,7 +1,7 @@
 name: Windows - recuperacao portatil sem NSIS
 on:
   push:
-    branches: [main, fix/windows-portable-recovery-20261112]
+    branches: [main, fix/windows-portable-recovery-20261112, feature/phase3-identity-salesnav-20261112]
   workflow_dispatch:
 
 permissions:
@@ -52,6 +52,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'E2E engagement reprovado' }
           node apps/desktop/e2e/salesnav-unified-engagement.mjs
           if ($LASTEXITCODE -ne 0) { throw 'E2E Sales Navigator, perfil, curtir e comentar reprovado' }
+          node apps/desktop/e2e/salesnav-hash-resolution.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'E2E SN hash sem member_id reprovado no Windows' }
           $exe=(Resolve-Path 'apps/desktop/release/win-unpacked/LinkLeads.exe').Path
           if ((Get-Item $exe).Length -lt 1000000) { throw 'Exe aparentemente incompleto' }
           $testData=Join-Path $env:RUNNER_TEMP 'linkleads-portable-smoke-data'

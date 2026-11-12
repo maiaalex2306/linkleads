@@ -86,9 +86,8 @@ describe('CSV robusto (planilhas reais)', () => {
       'Duda;Delta;"Oi";;nada',
     ].join('\n');
     const r = importPeopleFromCsv(csv);
-    expect(r.people.map((p) => [p.publicId, p.firstName, p.company])).toEqual([['ana-silva', 'Ana', 'ACME']]);
+    expect(r.people.map((p) => [p.publicId, p.firstName, p.company])).toEqual([['ana-silva', 'Ana', 'ACME'], [undefined, 'Bia', 'Beta']]);
     expect(r.skipped.map((s) => s.reason)).toEqual([
-      'Sales Navigator sem URL pública /in/; requer revisão da identidade',
       'URL de página de empresa, não de perfil',
       'Sem URL de perfil',
     ]);
@@ -105,8 +104,9 @@ describe('CSV robusto (planilhas reais)', () => {
     expect(r.people.map((p) => [p.id, p.publicId, p.memberId, p.firstName, p.lastName, p.company, p.custom?.sn_id, p.custom?.['MSG-01']])).toEqual([
       ['m:33574315', undefined, '33574315', 'Priscila', 'Rocha', 'Volkswagen Caminhões e Ônibus', 'ACwAAAIATasBA_OC0NMUDatWeEBCssGNHCpTT6U', 'Olá Priscila!'],
       ['helena-m-baptista', 'helena-m-baptista', '99', 'Helena', 'Baptista', 'Bosch', undefined, 'Oi'],
+      ['sn:ACwAAXYZ', undefined, undefined, undefined, undefined, undefined, 'ACwAAXYZ', undefined],
     ]);
-    expect(r.skipped.map((x) => x.reason)).toEqual(['Sales Navigator sem URL pública /in/; requer revisão da identidade']);
+    expect(r.skipped).toEqual([]);
   });
 
   it('mensagens prontas da planilha: {{custom.MSG-01}} e {{custom.MSG-CONEXÃO}} (com ou sem acento)', () => {
@@ -186,5 +186,28 @@ describe('regressão: URL Sales Navigator em coluna livre', () => {
       .toBe('https://www.linkedin.com/sales/people/ACwAAAcar,9rcn,NAME_SEARCH/');
     expect(person.custom?.sn_id).toBe('ACwAAAcar');
     expect(result.skipped).toHaveLength(0);
+  });
+});
+
+describe('CSV de identidade: hash do Sales Navigator independente da URL', () => {
+  it('aceita sn_hash_id sem URL pública nem nome (não confunde importar com resolver)', () => {
+    const r = importPeopleFromCsv(
+      'sn_hash_id;member_id;empresa\nACwAAAIATasBA_OC0NMUDatWeEBCssGNHCpTT6U,9rcn,NAME_SEARCH;33574315;Volkswagen');
+    expect(r.people).toHaveLength(1);
+    expect(r.people[0]?.id).toBe('m:33574315');
+    expect(r.people[0]?.custom).toMatchObject({
+      sn_id: 'ACwAAAIATasBA_OC0NMUDatWeEBCssGNHCpTT6U',
+      linkleads_sn_hash_raw: 'ACwAAAIATasBA_OC0NMUDatWeEBCssGNHCpTT6U,9rcn,NAME_SEARCH',
+      linkleads_sn_hash_core: 'ACwAAAIATasBA_OC0NMUDatWeEBCssGNHCpTT6U',
+      linkleads_open_strategy: 'sn_hash',
+      linkleads_resolution_status: 'PENDING',
+    });
+    expect(r.people[0]?.publicId).toBeUndefined();
+  });
+  it('não perde registros com somente member_id numérico', () => {
+    const r = importPeopleFromCsv('member_id;company\n33574315;Volkswagen');
+    expect(r.people).toHaveLength(1);
+    expect(r.people[0]?.memberId).toBe('33574315');
+    expect(r.people[0]?.custom?.linkleads_open_strategy).toBe('member_legacy');
   });
 });
