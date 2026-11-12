@@ -7,7 +7,7 @@ import type { EnrichmentProvider } from '@linkleads/integrations';
 import { commentEditorPoint, commentSubmitPoint, matchingCommentCount, editorText, extractPosts, extractProfile, likeState, profileReady, type PostExtract } from './dom-scripts.js';
 import { BlockedError, type PageDriver } from './page-driver.js';
 import { isCanonicalPostUrn } from './post-identity.js';
-import { parseSalesSource, profileResolutionRoutes, samePersonName, type ProfileRoute } from './profile-resolver.js';
+import { parseSalesSource, profileResolutionRoutes, samePersonCompany, samePersonName, type ProfileRoute } from './profile-resolver.js';
 
 /** LINKLEADS_TEST_BASE_URL aponta para o site falso dos testes e2e; nunca usar em produção. */
 export const BASE = process.env.LINKLEADS_TEST_BASE_URL ?? 'https://www.linkedin.com';
@@ -718,6 +718,14 @@ export async function gotoProfile(d: ExecutorDeps, p: Person, suffix = ''): Prom
       }
       if (route.requiresNameConfirmation && !expectedName) {
         attempts.push(route.method + ': confirmação de nome necessária');
+        continue;
+      }
+      // Um public_id isolado no CSV não foi comprovado pela fonte. Nome coincidente
+      // pode ser homônimo; exigir também empresa visível e compatível nessa rota.
+      // As rotas vinculadas a member_id/hash mantêm checagem de nome sem depender
+      // de empregador atual, que pode ter mudado desde a coleta.
+      if (route.requiresNameConfirmation && !samePersonCompany(p, profile.company)) {
+        attempts.push(route.method + ': empresa do candidato ausente ou divergente');
         continue;
       }
       const duplicate = d.crm.findByPublicId(observed);
