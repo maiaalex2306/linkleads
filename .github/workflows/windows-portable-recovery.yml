@@ -1,4 +1,4 @@
-name: Windows - recuperacao portatil sem NSIS
+name: Windows - INSTALADOR OFICIAL D LINKLEADS
 on:
   push:
     branches: [main, fix/windows-portable-recovery-20261112, feature/phase3-identity-salesnav-20261112]
@@ -30,7 +30,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Typecheck falhou' }
           npm run build
           if ($LASTEXITCODE -ne 0) { throw 'Build falhou' }
-      - name: Gerar aplicativo Windows sem instalador
+      - name: Empacotar aplicativo para instalador fixo D LINKLEADS
         shell: pwsh
         env:
           LINKLEADS_OWNER_TEST_BUILD: '1'
@@ -64,68 +64,99 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Pacote Windows sem janela visivel - bloquear publicacao' }
           $sig=Get-AuthenticodeSignature $exe
           Write-Host "ASSINATURA: $($sig.Status) - apenas teste do proprietario"
-      - name: Criar pacote sem NSIS, sem exclusao, com CMD na raiz
+      - name: Montar instalador unico e fixo D:\LINKLEADS
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
           New-Item -ItemType Directory -Path 'portable-package/LinkLeads' -Force | Out-Null
           Copy-Item -Path 'apps/desktop/release/win-unpacked/*' -Destination 'portable-package/LinkLeads' -Recurse -Force
-          Copy-Item -Path 'scripts/ABRIR-LINKLEADS-PORTATIL.cmd' -Destination 'portable-package/ABRIR-LINKLEADS-PORTATIL.cmd'
+          Copy-Item -LiteralPath 'scripts/INSTALAR-LINKLEADS.cmd' -Destination 'portable-package/INSTALAR-LINKLEADS.cmd'
+          Copy-Item -LiteralPath 'scripts/ABRIR-LINKLEADS.cmd' -Destination 'portable-package/ABRIR-LINKLEADS.cmd'
           $exe='portable-package/LinkLeads/LinkLeads.exe'
-          if (-not (Test-Path $exe)) { throw 'Exe nao encontrado no pacote' }
+          if (-not (Test-Path $exe) -or -not (Test-Path 'portable-package/LinkLeads/resources/app.asar')) { throw 'Pacote Electron incompleto' }
           $hash=(Get-FileHash $exe -Algorithm SHA256).Hash
           $files=Get-ChildItem 'portable-package/LinkLeads' -Recurse -File
-          [ordered]@{sha=$env:GITHUB_SHA;mode='portable-owner-test';version='0.5.11';exeSha256=$hash;fileCount=$files.Count;totalBytes=($files | Measure-Object Length -Sum).Sum} | ConvertTo-Json | Set-Content 'portable-package/manifesto.json' -Encoding UTF8
+          [ordered]@{schema='linkleads.installer.fixed.v1';sha=$env:GITHUB_SHA;target='D:\LINKLEADS';exe='D:\LINKLEADS\APP\LinkLeads.exe';exeSha256=$hash;fileCount=$files.Count;totalBytes=($files | Measure-Object Length -Sum).Sum} | ConvertTo-Json | Set-Content 'portable-package/manifesto.json' -Encoding UTF8
           @(
-            'LINKLEADS PORTATIL — TESTE DO PROPRIETARIO'
-            'Nao executar o Setup-0.5.11.exe travado.'
-            'Extraia este pacote COMPLETO em uma pasta NOVA.'
-            'Feche qualquer instancia do LinkLeads.'
-            'Execute ABRIR-LINKLEADS-PORTATIL.cmd na raiz.'
-            'Nao desinstala, nao apaga, nao altera as pastas antigas.'
-            'Usa o mesmo userData do LinkLeads; mantenha a versao anterior fechada.'
-            'Nao homologado contra LinkedIn real. Nao distribuir comercialmente sem assinatura.'
+            'LINKLEADS — INSTALACAO WINDOWS'
+            'DESTINO PERMANENTE E OBRIGATORIO: D:\LINKLEADS'
+            '1. Extraia o ZIP inteiro em qualquer pasta.'
+            '2. Feche qualquer LinkLeads.exe anterior.'
+            '3. Execute INSTALAR-LINKLEADS.cmd na raiz da pasta extraida.'
+            '4. Use o atalho LinkLeads da area de trabalho.'
+            'Aplicativo: D:\LINKLEADS\APP\LinkLeads.exe'
+            'Diagnostico: D:\LINKLEADS\resultado-instalacao-linkleads.txt'
+            'Nao exige backup, nao desinstala, nao exclui pastas e nao desativa antivirus.'
+            'Esta entrega nao usa o instalador NSIS antigo.'
+            'Conta LinkedIn real requer homologacao supervisionada; nao ha garantia de resolucao universal.'
           ) | Set-Content 'portable-package/LEIA-ME.txt' -Encoding UTF8
-          if (-not (Test-Path 'portable-package/ABRIR-LINKLEADS-PORTATIL.cmd')) { throw 'CMD ausente' }
-      - name: Homologar CMD entregue na raiz com janela e resultado
+          foreach ($name in @('INSTALAR-LINKLEADS.cmd','ABRIR-LINKLEADS.cmd','manifesto.json')) {
+            if (-not (Test-Path ("portable-package/" + $name))) { throw "Pacote sem $name na raiz" }
+          }
+
+      - name: Homologar instalador integral em D:\LINKLEADS e atalho real
         shell: pwsh
-        timeout-minutes: 2
+        timeout-minutes: 3
         run: |
           $ErrorActionPreference = 'Stop'
-          $script = (Resolve-Path 'portable-package/ABRIR-LINKLEADS-PORTATIL.cmd').Path
-          $exe = (Resolve-Path 'portable-package/LinkLeads/LinkLeads.exe').Path
-          $report = Join-Path $env:GITHUB_WORKSPACE 'portable-package/resultado-abertura-linkleads.txt'
-          $env:LINKLEADS_PORTABLE_SMOKE = '1'
+          if (-not (Test-Path 'D:\')) { throw 'Runner nao possui unidade D:' }
+          $root = 'D:\LINKLEADS'
+          $exe = Join-Path $root 'APP\LinkLeads.exe'
+          $cmd = (Resolve-Path 'portable-package/INSTALAR-LINKLEADS.cmd').Path
+          $sourceManifest = Get-Content 'portable-package/manifesto.json' -Raw | ConvertFrom-Json
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          $marker = Join-Path $root 'campanha-preexistente-ci.txt'
+          Set-Content -LiteralPath $marker -Value 'NUNCA APAGAR' -Encoding ascii
           $env:LINKLEADS_NONINTERACTIVE = '1'
-          $env:LINKLEADS_TEST_USER_DATA = Join-Path $env:RUNNER_TEMP 'linkleads-cmd-user-data'
+          $env:LINKLEADS_PORTABLE_SMOKE = '1'
+          $env:LINKLEADS_TEST_USER_DATA = Join-Path $env:RUNNER_TEMP 'linkleads-installer-userdata'
           New-Item -ItemType Directory -Force -Path $env:LINKLEADS_TEST_USER_DATA | Out-Null
-          $run = $null
           try {
-            $argsLine = '/d /c ""' + $script + '""'
-            $run = Start-Process -FilePath $env:ComSpec -ArgumentList $argsLine -PassThru
-            if (-not $run.WaitForExit(45000)) { throw 'CMD nao finalizou apos abrir o LinkLeads' }
-            $run.Refresh()
-            if (-not (Test-Path $report)) { throw 'CMD nao criou resultado-abertura-linkleads.txt' }
-            $text = Get-Content $report -Raw
-            Write-Host $text
-            if ($run.ExitCode -ne 0 -or $text -notmatch 'STATUS: JANELA_OK') {
-              throw "CMD nao comprovou a janela (exit $($run.ExitCode))"
-            }
-          } finally {
-            # Conservar a evidência no log mesmo se o launcher falhar.
-            if (Test-Path $report) { Write-Host (Get-Content $report -Raw) }
-            # Limpar apenas o processo e o relatorio criados nesta fixture de CI.
+            & $cmd
+            if ($LASTEXITCODE -ne 0) { throw "Instalacao inicial retornou $LASTEXITCODE" }
+            $report = Join-Path $root 'resultado-instalacao-linkleads.txt'
+            if (-not (Test-Path $report)) { throw 'Relatorio do instalador ausente' }
+            if ((Get-Content $report -Raw) -notmatch 'STATUS: INSTALADO_JANELA_OK') { throw "Instalador nao comprovou janela: $(Get-Content $report -Raw)" }
+            if (-not (Test-Path $exe) -or -not (Test-Path (Join-Path $root 'ABRIR-LINKLEADS.cmd'))) { throw 'Binarios ou launcher ausentes no local fixo' }
+            if ((Get-FileHash $exe -Algorithm SHA256).Hash -ne $sourceManifest.exeSha256) { throw 'SHA256 divergente apos instalacao' }
+            if ((Get-Content $marker -Raw).Trim() -ne 'NUNCA APAGAR') { throw 'Arquivo preexistente foi alterado' }
+            $desktop=[Environment]::GetFolderPath('DesktopDirectory')
+            $link=Join-Path $desktop 'LinkLeads.lnk'
+            if (-not (Test-Path $link)) { throw 'Atalho da area de trabalho ausente' }
+            $shortcut=(New-Object -ComObject WScript.Shell).CreateShortcut($link)
+            if ($shortcut.TargetPath -ine 'D:\LINKLEADS\ABRIR-LINKLEADS.cmd') { throw "Atalho incorreto: $($shortcut.TargetPath)" }
+            Write-Host 'APROVADO: D:\LINKLEADS fixo, hash, atalho, dados preexistentes, janela visivel e relatorio'
+            # Testar novamente o INSTALAR ja instalado em D:\LINKLEADS:
+            # deve reparar e reabrir, sem depender do ZIP extraido.
             Get-CimInstance Win32_Process -Filter "Name = 'LinkLeads.exe'" -ErrorAction SilentlyContinue |
-              Where-Object { $_.ExecutablePath -eq $exe } |
+              Where-Object { $_.ExecutablePath -ieq $exe } |
               ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-            Remove-Item -LiteralPath $report -ErrorAction SilentlyContinue
-            Remove-Item Env:LINKLEADS_PORTABLE_SMOKE -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 2
+            $localInstaller = Join-Path $root 'INSTALAR-LINKLEADS.cmd'
+            if (-not (Test-Path $localInstaller)) { throw 'Instalador nao ficou disponivel na raiz fixa' }
+            & $localInstaller
+            if ($LASTEXITCODE -ne 0) { throw "Reparo pela raiz D:\LINKLEADS falhou: $LASTEXITCODE" }
+            $again = Get-Content $report -Raw
+            if ($again -notmatch 'MODO: REPARO_SEM_COPIA' -or $again -notmatch 'STATUS: INSTALADO_JANELA_OK') {
+              throw "Reparo nao comprovado: $again"
+            }
+            if ((Get-Content $marker -Raw).Trim() -ne 'NUNCA APAGAR') { throw 'Arquivo preexistente alterado durante o reparo' }
+            Write-Host 'APROVADO: instalador da raiz funciona novamente sem ZIP nem perda de arquivos'
+          } finally {
+            if (Test-Path (Join-Path $root 'resultado-instalacao-linkleads.txt')) { Write-Host (Get-Content (Join-Path $root 'resultado-instalacao-linkleads.txt') -Raw) }
+            if (Test-Path (Join-Path $root 'resultado-abertura-linkleads.txt')) { Write-Host (Get-Content (Join-Path $root 'resultado-abertura-linkleads.txt') -Raw) }
+            # Apenas nesta maquina descartavel de CI, finalizar processo do EXE testado.
+            Get-CimInstance Win32_Process -Filter "Name = 'LinkLeads.exe'" -ErrorAction SilentlyContinue |
+              Where-Object { $_.ExecutablePath -ieq $exe } |
+              ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
             Remove-Item Env:LINKLEADS_NONINTERACTIVE -ErrorAction SilentlyContinue
+            Remove-Item Env:LINKLEADS_PORTABLE_SMOKE -ErrorAction SilentlyContinue
             Remove-Item Env:LINKLEADS_TEST_USER_DATA -ErrorAction SilentlyContinue
           }
+
       - uses: actions/upload-artifact@v4
         with:
-          name: LinkLeads-PORTATIL-Sem-NSIS-${{ github.sha }}
+          name: LinkLeads-INSTALADOR-D-LINKLEADS-${{ github.sha }}
           path: portable-package/
           if-no-files-found: error
           retention-days: 30
@@ -140,7 +171,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: LinkLeads-PORTATIL-Sem-NSIS-${{ github.sha }}
+          name: LinkLeads-INSTALADOR-D-LINKLEADS-${{ github.sha }}
           path: portable-package
       - name: Gerar ZIP final e publicar release de avaliacao
         env:
@@ -150,16 +181,18 @@ jobs:
         run: |
           set -euo pipefail
           test -f portable-package/LinkLeads/LinkLeads.exe
-          test -f portable-package/ABRIR-LINKLEADS-PORTATIL.cmd
+          test -f portable-package/INSTALAR-LINKLEADS.cmd
+          test -f portable-package/ABRIR-LINKLEADS.cmd
+          grep -Fq 'D:\LINKLEADS' portable-package/LEIA-ME.txt
           short="${GITHUB_SHA:0:8}"
-          tag="v0.5.11-perfis-${short}"
-          zipfile="LINKLEADS-PERFIS-CURTIDAS-COMENTARIOS-${short}.zip"
+          tag="v0.5.11-windows-${short}"
+          zipfile="LINKLEADS-INSTALADOR-D-LINKLEADS.zip"
           (
             cd portable-package
             zip -q -r "../${zipfile}" .
           )
           sha256sum "${zipfile}" > "${zipfile}.sha256"
           gh release create "${tag}" "${zipfile}" "${zipfile}.sha256" \
-            --target "${GITHUB_SHA}" --prerelease \
-            --title "LINKLEADS 0.5.11 - Perfis, Curtidas e Comentarios (avaliacao)" \
-            --notes "Pacote portatil Windows sem NSIS e sem rotina de backup obrigatoria. Abra o CMD na raiz depois de extrair o ZIP. Compilacao, testes simulados e inicializacao Windows aprovados no CI; funcionamento na conta LinkedIn real precisa de homologacao supervisionada. Nenhuma exclusao de dados da versao anterior."
+            --target "${GITHUB_SHA}" --latest \
+            --title "LINKLEADS 0.5.11 - Instalador Windows D:\LINKLEADS" \
+            --notes "UNICO PADRAO WINDOWS: extraia o ZIP, execute INSTALAR-LINKLEADS.cmd na raiz; sempre instala em D:\LINKLEADS e cria atalho no desktop. Sem NSIS, sem backup obrigatorio, sem exclusao de campanhas. Build/EXE/instalacao/atalho/janela homologados em Windows isolado. Operacao em conta LinkedIn real depende de homologacao do proprietario. Este pacote nao e assinado digitalmente."
