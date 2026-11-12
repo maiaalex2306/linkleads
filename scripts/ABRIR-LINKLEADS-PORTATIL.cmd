@@ -39,7 +39,7 @@ echo Consulte o relatorio e os traces sem apagar arquivos.
 >> "%REPORT%" echo STATUS: FALHA_ABERTURA
 >> "%REPORT%" echo TRACES_POSSIVEIS: %APPDATA%\LinkLeads\traces
 >> "%REPORT%" echo TRACES_POSSIVEIS: %APPDATA%\linkleads\traces
-pause
+if not "%LINKLEADS_NONINTERACTIVE%"=="1" pause
 exit /b 4
 
 :SUCCESS
@@ -51,13 +51,13 @@ exit /b 0
 echo ERRO: LinkLeads.exe nao encontrado.
 echo Extraia todo o ZIP em uma pasta nova. NAO copie apenas o CMD.
 >> "%REPORT%" echo STATUS: EXE_AUSENTE
-pause
+if not "%LINKLEADS_NONINTERACTIVE%"=="1" pause
 exit /b 1
 
 :INCOMPLETE
 echo ERRO: pacote incompleto. Falta resources\app.asar.
 >> "%REPORT%" echo STATUS: PACOTE_INCOMPLETO
-pause
+if not "%LINKLEADS_NONINTERACTIVE%"=="1" pause
 exit /b 2
 
 :ALREADY_RUNNING
@@ -65,11 +65,11 @@ echo ERRO: outra instancia do LinkLeads.exe ja esta em execucao.
 echo Feche o programa antigo pelo Gerenciador de Tarefas, sem apagar dados.
 echo Em seguida execute ESTE arquivo novamente.
 >> "%REPORT%" echo STATUS: OUTRA_INSTANCIA_ATIVA
-pause
+if not "%LINKLEADS_NONINTERACTIVE%"=="1" pause
 exit /b 3
 
 :START_FAILED
 echo ERRO: Windows nao iniciou o executavel.
 >> "%REPORT%" echo STATUS: ERRO_START
-pause
+if not "%LINKLEADS_NONINTERACTIVE%"=="1" pause
 exit /b 5
