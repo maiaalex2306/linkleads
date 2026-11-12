@@ -209,6 +209,18 @@ export function startFakeSite(port = 0) {
     }
     const sessionCookieMissing = state.requireSessionCookie && !String(req.headers.cookie || '').includes('ll_fake_session=authenticated');
     if ((state.loggedOut || sessionCookieMissing) && !url.startsWith('/api')) { res.writeHead(302, { location: '/login' }); return res.end(); }
+    // Fixture: a própria navegação do Sales Navigator informa o /in/ do membro.
+    // É um redirecionamento do ambiente FALSO; não afirma que funciona numa conta Basic real.
+    const sales = url.match(/^\/sales\/people\/([A-Za-z0-9_-]+)(?:,[A-Za-z0-9_-]+)*\/?$/);
+    if (sales) {
+      (state.salesNavVisits ||= []).push({ id: sales[1], url });
+      if (sales[1] === 'ACwAAAna') {
+        res.writeHead(302, { location: '/in/ana-silva/' });
+        return res.end();
+      }
+      res.writeHead(404);
+      return res.end(page('<div class="not-found__container">Perfil Sales Navigator indisponível</div>'));
+    }
     // link pelo número do membro: o LinkedIn redireciona para o /in/ da pessoa
     if (url === '/profile/view?id=444') { res.writeHead(302, { location: '/in/diego-siste/' }); return res.end(); }
     if (url.startsWith('/search/results/people/')) {
