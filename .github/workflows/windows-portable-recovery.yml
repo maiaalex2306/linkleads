@@ -56,6 +56,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'E2E SN hash sem member_id reprovado no Windows' }
           $exe=(Resolve-Path 'apps/desktop/release/win-unpacked/LinkLeads.exe').Path
           if ((Get-Item $exe).Length -lt 1000000) { throw 'Exe aparentemente incompleto' }
+          # Gate P0: processo existente nao basta; a janela principal do EXE
+          # distribuido precisa abrir visivelmente com APPDATA temporario.
+          node apps/desktop/e2e/portable-first-window.mjs $exe
+          if ($LASTEXITCODE -ne 0) { throw 'Pacote Windows sem janela visivel - bloquear publicacao' }
           $testData=Join-Path $env:RUNNER_TEMP 'linkleads-portable-smoke-data'
           New-Item -ItemType Directory -Force -Path $testData | Out-Null
           $env:LINKLEADS_TEST_BASE_URL='http://127.0.0.1:1'
