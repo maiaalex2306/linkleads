@@ -26,7 +26,8 @@ start "" /D "%ROOT%LinkLeads" "%EXE%"
 if errorlevel 1 goto START_FAILED
 
 echo Verificando janela real do programa...
-timeout /t 10 /nobreak >NUL
+rem Usa ping local, pois TIMEOUT falha quando CMD roda com stdin redirecionado.
+ping -n 11 127.0.0.1 >NUL
 set "WINDOW=VERIFICACAO_INDISPONIVEL"
 rem -Command executa comando inline; NAO chama arquivos .ps1 nao assinados.
 for /f "delims=" %%S in ('powershell.exe -NoProfile -NonInteractive -Command "$p=Get-Process -Name LinkLeads -ErrorAction SilentlyContinue; foreach($x in $p){if($x.MainWindowHandle -ne 0){Write-Output WINDOW_OK; exit 0}}; Write-Output WINDOW_MISSING" 2^>NUL') do set "WINDOW=%%S"
