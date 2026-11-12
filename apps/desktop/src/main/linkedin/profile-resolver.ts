@@ -53,8 +53,16 @@ export function profileResolutionRoutes(p: Person): ProfileRoute[] {
     routes.push({ method: 'exported_public_candidate',
       url: 'https://www.linkedin.com/in/' + encodeURIComponent(candidate) + '/',
       requiresNameConfirmation: true });
-  const sales = parseSalesSource(p.custom?.linkleads_source_url);
-  const hash = snHashCore(p.custom?.sn_id || p.custom?.linkleads_sn_hash_core);
+  const originalSales = parseSalesSource(p.custom?.linkleads_source_url);
+  // sn_hash_raw exportado pelo Linked Helper inclui os segmentos apos a virgula.
+  // Somente reconstruir a URL quando TODOS esses segmentos vieram do CSV.
+  const raw = p.custom?.linkleads_sn_hash_raw?.trim();
+  const completeSales = !originalSales && raw && raw.includes(',') && raw.length <= 300 &&
+    /^[A-Za-z0-9_-]+(?:,[A-Za-z0-9_-]+)+$/.test(raw)
+    ? parseSalesSource('https://www.linkedin.com/sales/people/' + raw + '/')
+    : undefined;
+  const sales = originalSales ?? completeSales;
+  const hash = snHashCore(p.custom?.sn_id || p.custom?.linkleads_sn_hash_core || sales?.core);
   if (sales && (!hash || hash === sales.core))
     routes.push({ method: 'sales_source', url: sales.url, requiresNameConfirmation: false });
   const memberFromHash = memberIdFromSalesHash(hash ?? sales?.core);
