@@ -59,6 +59,8 @@ try {
     'resolução confirmada por member_id e perfil Ana Silva', people);
   check((site.state.profileLoads ?? []).some((x) => x.slug === 'ana-silva'),
     'navegador realmente abriu o /in/ correspondente', site.state.profileLoads);
+  check((site.state.memberRouteVisits ?? []).includes('/profile/view?id=111'),
+    'identificador 111 decodificado do hash foi usado na navegação', site.state.memberRouteVisits);
   check((site.state.searches ?? 0) === 0,
     'não adivinhou homônimos por busca global', site.state.searches);
   console.log('E2E RESOLUCAO HASH SN -> MEMBER ID -> PERFIL BASIC OK');
