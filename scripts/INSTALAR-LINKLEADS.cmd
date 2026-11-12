@@ -45,7 +45,7 @@ if not exist "%LL_ROOT%" goto FAIL_EARLY
 >> "%LL_REPORT%" echo ETAPA: INTEGRIDADE
 
 rem Confere SHA256 do EXE do pacote; nunca executa script .ps1.
-powershell.exe -NoProfile -NonInteractive -Command "$ErrorActionPreference='Stop';$m=Get-Content -LiteralPath $env:LL_MANIFEST -Raw | ConvertFrom-Json;$expected=[string]$m.exeSha256;if($expected -notmatch '^[a-fA-F0-9]{64}$'){throw 'Manifesto de instalacao invalido'};$exe=Join-Path $env:LL_SOURCE 'LinkLeads.exe';$actual=(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash;if($actual -ne $expected){throw 'Hash SHA256 incorreto'};Write-Host 'SHA256 do pacote aprovado'"
+powershell.exe -NoProfile -NonInteractive -Command "$ErrorActionPreference='Stop';$m=Get-Content -LiteralPath $env:LL_MANIFEST -Raw | ConvertFrom-Json;$expected=[string]$m.exeSha256;if($expected -notmatch '^[a-fA-F0-9]{64}$'){throw 'Manifesto de instalacao invalido'};$exe=Join-Path $env:LL_SOURCE 'LinkLeads.exe';$stream=[IO.File]::OpenRead($exe);try{$sha=[Security.Cryptography.SHA256]::Create();try{$actual=([BitConverter]::ToString($sha.ComputeHash($stream))).Replace('-','')}finally{$sha.Dispose()}}finally{$stream.Dispose()};if($actual -ne $expected){throw 'Hash SHA256 incorreto'};Write-Host 'SHA256 do pacote aprovado'"
 if errorlevel 1 goto FAIL_HASH
 >> "%LL_REPORT%" echo SHA256_ORIGEM: OK
 
@@ -67,7 +67,7 @@ if %LL_COPY_RC% GEQ 8 goto FAIL_COPY
 
 if not exist "%LL_EXE%" goto FAIL_COPY
 if not exist "%LL_APP%\resources\app.asar" goto FAIL_COPY
-powershell.exe -NoProfile -NonInteractive -Command "$ErrorActionPreference='Stop';$m=Get-Content -LiteralPath $env:LL_MANIFEST -Raw | ConvertFrom-Json;$actual=(Get-FileHash -LiteralPath $env:LL_EXE -Algorithm SHA256).Hash;if($actual -ne [string]$m.exeSha256){throw 'Arquivo copiado com hash divergente'}"
+powershell.exe -NoProfile -NonInteractive -Command "$ErrorActionPreference='Stop';$m=Get-Content -LiteralPath $env:LL_MANIFEST -Raw | ConvertFrom-Json;$stream=[IO.File]::OpenRead($env:LL_EXE);try{$sha=[Security.Cryptography.SHA256]::Create();try{$actual=([BitConverter]::ToString($sha.ComputeHash($stream))).Replace('-','')}finally{$sha.Dispose()}}finally{$stream.Dispose()};if($actual -ne [string]$m.exeSha256){throw 'Arquivo copiado com hash divergente'}"
 if errorlevel 1 goto FAIL_COPY
 >> "%LL_REPORT%" echo SHA256_DESTINO: OK
 
