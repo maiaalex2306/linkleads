@@ -5,7 +5,7 @@ import type { Person } from '@linkleads/core';
  * uma conversão algorítmica de hash -> slug público. Cada tentativa deve ser
  * conferida contra identidade e página de destino antes de gravar publicId.
  */
-export type IdentityRoute = 'exported_public_candidate' | 'sales_source' | 'member_legacy';
+export type IdentityRoute = 'exported_public_candidate' | 'sales_source' | 'sales_hash' | 'member_legacy';
 export interface ProfileRoute {
   method: IdentityRoute;
   url: string;
@@ -56,6 +56,10 @@ export function profileResolutionRoutes(p: Person): ProfileRoute[] {
   const hash = snHashCore(p.custom?.sn_id || p.custom?.linkleads_sn_hash_core);
   if (sales && (!hash || hash === sales.core))
     routes.push({ method: 'sales_source', url: sales.url, requiresNameConfirmation: false });
+  if (!sales && hash)
+    routes.push({ method: 'sales_hash',
+      url: 'https://www.linkedin.com/sales/people/' + encodeURIComponent(hash) + '/',
+      requiresNameConfirmation: true });
   const member = p.memberId?.trim();
   if (member && /^\d{1,20}$/.test(member))
     routes.push({ method: 'member_legacy',
