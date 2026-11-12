@@ -9,6 +9,15 @@ set "LL_SOURCE=%~dp0LinkLeads"
 set "LL_MANIFEST=%~dp0manifesto.json"
 set "LL_STARTER=%~dp0ABRIR-LINKLEADS.cmd"
 set "LL_REPORT=D:\LINKLEADS\resultado-instalacao-linkleads.txt"
+rem O instalador instalado na raiz pode ser reutilizado para REPARAR o app,
+rem sem baixar nem criar outra pasta. Atualizacoes usam o ZIP novo na raiz extraida.
+set "LL_REPAIR_MODE=0"
+if /I "%~dp0"=="D:\LINKLEADS\" if not exist "%LL_SOURCE%\LinkLeads.exe" if exist "%LL_EXE%" (
+  set "LL_SOURCE=D:\LINKLEADS\APP"
+  set "LL_MANIFEST=D:\LINKLEADS\manifesto-instalacao-linkleads.json"
+  set "LL_STARTER=D:\LINKLEADS\ABRIR-LINKLEADS.cmd"
+  set "LL_REPAIR_MODE=1"
+)
 echo.
 echo ===============================================
 echo LINKLEADS - INSTALADOR WINDOWS
@@ -57,6 +66,10 @@ if /I "%~1"=="--check-only" (
 
 echo Instalando arquivos em D:\LINKLEADS\APP ...
 >> "%LL_REPORT%" echo ETAPA: COPIA
+if "%LL_REPAIR_MODE%"=="1" (
+  >> "%LL_REPORT%" echo MODO: REPARO_SEM_COPIA
+  goto AFTER_COPY
+)
 if not exist "%LL_APP%" mkdir "%LL_APP%"
 if not exist "%LL_APP%" goto FAIL_COPY
 rem /E preserva arquivos existentes; NAO usar /MIR, /PURGE ou exclusoes.
@@ -65,6 +78,7 @@ set "LL_COPY_RC=%ERRORLEVEL%"
 >> "%LL_REPORT%" echo ROBOCOPY_EXIT: %LL_COPY_RC%
 if %LL_COPY_RC% GEQ 8 goto FAIL_COPY
 
+:AFTER_COPY
 if not exist "%LL_EXE%" goto FAIL_COPY
 if not exist "%LL_APP%\resources\app.asar" goto FAIL_COPY
 powershell.exe -NoProfile -NonInteractive -Command "$ErrorActionPreference='Stop';$m=Get-Content -LiteralPath $env:LL_MANIFEST -Raw | ConvertFrom-Json;$stream=[IO.File]::OpenRead($env:LL_EXE);try{$sha=[Security.Cryptography.SHA256]::Create();try{$actual=([BitConverter]::ToString($sha.ComputeHash($stream))).Replace('-','')}finally{$sha.Dispose()}}finally{$stream.Dispose()};if($actual -ne [string]$m.exeSha256){throw 'Arquivo copiado com hash divergente'}"
@@ -80,8 +94,10 @@ if /I not "%~f0"=="%LL_ROOT%\INSTALAR-LINKLEADS.cmd" (
   copy /Y "%~f0" "%LL_ROOT%\INSTALAR-LINKLEADS.cmd" >NUL
   if errorlevel 1 goto FAIL_COPY
 )
-copy /Y "%LL_MANIFEST%" "%LL_ROOT%\manifesto-instalacao-linkleads.json" >NUL
-if errorlevel 1 goto FAIL_COPY
+if /I not "%LL_MANIFEST%"=="%LL_ROOT%\manifesto-instalacao-linkleads.json" (
+  copy /Y "%LL_MANIFEST%" "%LL_ROOT%\manifesto-instalacao-linkleads.json" >NUL
+  if errorlevel 1 goto FAIL_COPY
+)
 
 echo Criando atalho LinkLeads na area de trabalho...
 >> "%LL_REPORT%" echo ETAPA: ATALHO
