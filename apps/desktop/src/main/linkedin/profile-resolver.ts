@@ -6,7 +6,7 @@ import { memberIdFromSalesHash } from '@linkleads/core';
  * uma conversão algorítmica de hash -> slug público. Cada tentativa deve ser
  * conferida contra identidade e página de destino antes de gravar publicId.
  */
-export type IdentityRoute = 'exported_public_candidate' | 'sales_source' | 'sales_hash' | 'member_legacy';
+export type IdentityRoute = 'exported_public_candidate' | 'sales_source' | 'member_legacy';
 export interface ProfileRoute {
   method: IdentityRoute;
   url: string;
@@ -32,7 +32,7 @@ export function parseSalesSource(raw?: string): { url: string; core: string } | 
     const url = new URL(raw.trim());
     if (url.protocol !== 'https:' || url.username || url.password || url.port ||
       !linkedinHost(url.hostname.toLowerCase())) return undefined;
-    const m = url.pathname.match(/^\/sales\/(?:people|lead|profile)\/([a-zA-Z0-9_-]+)(?:,[a-zA-Z0-9_-]+)*\/?$/);
+    const m = url.pathname.match(/^\/sales\/(?:people|lead|profile)\/([a-zA-Z0-9_-]+)(?:,[a-zA-Z0-9_-]+)+\/?$/);
     if (!m) return undefined;
     const core = snHashCore(m[1]);
     if (!core) return undefined;
@@ -57,10 +57,6 @@ export function profileResolutionRoutes(p: Person): ProfileRoute[] {
   const hash = snHashCore(p.custom?.sn_id || p.custom?.linkleads_sn_hash_core);
   if (sales && (!hash || hash === sales.core))
     routes.push({ method: 'sales_source', url: sales.url, requiresNameConfirmation: false });
-  if (!sales && hash)
-    routes.push({ method: 'sales_hash',
-      url: 'https://www.linkedin.com/sales/people/' + encodeURIComponent(hash) + '/',
-      requiresNameConfirmation: true });
   const memberFromHash = memberIdFromSalesHash(hash ?? sales?.core);
   const suppliedMember = p.memberId?.trim();
   // Nunca misturar identificadores inconsistentes na mesma pessoa.
@@ -74,7 +70,7 @@ export function profileResolutionRoutes(p: Person): ProfileRoute[] {
   // rota pública legada por member_id antes do Sales Navigator; não evita
   // checkpoint e não altera as permissões da plataforma.
   const priority: Record<IdentityRoute, number> = {
-    exported_public_candidate: 0, member_legacy: 1, sales_source: 2, sales_hash: 3,
+    exported_public_candidate: 0, member_legacy: 1, sales_source: 2,
   };
   return routes.filter((route, index, all) => all.findIndex((x) => x.url === route.url) === index)
     .sort((a, b) => priority[a.method] - priority[b.method]);
