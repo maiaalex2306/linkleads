@@ -103,6 +103,38 @@ jobs:
             'Nao homologado contra LinkedIn real. Nao distribuir comercialmente sem assinatura.'
           ) | Set-Content 'portable-package/LEIA-ME.txt' -Encoding UTF8
           if (-not (Test-Path 'portable-package/ABRIR-LINKLEADS-PORTATIL.cmd')) { throw 'CMD ausente' }
+      - name: Homologar CMD entregue na raiz com janela e resultado
+        shell: pwsh
+        timeout-minutes: 2
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $script = (Resolve-Path 'portable-package/ABRIR-LINKLEADS-PORTATIL.cmd').Path
+          $exe = (Resolve-Path 'portable-package/LinkLeads/LinkLeads.exe').Path
+          $report = Join-Path $env:GITHUB_WORKSPACE 'portable-package/resultado-abertura-linkleads.txt'
+          $env:LINKLEADS_PORTABLE_SMOKE = '1'
+          $env:LINKLEADS_TEST_USER_DATA = Join-Path $env:RUNNER_TEMP 'linkleads-cmd-user-data'
+          New-Item -ItemType Directory -Force -Path $env:LINKLEADS_TEST_USER_DATA | Out-Null
+          $run = $null
+          try {
+            $argsLine = '/d /c ""' + $script + '""'
+            $run = Start-Process -FilePath $env:ComSpec -ArgumentList $argsLine -PassThru
+            if (-not $run.WaitForExit(45000)) { throw 'CMD nao finalizou apos abrir o LinkLeads' }
+            $run.Refresh()
+            if (-not (Test-Path $report)) { throw 'CMD nao criou resultado-abertura-linkleads.txt' }
+            $text = Get-Content $report -Raw
+            Write-Host $text
+            if ($run.ExitCode -ne 0 -or $text -notmatch 'STATUS: JANELA_OK') {
+              throw "CMD nao comprovou a janela (exit $($run.ExitCode))"
+            }
+          } finally {
+            # Limpar apenas o processo e o relatorio criados nesta fixture de CI.
+            Get-CimInstance Win32_Process -Filter "Name = 'LinkLeads.exe'" -ErrorAction SilentlyContinue |
+              Where-Object { $_.ExecutablePath -eq $exe } |
+              ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+            Remove-Item -LiteralPath $report -ErrorAction SilentlyContinue
+            Remove-Item Env:LINKLEADS_PORTABLE_SMOKE -ErrorAction SilentlyContinue
+            Remove-Item Env:LINKLEADS_TEST_USER_DATA -ErrorAction SilentlyContinue
+          }
       - uses: actions/upload-artifact@v4
         with:
           name: LinkLeads-PORTATIL-Sem-NSIS-${{ github.sha }}
