@@ -18,7 +18,7 @@ const linkedinHost = (host: string) => host === 'linkedin.com' || host.endsWith(
 export function safePublicId(raw?: string): string | undefined {
   if (!raw) return undefined;
   const id = raw.trim().toLowerCase();
-  return /^[a-z0-9][a-z0-9._%-]{1,119}$/i.test(id) && !/%(?:2f|5c|00)/i.test(id) ? id : undefined;
+  return /^[a-z0-9][a-z0-9._-]{1,119}$/i.test(id) ? id : undefined;
 }
 
 export function snHashCore(raw?: string): string | undefined {
@@ -32,7 +32,7 @@ export function parseSalesSource(raw?: string): { url: string; core: string } | 
     const url = new URL(raw.trim());
     if (url.protocol !== 'https:' || url.username || url.password || url.port ||
       !linkedinHost(url.hostname.toLowerCase())) return undefined;
-    const m = url.pathname.match(/^\/sales\/(?:people|lead|profile)\/([a-zA-Z0-9_-]+)(?:,[a-zA-Z0-9_-]+)+\/?$/);
+    const m = url.pathname.match(/^\/sales\/(?:people|lead|profile)\/([a-zA-Z0-9_-]+)(?:,[a-zA-Z0-9_-]+)*\/?$/);
     if (!m) return undefined;
     const core = snHashCore(m[1]);
     if (!core) return undefined;
@@ -82,6 +82,19 @@ export function profileResolutionRoutes(p: Person): ProfileRoute[] {
   };
   return routes.filter((route, index, all) => all.findIndex((x) => x.url === route.url) === index)
     .sort((a, b) => priority[a.method] - priority[b.method]);
+}
+
+/** Conferência complementar para candidatos /in/ exportados sem prova de origem.
+ * Não transforma coincidência de empresa em identificação autônoma: deve acompanhar
+ * URL candidata e nome compatível; perfis com empresa não visível ficam pendentes.
+ */
+export function samePersonCompany(expected: Person, observed: string | null | undefined): boolean {
+  const norm = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+  const company = norm(expected.company ?? '');
+  const actual = norm(observed ?? '');
+  if (!company || !actual) return false;
+  return actual === company || actual.includes(company + ' ') || company.includes(actual + ' ');
 }
 
 /** Não comparar identidade exclusivamente por homônimos. A conferência de nome
