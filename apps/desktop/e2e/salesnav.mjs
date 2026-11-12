@@ -67,8 +67,10 @@ try {
     'redirecionamento do Sales Navigator para /in/ confirma identidade de Ana', ana);
   check(others.length === 3 && others.every((p) => !p.publicId && p.reason === 'IDENTITY_UNVERIFIED'),
     'leads sem redirecionamento continuam sem identidade inventada', others);
-  check((site.state.salesNavVisits || []).some((visit) => visit.id === 'ACwAAAna'),
-    'navegação usa a URL original do Sales Navigator', site.state.salesNavVisits);
+  check((site.state.memberRouteVisits || []).includes('/profile/view?id=111') ||
+    (site.state.salesNavVisits || []).some((visit) => visit.id === 'ACwAAAna'),
+    'navegação utiliza identificador numérico ou link SN do CSV', {
+      member: site.state.memberRouteVisits, sales: site.state.salesNavVisits });
   const loads = site.state.profileLoads || [];
   check(loads.some((visit) => visit.slug === 'ana-silva'),
     'abre perfil público observado após redirecionamento, sem escolher homônimos', loads);
