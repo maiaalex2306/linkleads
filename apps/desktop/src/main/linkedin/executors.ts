@@ -676,13 +676,6 @@ export async function gotoProfile(d: ExecutorDeps, p: Person, suffix = ''): Prom
     const associated = d.crm.findByPublicId(slug);
     if (associated && associated.id !== p.id)
       return { needsReview: 'Esta URL /in/ já pertence a outro lead no CRM. Revisão antes de unir identidades.' };
-    // Atualização sobre o mesmo id conserva a fila e o histórico do lead.
-    p.publicId = slug;
-    p.custom = { ...(p.custom ?? {}),
-      linkleads_profile_url: 'https://www.linkedin.com/in/' + encodeURIComponent(slug) + '/',
-      linkleads_identity_source: 'sales_navigator_resolved',
-      linkleads_identity_review_required: 'false' };
-    d.crm.upsertPerson(p);
   }
 
   if (!slug) return { needsReview: 'URL pública não identificada para este lead.' };
@@ -693,5 +686,14 @@ export async function gotoProfile(d: ExecutorDeps, p: Person, suffix = ''): Prom
   }
   if (sameLinkedInProfile(d.driver.wc.getURL()) !== slug)
     return { needsReview: 'Redirecionamento para perfil ou domínio diferente do cadastro. Nenhum homônimo será selecionado.' };
+  if (source) {
+    // Gravar somente APÓS conferir o destino final e evitar corromper dados da fila.
+    p.publicId = slug;
+    p.custom = { ...(p.custom ?? {}),
+      linkleads_profile_url: 'https://www.linkedin.com/in/' + encodeURIComponent(slug) + '/',
+      linkleads_identity_source: 'sales_navigator_resolved',
+      linkleads_identity_review_required: 'false' };
+    d.crm.upsertPerson(p);
+  }
   return 'ok';
 }
