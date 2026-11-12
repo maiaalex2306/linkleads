@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Person } from '@linkleads/core';
-import { gotoProfile, type ExecutorDeps } from '../src/main/linkedin/executors.js';
+import { gotoProfile, sourceSalesNavigatorUrl, type ExecutorDeps } from '../src/main/linkedin/executors.js';
 
 const lead: Person = {
   id: 'felipe-santos',
@@ -17,6 +17,7 @@ function mockBrowser(redirect?: string, initial = 'https://www.linkedin.com/feed
     driver: {
       wc: { getURL: () => current },
       goto,
+      read: vi.fn(async () => []),
       assertNotBlocked: vi.fn(async () => undefined),
       exists,
     },
@@ -86,5 +87,72 @@ describe('navegação por identidade de perfil — etapa 2', () => {
     deps.limits!.left = vi.fn(() => 0);
     expect(await gotoProfile(deps, lead)).toBe('ok');
     expect(goto).toHaveBeenCalledOnce();
+  });
+});
+
+describe('Sales Navigator - resolução pelo link original do CSV', () => {
+  const source = 'https://www.linkedin.com/sales/people/ACwAAAcar,9rcn,NAME_SEARCH/';
+  const sn = (): Person => ({
+    id: 'sn:ACwAAAcar', firstName: 'Carlos', lastName: 'Pereira',
+    custom: { sn_id: 'ACwAAAcar', linkleads_source_url: source,
+      linkleads_identity_source: 'sales_navigator_review' },
+  });
+
+  it('preserva o endereço exato com os componentes após a vírgula', () => {
+    expect(sourceSalesNavigatorUrl(sn())).toBe(source);
+  });
+
+  it('rejeita origem externa, host falso, slug divergente ou URL incompleta', () => {
+    for (const url of [
+      'https://evil.example/sales/people/ACwAAAcar,9rcn,NAME_SEARCH/',
+      'https://fake-linkedin.com/sales/people/ACwAAAcar,9rcn,NAME_SEARCH/',
+      'https://www.linkedin.com/sales/people/OUTRO,9rcn,NAME_SEARCH/',
+      'https://www.linkedin.com/sales/people/',
+      'javascript:alert(1)',
+    ]) expect(sourceSalesNavigatorUrl({ ...sn(), custom: { ...sn().custom, linkleads_source_url: url } })).toBeUndefined();
+  });
+
+  it('abre o Sales Navigator original e salva /in apenas após redirecionamento verificável', async () => {
+    const person = sn();
+    const { deps, goto } = mockBrowser('https://www.linkedin.com/in/carlos-pereira/');
+    const upsertPerson = vi.fn();
+    const findByPublicId = vi.fn(() => undefined);
+    deps.crm = { upsertPerson, findByPublicId } as unknown as ExecutorDeps['crm'];
+    const out = await gotoProfile(deps, person);
+    expect(out).toBe('ok');
+    expect(goto).toHaveBeenCalledWith(source);
+    expect(findByPublicId).toHaveBeenCalledWith('carlos-pereira');
+    expect(person.publicId).toBe('carlos-pereira');
+    expect(person.custom?.linkleads_identity_source).toBe('sales_navigator_resolved');
+    expect(upsertPerson).toHaveBeenCalledWith(expect.objectContaining({ id: 'sn:ACwAAAcar', publicId: 'carlos-pereira' }));
+  });
+
+  it('não promove lead sem redirecionamento ou link explícito encontrado na página', async () => {
+    const person = sn();
+    const { deps, goto } = mockBrowser();
+    const upsertPerson = vi.fn();
+    deps.crm = { upsertPerson, findByPublicId: vi.fn() } as unknown as ExecutorDeps['crm'];
+    expect(await gotoProfile(deps, person)).toHaveProperty('needsReview');
+    expect(goto).toHaveBeenCalledWith(source);
+    expect(person.publicId).toBeUndefined();
+    expect(upsertPerson).not.toHaveBeenCalled();
+  });
+
+  it('não associa link de perfil que já pertence a outro lead do CRM', async () => {
+    const person = sn();
+    const { deps } = mockBrowser('https://www.linkedin.com/in/carlos-pereira/');
+    const upsertPerson = vi.fn();
+    deps.crm = { upsertPerson, findByPublicId: vi.fn(() => ({ id: 'outro' })) } as unknown as ExecutorDeps['crm'];
+    expect(await gotoProfile(deps, person)).toHaveProperty('needsReview');
+    expect(upsertPerson).not.toHaveBeenCalled();
+  });
+
+  it('mantém falha segura ao encontrar redirecionamento para host não autorizado', async () => {
+    const person = sn();
+    const { deps } = mockBrowser('https://evil.example/in/carlos-pereira/');
+    const upsertPerson = vi.fn();
+    deps.crm = { upsertPerson, findByPublicId: vi.fn() } as unknown as ExecutorDeps['crm'];
+    expect(await gotoProfile(deps, person)).toHaveProperty('needsReview');
+    expect(upsertPerson).not.toHaveBeenCalled();
   });
 });
