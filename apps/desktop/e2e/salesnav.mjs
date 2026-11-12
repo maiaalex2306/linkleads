@@ -1,5 +1,5 @@
 // E2E: planilha exportada do Linked Helper com links do Sales Navigator (sem /in/).
-// O app aceita os registros para revisão, mas nunca associa homônimos sem URL /in/ verificável.
+// Um redirecionamento verificável resolve identidade; URLs indisponíveis não viram homônimos.
 import { createRequire } from 'node:module';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -61,10 +61,17 @@ try {
 
   const people = (await call('listCampaigns', acc.id))[0].people;
   check(people.length === 4, 'quatro leads Sales Navigator preservados na campanha', people);
-  check(people.every((p) => !p.publicId && p.reason === 'IDENTITY_UNVERIFIED'),
-    'nenhum perfil recebe publicId inferido pelo nome ou empresa', people);
+  const ana = people.find((p) => p.name === 'Ana Silva');
+  const others = people.filter((p) => p.name !== 'Ana Silva');
+  check(ana?.publicId === 'ana-silva',
+    'redirecionamento do Sales Navigator para /in/ confirma identidade de Ana', ana);
+  check(others.length === 3 && others.every((p) => !p.publicId && p.reason === 'IDENTITY_UNVERIFIED'),
+    'leads sem redirecionamento continuam sem identidade inventada', others);
+  check((site.state.salesNavVisits || []).some((visit) => visit.id === 'ACwAAAna'),
+    'navegação usa a URL original do Sales Navigator', site.state.salesNavVisits);
   const loads = site.state.profileLoads || [];
-  check(loads.length === 0, 'nenhum perfil nem homônimo aberto sem URL pública verificada', loads);
+  check(loads.some((visit) => visit.slug === 'ana-silva'),
+    'abre perfil público observado após redirecionamento, sem escolher homônimos', loads);
   check((site.state.searches ?? 0) === 0, 'não faz pesquisa global para adivinhar a identidade do lead', site.state.searches);
 } catch (e) {
   fail(e.stack ?? e);
