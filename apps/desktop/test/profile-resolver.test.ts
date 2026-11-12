@@ -25,20 +25,20 @@ describe('resolver de identidade — somente leitura/rotas conhecidas', () => {
       core: hash, url: lead.custom?.linkleads_source_url,
     });
     const routes = profileResolutionRoutes(lead);
-    expect(routes.map((r) => r.method)).toEqual(['sales_source', 'member_legacy']);
-    expect(routes[0]?.url).toBe(lead.custom?.linkleads_source_url);
-    expect(routes[1]?.url).toBe('https://www.linkedin.com/profile/view?id=33574315');
+    expect(routes.map((r) => r.method)).toEqual(['member_legacy', 'sales_source']);
+    expect(routes[0]?.url).toBe('https://www.linkedin.com/profile/view?id=33574315');
+    expect(routes[1]?.url).toBe(lead.custom?.linkleads_source_url);
   });
   it('sem URL original aproveita hash isolado do CSV', () => {
     const routes = profileResolutionRoutes({
       ...lead, memberId: undefined,
       custom: { sn_id: hash, linkleads_sn_hash_core: hash },
     });
-    expect(routes.map((r) => r.method)).toEqual(['sales_hash', 'member_legacy']);
-    expect(routes[0]).toEqual({ method: 'sales_hash',
+    expect(routes.map((r) => r.method)).toEqual(['member_legacy', 'sales_hash']);
+    expect(routes[0]?.url).toBe('https://www.linkedin.com/profile/view?id=33574315');
+    expect(routes[1]).toEqual({ method: 'sales_hash',
       url: 'https://www.linkedin.com/sales/people/' + hash + '/',
       requiresNameConfirmation: true });
-    expect(routes[1]?.url).toBe('https://www.linkedin.com/profile/view?id=33574315');
   });
   it('public_id isolado é candidato e não confirmação automática', () => {
     const routes = profileResolutionRoutes({
