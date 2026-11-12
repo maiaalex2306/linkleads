@@ -1,4 +1,5 @@
 import type { Person } from '@linkleads/core';
+import { memberIdFromSalesHash } from '@linkleads/core';
 
 /**
  * Plano de abertura de perfil. As URLs são rotas documentadas de navegação, NÃO
@@ -60,7 +61,11 @@ export function profileResolutionRoutes(p: Person): ProfileRoute[] {
     routes.push({ method: 'sales_hash',
       url: 'https://www.linkedin.com/sales/people/' + encodeURIComponent(hash) + '/',
       requiresNameConfirmation: true });
-  const member = p.memberId?.trim();
+  const memberFromHash = memberIdFromSalesHash(hash ?? sales?.core);
+  const suppliedMember = p.memberId?.trim();
+  // Nunca misturar identificadores inconsistentes na mesma pessoa.
+  if (memberFromHash && suppliedMember && suppliedMember !== memberFromHash) return [];
+  const member = suppliedMember ?? memberFromHash;
   if (member && /^\d{1,20}$/.test(member))
     routes.push({ method: 'member_legacy',
       url: 'https://www.linkedin.com/profile/view?id=' + member,
