@@ -221,6 +221,9 @@ export function startFakeSite(port = 0) {
       res.writeHead(404);
       return res.end(page('<div class="not-found__container">Perfil Sales Navigator indisponível</div>'));
     }
+    if (url.startsWith('/profile/view?id=')) {
+      (state.memberRouteVisits ||= []).push(url);
+    }
     // link pelo número do membro: o LinkedIn redireciona para o /in/ da pessoa
     if (url === '/profile/view?id=444') { res.writeHead(302, { location: '/in/diego-siste/' }); return res.end(); }
     if (url === '/profile/view?id=111') { res.writeHead(302, { location: '/in/ana-silva/' }); return res.end(); }
