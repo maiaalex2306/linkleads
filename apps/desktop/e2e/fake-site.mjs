@@ -223,6 +223,7 @@ export function startFakeSite(port = 0) {
     }
     // link pelo número do membro: o LinkedIn redireciona para o /in/ da pessoa
     if (url === '/profile/view?id=444') { res.writeHead(302, { location: '/in/diego-siste/' }); return res.end(); }
+    if (url === '/profile/view?id=111') { res.writeHead(302, { location: '/in/ana-silva/' }); return res.end(); }
     if (url.startsWith('/search/results/people/')) {
       state.searches = (state.searches || 0) + 1;
       const q = new URL(url, 'http://x').searchParams.get('keywords')?.toLowerCase() ?? '';
