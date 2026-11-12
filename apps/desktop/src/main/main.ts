@@ -847,11 +847,23 @@ function handleDeepLink(raw: string | undefined) {
 app.on('second-instance', (_e, argv, _cwd, extra) => {
   const newer = (extra as { build?: string } | undefined)?.build;
   if (newer && newer !== BUILD.id && BUILD.id !== 'dev') {
-    // abriram uma versão compilada depois desta: reinicia para carregar o código novo
-    void instances.stopAll().catch(() => undefined).finally(() => {
-      app.relaunch();
-      app.exit(0);
-    });
+    // Nunca fazer app.relaunch() aqui: ele reinicia a versão ANTIGA,
+    // não o executável novo. O operador deve fechar o processo anterior.
+    trace.record('lifecycle', 'different_build_blocked', {
+      runningBuild: BUILD.id, requestedBuild: newer,
+    }, {}, 'warn');
+    if (launcher && !launcher.isDestroyed()) {
+      if (launcher.isMinimized()) launcher.restore();
+      launcher.show();
+      launcher.focus();
+      void dialog.showMessageBox(launcher, {
+        type: 'warning',
+        title: 'LINKLEADS — outra versão em execução',
+        message: 'Feche a versão anterior para abrir o LINKLEADS atualizado.',
+        detail: 'A versão antiga não será reiniciada automaticamente. Feche o aplicativo e execute o arquivo ABRIR-LINKLEADS-PORTATIL.cmd da versão nova.',
+        buttons: ['Entendi'],
+      });
+    }
     return;
   }
   handleDeepLink(findDeepLinkArg(argv));
