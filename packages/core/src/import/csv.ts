@@ -84,8 +84,8 @@ export function importPeopleFromCsv(text: string, makeId: (publicId: string) => 
   const header = rows.shift() ?? [];
   const mapped = header.map((h) => HEADER_MAP[norm(h)]);
   const hasUrlColumn = mapped.includes('profileUrl');
-  if (!hasUrlColumn && !rows.some((r) => r.some((v) => /linkedin\.com\/(?:in|pub)\//i.test(v)))) {
-    throw new Error('Não achei links de perfil do LinkedIn (linkedin.com/in/…) no arquivo. Inclua uma coluna com a URL do perfil (ex.: "profileUrl", "linkedin_url" ou "url").');
+  if (!hasUrlColumn && !rows.some((r) => r.some((v) => /linkedin\.com\/(?:in|pub|sales\/(?:people|lead|profile))\//i.test(v)))) {
+    throw new Error('Não achei links de perfil do LinkedIn ou Sales Navigator no arquivo. Inclua uma coluna com a URL do perfil (ex.: "profileUrl", "linkedin_url" ou "url").');
   }
   const customColumns = header.filter((_, i) => !mapped[i]).map((h) => h.trim()).filter(Boolean);
   const seen = new Set<string>();
@@ -132,7 +132,14 @@ export function importPeopleFromCsv(text: string, makeId: (publicId: string) => 
     const snId = (rec.snId?.split(',')[0] || any.match(/linkedin\.com\/sales\/(?:people|lead)\/([A-Za-z0-9_-]+)/i)?.[1]) || undefined;
     const memberId = rec.memberId && /^\d+$/.test(rec.memberId) ? rec.memberId : undefined;
     const hasName = !!((rec.firstName && rec.lastName) || (rec.fullName && rec.fullName.trim().split(/\s+/).length >= 2));
-    if (urlCandidates.length) custom.linkleads_source_url = urlCandidates[0]!;
+    // Links do Sales Navigator também podem vir em coluna livre do export.
+    // Preservar o caminho INTEIRO, inclusive os segmentos após as vírgulas.
+    const embeddedSales = cols.flatMap((value) => [...value.matchAll(/https:\/\/(?:[a-z]{2,3}\.)?linkedin\.com\/sales\/(?:people|lead|profile)\/[A-Za-z0-9_-]+(?:,[A-Za-z0-9_-]+)*\/?/gi)].map((m) => m[0]!));
+    const sourceUrl = urlCandidates.find((v) => /linkedin\.com\/in\//i.test(v))
+      ?? urlCandidates.find((v) => /linkedin\.com\/sales\//i.test(v))
+      ?? embeddedSales[0]
+      ?? urlCandidates[0];
+    if (sourceUrl) custom.linkleads_source_url = sourceUrl;
     if (!profileFromUrl && /linkedin\.com\/(?:pub)\//i.test(any)) custom.linkleads_identity_source = 'legacy_profile_review';
     let key = publicId;
     if (!key && (snId || memberId) && hasName) key = memberId ? `m:${memberId}` : `sn:${snId}`;

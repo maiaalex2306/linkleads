@@ -171,3 +171,20 @@ describe('identidade de perfis — Etapa 2', () => {
     ]) expect(publicIdFromUrl(url)).toBeUndefined();
   });
 });
+
+describe('regressão: URL Sales Navigator em coluna livre', () => {
+  it('importa lead preservando link completo sem coluna profile_url', () => {
+    const input = [
+      'Nome completo;Observacao',
+      'Carlos Pereira;"Perfil: https://www.linkedin.com/sales/people/ACwAAAcar,9rcn,NAME_SEARCH/ registrado no arquivo"',
+    ].join('\n');
+    const result = importPeopleFromCsv(input);
+    expect(result.people).toHaveLength(1);
+    const person = result.people[0]!;
+    expect(person.publicId).toBeUndefined();
+    expect(person.custom?.linkleads_source_url)
+      .toBe('https://www.linkedin.com/sales/people/ACwAAAcar,9rcn,NAME_SEARCH/');
+    expect(person.custom?.sn_id).toBe('ACwAAAcar');
+    expect(result.skipped).toHaveLength(0);
+  });
+});

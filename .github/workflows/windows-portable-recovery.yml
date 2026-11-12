@@ -1,0 +1,137 @@
+name: Windows - recuperacao portatil sem NSIS
+on:
+  push:
+    branches: [main, fix/windows-portable-recovery-20261112]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  portable-windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Instalar dependencias e validar fonte
+        shell: pwsh
+        run: |
+          npm ci
+          if ($LASTEXITCODE -ne 0) { throw 'npm ci falhou' }
+          npm test
+          if ($LASTEXITCODE -ne 0) { throw 'Testes falharam' }
+          npm run typecheck
+          if ($LASTEXITCODE -ne 0) { throw 'Typecheck falhou' }
+          npm run build
+          if ($LASTEXITCODE -ne 0) { throw 'Build falhou' }
+      - name: Gerar aplicativo Windows sem instalador
+        shell: pwsh
+        env:
+          LINKLEADS_OWNER_TEST_BUILD: '1'
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: |
+          npm run bundle -w @linkleads/desktop
+          if ($LASTEXITCODE -ne 0) { throw 'Bundle falhou' }
+          Push-Location apps/desktop
+          try {
+            npx electron-builder --win dir --x64 --publish never -c electron-builder.yml
+            if ($LASTEXITCODE -ne 0) { throw 'Empacotamento dir falhou' }
+          } finally { Pop-Location }
+          if (-not (Test-Path 'apps/desktop/release/win-unpacked/LinkLeads.exe')) { throw 'LinkLeads.exe ausente' }
+      - name: Testar executavel portatil real (Windows, dados ficticios)
+        shell: pwsh
+        run: |
+          $env:LINKLEADS_E2E_APP = Join-Path $env:GITHUB_WORKSPACE 'apps/desktop/app-dist'
+          node apps/desktop/e2e/session-persistence.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Persistencia isolada reprovada' }
+          node apps/desktop/e2e/unified-engagement.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'E2E engagement reprovado' }
+          node apps/desktop/e2e/salesnav-unified-engagement.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'E2E Sales Navigator, perfil, curtir e comentar reprovado' }
+          $exe=(Resolve-Path 'apps/desktop/release/win-unpacked/LinkLeads.exe').Path
+          if ((Get-Item $exe).Length -lt 1000000) { throw 'Exe aparentemente incompleto' }
+          $testData=Join-Path $env:RUNNER_TEMP 'linkleads-portable-smoke-data'
+          New-Item -ItemType Directory -Force -Path $testData | Out-Null
+          $env:LINKLEADS_TEST_BASE_URL='http://127.0.0.1:1'
+          $env:LINKLEADS_TEST_USER_DATA=$testData
+          $proc=$null
+          try {
+            $proc=Start-Process -FilePath $exe -PassThru
+            Start-Sleep -Seconds 8
+            $proc.Refresh()
+            if ($proc.HasExited) { throw "Executavel portatil encerrou prematuramente com codigo $($proc.ExitCode)" }
+            Write-Host 'Executavel portatil permaneceu aberto no Windows isolado'
+          } finally {
+            if ($proc) { $proc.Refresh(); if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue } }
+            Remove-Item Env:LINKLEADS_TEST_BASE_URL -ErrorAction SilentlyContinue
+            Remove-Item Env:LINKLEADS_TEST_USER_DATA -ErrorAction SilentlyContinue
+          }
+          $sig=Get-AuthenticodeSignature $exe
+          Write-Host "ASSINATURA: $($sig.Status) - apenas teste do proprietario"
+      - name: Criar pacote sem NSIS, sem exclusao, com CMD na raiz
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          New-Item -ItemType Directory -Path 'portable-package/LinkLeads' -Force | Out-Null
+          Copy-Item -Path 'apps/desktop/release/win-unpacked/*' -Destination 'portable-package/LinkLeads' -Recurse -Force
+          Copy-Item -Path 'scripts/ABRIR-LINKLEADS-PORTATIL.cmd' -Destination 'portable-package/ABRIR-LINKLEADS-PORTATIL.cmd'
+          $exe='portable-package/LinkLeads/LinkLeads.exe'
+          if (-not (Test-Path $exe)) { throw 'Exe nao encontrado no pacote' }
+          $hash=(Get-FileHash $exe -Algorithm SHA256).Hash
+          $files=Get-ChildItem 'portable-package/LinkLeads' -Recurse -File
+          [ordered]@{sha=$env:GITHUB_SHA;mode='portable-owner-test';version='0.5.11';exeSha256=$hash;fileCount=$files.Count;totalBytes=($files | Measure-Object Length -Sum).Sum} | ConvertTo-Json | Set-Content 'portable-package/manifesto.json' -Encoding UTF8
+          @(
+            'LINKLEADS PORTATIL — TESTE DO PROPRIETARIO'
+            'Nao executar o Setup-0.5.11.exe travado.'
+            'Extraia este pacote COMPLETO em uma pasta NOVA.'
+            'Feche qualquer instancia do LinkLeads.'
+            'Execute ABRIR-LINKLEADS-PORTATIL.cmd na raiz.'
+            'Nao desinstala, nao apaga, nao altera as pastas antigas.'
+            'Usa o mesmo userData do LinkLeads; mantenha a versao anterior fechada.'
+            'Nao homologado contra LinkedIn real. Nao distribuir comercialmente sem assinatura.'
+          ) | Set-Content 'portable-package/LEIA-ME.txt' -Encoding UTF8
+          if (-not (Test-Path 'portable-package/ABRIR-LINKLEADS-PORTATIL.cmd')) { throw 'CMD ausente' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LinkLeads-PORTATIL-Sem-NSIS-${{ github.sha }}
+          path: portable-package/
+          if-no-files-found: error
+          retention-days: 30
+
+  publish-owner-candidate:
+    name: Publicar pacote Windows acessivel em Releases (main)
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: portable-windows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: LinkLeads-PORTATIL-Sem-NSIS-${{ github.sha }}
+          path: portable-package
+      - name: Gerar ZIP final e publicar release de avaliacao
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f portable-package/LinkLeads/LinkLeads.exe
+          test -f portable-package/ABRIR-LINKLEADS-PORTATIL.cmd
+          short="${GITHUB_SHA:0:8}"
+          tag="v0.5.11-perfis-${short}"
+          zipfile="LINKLEADS-PERFIS-CURTIDAS-COMENTARIOS-${short}.zip"
+          (
+            cd portable-package
+            zip -q -r "../${zipfile}" .
+          )
+          sha256sum "${zipfile}" > "${zipfile}.sha256"
+          gh release create "${tag}" "${zipfile}" "${zipfile}.sha256" \
+            --target "${GITHUB_SHA}" --prerelease \
+            --title "LINKLEADS 0.5.11 - Perfis, Curtidas e Comentarios (avaliacao)" \
+            --notes "Pacote portatil Windows sem NSIS e sem rotina de backup obrigatoria. Abra o CMD na raiz depois de extrair o ZIP. Compilacao, testes simulados e inicializacao Windows aprovados no CI; funcionamento na conta LinkedIn real precisa de homologacao supervisionada. Nenhuma exclusao de dados da versao anterior."

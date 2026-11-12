@@ -3,8 +3,9 @@ import { SAFE_RETRY_REASONS, isSafeManualRetry } from '../src/main/retry-policy.
 
 describe('repetição conservadora', () => {
   it('permite somente bloqueio pré-execução', () => {
-    expect(SAFE_RETRY_REASONS).toEqual(['LIMIT_REACHED']);
+    expect(SAFE_RETRY_REASONS).toEqual(['LIMIT_REACHED', 'IDENTITY_UNVERIFIED']);
     expect(isSafeManualRetry('LIMIT_REACHED')).toBe(true);
+    expect(isSafeManualRetry('IDENTITY_UNVERIFIED')).toBe(true);
   });
   it.each(['THROTTLED','NO_REAL_EFFECT','NOT_FOUND','ERROR','NO_POST',
     'REPLIED','OPTED_OUT','EXCLUDED','AI_SKIPPED','CUSTOM_UNKNOWN', null, undefined])(
