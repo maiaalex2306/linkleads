@@ -274,6 +274,7 @@ export class SqliteCampaignStore implements CampaignStore {
     const matches = this.db.prepare(
       "SELECT * FROM people WHERE json_extract(custom_json, '$.sn_id') = ? LIMIT 2",
     ).all(snId) as Row[];
+    if (matches.length > 1) throw new Error('Hash SN associado a mais de um registro. Revisão de identidade obrigatória.');
     return matches.length === 1 ? rowToPerson(matches[0]!) : undefined;
   }
 
