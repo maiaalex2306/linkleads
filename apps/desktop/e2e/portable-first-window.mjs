@@ -29,7 +29,7 @@ try {
   const win = await instance.firstWindow();
   await win.waitForLoadState('domcontentloaded', { timeout: 20_000 });
   await win.locator('.launcher-page').waitFor({ state: 'visible', timeout: 20_000 });
-  if (!await win.isVisible()) throw new Error('Janela do executavel nao esta visivel');
+  if (!await win.locator('.launcher-page').isVisible()) throw new Error('Janela do executavel nao esta visivel');
   const userData = await instance.evaluate(({ app }) => app.getPath('userData'));
   if (!userData.toLowerCase().startsWith((roaming + sep).toLowerCase())) {
     throw new Error('Smoke fora do APPDATA temporario: ' + userData);
