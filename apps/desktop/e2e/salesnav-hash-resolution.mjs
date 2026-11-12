@@ -41,8 +41,7 @@ try {
   }, csvPath);
   const imported = await call('importCsv', account.id);
   check(imported.valid === 1 && imported.added === 1, 'hash isolado entra no CRM', imported);
-  const collection = await call('listCollections', account.id);
-  const rows = await call('listCollectionPeople', account.id, imported.collectionId);
+  const rows = await call('collectionPeople', account.id, imported.collectionId);
   check(rows.length === 1 && rows[0].memberId === '111' && rows[0].publicId === undefined,
     'member_id extraído do hash, sem URL pública inventada', rows);
 
