@@ -50,8 +50,24 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Persistencia isolada reprovada' }
           node apps/desktop/e2e/unified-engagement.mjs
           if ($LASTEXITCODE -ne 0) { throw 'E2E engagement reprovado' }
-          $exe=Resolve-Path 'apps/desktop/release/win-unpacked/LinkLeads.exe'
+          $exe=(Resolve-Path 'apps/desktop/release/win-unpacked/LinkLeads.exe').Path
           if ((Get-Item $exe).Length -lt 1000000) { throw 'Exe aparentemente incompleto' }
+          $testData=Join-Path $env:RUNNER_TEMP 'linkleads-portable-smoke-data'
+          New-Item -ItemType Directory -Force -Path $testData | Out-Null
+          $env:LINKLEADS_TEST_BASE_URL='http://127.0.0.1:1'
+          $env:LINKLEADS_TEST_USER_DATA=$testData
+          $proc=$null
+          try {
+            $proc=Start-Process -FilePath $exe -PassThru
+            Start-Sleep -Seconds 8
+            $proc.Refresh()
+            if ($proc.HasExited) { throw "Executavel portatil encerrou prematuramente com codigo $($proc.ExitCode)" }
+            Write-Host 'Executavel portatil permaneceu aberto no Windows isolado'
+          } finally {
+            if ($proc) { $proc.Refresh(); if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue } }
+            Remove-Item Env:LINKLEADS_TEST_BASE_URL -ErrorAction SilentlyContinue
+            Remove-Item Env:LINKLEADS_TEST_USER_DATA -ErrorAction SilentlyContinue
+          }
           $sig=Get-AuthenticodeSignature $exe
           Write-Host "ASSINATURA: $($sig.Status) - apenas teste do proprietario"
       - name: Criar pacote sem NSIS, sem exclusao, com CMD na raiz
