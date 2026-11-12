@@ -126,6 +126,22 @@ jobs:
             $shortcut=(New-Object -ComObject WScript.Shell).CreateShortcut($link)
             if ($shortcut.TargetPath -ine 'D:\LINKLEADS\ABRIR-LINKLEADS.cmd') { throw "Atalho incorreto: $($shortcut.TargetPath)" }
             Write-Host 'APROVADO: D:\LINKLEADS fixo, hash, atalho, dados preexistentes, janela visivel e relatorio'
+            # Testar novamente o INSTALAR ja instalado em D:\LINKLEADS:
+            # deve reparar e reabrir, sem depender do ZIP extraido.
+            Get-CimInstance Win32_Process -Filter "Name = 'LinkLeads.exe'" -ErrorAction SilentlyContinue |
+              Where-Object { $_.ExecutablePath -ieq $exe } |
+              ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+            Start-Sleep -Seconds 2
+            $localInstaller = Join-Path $root 'INSTALAR-LINKLEADS.cmd'
+            if (-not (Test-Path $localInstaller)) { throw 'Instalador nao ficou disponivel na raiz fixa' }
+            & $localInstaller
+            if ($LASTEXITCODE -ne 0) { throw "Reparo pela raiz D:\LINKLEADS falhou: $LASTEXITCODE" }
+            $again = Get-Content $report -Raw
+            if ($again -notmatch 'MODO: REPARO_SEM_COPIA' -or $again -notmatch 'STATUS: INSTALADO_JANELA_OK') {
+              throw "Reparo nao comprovado: $again"
+            }
+            if ((Get-Content $marker -Raw).Trim() -ne 'NUNCA APAGAR') { throw 'Arquivo preexistente alterado durante o reparo' }
+            Write-Host 'APROVADO: instalador da raiz funciona novamente sem ZIP nem perda de arquivos'
           } finally {
             if (Test-Path (Join-Path $root 'resultado-instalacao-linkleads.txt')) { Write-Host (Get-Content (Join-Path $root 'resultado-instalacao-linkleads.txt') -Raw) }
             if (Test-Path (Join-Path $root 'resultado-abertura-linkleads.txt')) { Write-Host (Get-Content (Join-Path $root 'resultado-abertura-linkleads.txt') -Raw) }
