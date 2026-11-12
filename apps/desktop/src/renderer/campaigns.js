@@ -311,9 +311,9 @@ function campaignCard(a, c, cols) {
       h('button', { class: 'primary', onclick: () => openCampaignWorkspace(c.id) }, 'Abrir campanha'),
       addCol,
       exportButton(a, { campaignId: c.id, name: c.name }),
-      !a.paused && !a.runnerEnabled && c.people.some((p) => p.status === 'failed' && p.reason === 'LIMIT_REACHED') && h('button', { title: 'Reencaminha somente falhas por limite local, sem ações de efeito incerto', onclick: async () => {
+      !a.paused && !a.runnerEnabled && c.people.some((p) => p.status === 'failed' && ['LIMIT_REACHED', 'IDENTITY_UNVERIFIED'].includes(p.reason)) && h('button', { title: 'Reencaminha falhas de limite ou identidade antes da interação; não repete efeitos incertos', onclick: async () => {
         const n = await safe(() => api.retryFailed(a.id, c.id));
-        if (n != null) { toast(n ? `${n} pessoa(s) voltaram para a fila` : 'Nenhuma falha que valha tentar de novo (ex.: respondeu, fora do ICP)'); renderView(); }
+        if (n != null) { toast(n ? `${n} pessoa(s) voltaram para a fila` : 'Nenhuma falha segura para reprocessar'); renderView(); }
       } }, 'Tentar de novo as falhas'),
       h('button', { onclick: () => { showingTable = false; body.replaceChildren(campaignEditor(a, c, () => renderView())); } }, 'Editar etapas'),
       h('button', { class: c.active ? '' : 'primary', onclick: () => safe(() => api.setCampaignActive(a.id, c.id, !c.active)).then(renderView) }, c.active ? 'Pausar' : 'Ativar'),
