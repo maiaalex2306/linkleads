@@ -17,7 +17,7 @@ function mockBrowser(redirect?: string | ((url: string) => string), initial = 'h
     driver: {
       wc: { getURL: () => current },
       goto,
-      read: vi.fn(async () => ({ name: 'Carlos Pereira', company: 'Toyota' })),
+      read: vi.fn(async (fn: { name?: string }) => fn.name === 'salesPagePublicProfileLinks' ? [] : ({ name: 'Carlos Pereira', company: 'Toyota' })),
       assertNotBlocked: vi.fn(async () => undefined),
       exists,
     },
