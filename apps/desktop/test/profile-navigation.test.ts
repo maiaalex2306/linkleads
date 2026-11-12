@@ -160,4 +160,29 @@ describe('Sales Navigator - resolução pelo link original do CSV', () => {
     expect(await gotoProfile(deps, person)).toHaveProperty('needsReview');
     expect(upsertPerson).not.toHaveBeenCalled();
   });
+  it('aceita candidato exportado quando nome, empresa e destino /in/ coincidem', async () => {
+    const person: Person = { id: 'candidate:carlos-pereira', firstName: 'Carlos', lastName: 'Pereira',
+      company: 'Toyota', custom: { linkleads_import_public_id_unverified: 'carlos-pereira' } };
+    const { deps, goto } = mockBrowser();
+    const upsertPerson = vi.fn();
+    deps.crm = { upsertPerson, findByPublicId: vi.fn() } as unknown as ExecutorDeps['crm'];
+    expect(await gotoProfile(deps, person)).toBe('ok');
+    expect(goto).toHaveBeenCalledWith('https://www.linkedin.com/in/carlos-pereira/');
+    expect(person.publicId).toBe('carlos-pereira');
+    expect(upsertPerson).toHaveBeenCalledWith(expect.objectContaining({ id: 'candidate:carlos-pereira' }));
+  });
+
+  it('não promove candidato /in/ homônimo se a empresa do perfil não corresponde ao CSV', async () => {
+    const person: Person = { id: 'candidate:ana-silva', firstName: 'Ana', lastName: 'Silva',
+      company: 'Águas do Vale', custom: { linkleads_import_public_id_unverified: 'ana-silva' } };
+    const { deps, goto } = mockBrowser();
+    const upsertPerson = vi.fn();
+    deps.crm = { upsertPerson, findByPublicId: vi.fn() } as unknown as ExecutorDeps['crm'];
+    const result = await gotoProfile(deps, person);
+    expect(result).toHaveProperty('needsReview');
+    expect(goto).toHaveBeenCalledWith('https://www.linkedin.com/in/ana-silva/');
+    expect(person.publicId).toBeUndefined();
+    expect(upsertPerson).not.toHaveBeenCalled();
+  });
+
 });
