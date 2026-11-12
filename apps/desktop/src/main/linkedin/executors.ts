@@ -571,6 +571,12 @@ export function navigationKeys(url: string, prevUrl: string, how: 'url' | 'click
     if (same) return []; // mesma pessoa (ex.: perfil → atividade → contato): não é nova página de perfil
     return how === 'url' ? ['activity', 'profile_load', 'profile_url'] : ['activity', 'profile_load'];
   }
+  // A tentativa de resolver um perfil por Sales Navigator / member_id também
+  // consome navegação: não ultrapassar os limites ao alternar estratégias.
+  if (/^\/sales\/(?:people|lead|profile)\//.test(path) || /^\/profile\/view\/?$/.test(path)) {
+    if (url === prevUrl) return [];
+    return how === 'url' ? ['activity', 'profile_load', 'profile_url'] : ['activity', 'profile_load'];
+  }
   const comp = path.match(/^\/company\/([^/]+)/);
   if (comp) return prev.startsWith(`/company/${comp[1]}`) ? [] : how === 'url' ? ['activity', 'company_url'] : ['activity'];
   if (path.startsWith('/search/results')) return ['search_pages'];
@@ -660,6 +666,8 @@ export async function gotoProfile(d: ExecutorDeps, p: Person, suffix = ''): Prom
     const attempts: string[] = [];
     let verifiedRoute: ProfileRoute | undefined;
     for (const route of routes) {
+      if (d.limits && d.limits.left('profile_url') <= 0)
+        return { retryAt: d.limits.freeAt('profile_url') };
       try {
         await d.driver.goto(routeTestUrl(route.url));
         await d.driver.assertNotBlocked();
