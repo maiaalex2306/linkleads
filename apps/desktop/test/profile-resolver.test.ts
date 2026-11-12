@@ -38,6 +38,13 @@ describe('resolver de identidade — somente leitura/rotas conhecidas', () => {
       url: 'https://www.linkedin.com/profile/view?id=33574315',
       requiresNameConfirmation: false }]);
   });
+  it('recompõe URL Sales Navigator SOMENTE quando o CSV preservou o token completo', () => {
+    const raw = hash + ',9rcn,NAME_SEARCH';
+    const routes = profileResolutionRoutes({ ...lead,
+      custom: { sn_id: hash, linkleads_sn_hash_raw: raw } });
+    expect(routes.map((r) => r.method)).toEqual(['member_legacy', 'sales_source']);
+    expect(routes[1]?.url).toBe('https://www.linkedin.com/sales/people/' + raw + '/');
+  });
   it('public_id isolado é candidato e não confirmação automática', () => {
     const routes = profileResolutionRoutes({
       ...lead, custom: { ...lead.custom, linkleads_import_public_id_unverified: 'priscila-rocha' },
