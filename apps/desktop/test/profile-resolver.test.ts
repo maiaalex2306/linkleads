@@ -34,11 +34,9 @@ describe('resolver de identidade — somente leitura/rotas conhecidas', () => {
       ...lead, memberId: undefined,
       custom: { sn_id: hash, linkleads_sn_hash_core: hash },
     });
-    expect(routes.map((r) => r.method)).toEqual(['member_legacy', 'sales_hash']);
-    expect(routes[0]?.url).toBe('https://www.linkedin.com/profile/view?id=33574315');
-    expect(routes[1]).toEqual({ method: 'sales_hash',
-      url: 'https://www.linkedin.com/sales/people/' + hash + '/',
-      requiresNameConfirmation: true });
+    expect(routes).toEqual([{ method: 'member_legacy',
+      url: 'https://www.linkedin.com/profile/view?id=33574315',
+      requiresNameConfirmation: false }]);
   });
   it('public_id isolado é candidato e não confirmação automática', () => {
     const routes = profileResolutionRoutes({
@@ -49,6 +47,9 @@ describe('resolver de identidade — somente leitura/rotas conhecidas', () => {
       url: 'https://www.linkedin.com/in/priscila-rocha/',
       requiresNameConfirmation: true,
     });
+  });
+  it('não fabrica URL Sales Navigator cortada depois da vírgula', () => {
+    expect(parseSalesSource('https://www.linkedin.com/sales/people/' + hash)).toBeUndefined();
   });
   it('rejeita hosts externos, ids suspeitos e senhas em URLs', () => {
     for (const url of [
