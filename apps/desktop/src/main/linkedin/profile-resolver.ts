@@ -70,7 +70,14 @@ export function profileResolutionRoutes(p: Person): ProfileRoute[] {
     routes.push({ method: 'member_legacy',
       url: 'https://www.linkedin.com/profile/view?id=' + member,
       requiresNameConfirmation: false });
-  return routes.filter((route, index, all) => all.findIndex((x) => x.url === route.url) === index);
+  // Uma conta Basic pode levar /sales/ para login/authwall. Preferir a
+  // rota pública legada por member_id antes do Sales Navigator; não evita
+  // checkpoint e não altera as permissões da plataforma.
+  const priority: Record<IdentityRoute, number> = {
+    exported_public_candidate: 0, member_legacy: 1, sales_source: 2, sales_hash: 3,
+  };
+  return routes.filter((route, index, all) => all.findIndex((x) => x.url === route.url) === index)
+    .sort((a, b) => priority[a.method] - priority[b.method]);
 }
 
 /** Não comparar identidade exclusivamente por homônimos. A conferência de nome
