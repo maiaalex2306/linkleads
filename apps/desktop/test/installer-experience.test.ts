@@ -25,7 +25,9 @@ describe('padrao fixo de instalacao Windows D:\\LINKLEADS', () => {
 
   it('exige pacote inteiro, SHA256 e preserva dados sem backup obrigatorio', () => {
     expect(installer).toContain('LL_MANIFEST');
-    expect(installer).toContain('Get-FileHash');
+    expect(installer).toContain('SHA256]::Create()');
+    expect(installer).toContain('ComputeHash');
+    expect(installer).not.toContain('Get-FileHash');
     expect(installer).toContain('exeSha256');
     expect(installer).toContain('--check-only');
     expect(installer).toContain('robocopy');
