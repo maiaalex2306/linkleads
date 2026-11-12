@@ -91,3 +91,46 @@ describe('LocalCrm', () => {
     expect(crm.listDrafts()).toHaveLength(0);
   });
 });
+
+
+describe('conciliação de identidade sem apagar campanhas', () => {
+  const hash = 'ACwAAAIATasBA_OC0NMUDatWeEBCssGNHCpTT6U';
+
+  it('reimportar SN depois de resolver /in/ conserva mesmo ID, fila e URL pública', () => {
+    const crm = new LocalCrm(openAccountDb(':memory:'), 'UTC');
+    crm.createCollection('sn', 'SN', 'csv');
+    const pending = { id: 'm:33574315', memberId: '33574315',
+      firstName: 'Priscila', lastName: 'Rocha',
+      custom: { sn_id: hash, linkleads_resolution_status: 'PENDING',
+        linkleads_source_url: 'https://www.linkedin.com/sales/people/' + hash + ',9rcn,NAME_SEARCH/' } };
+    expect(crm.addToCollection('sn', [pending])).toBe(1);
+    crm.upsertPerson({ ...pending, publicId: 'priscila-rocha',
+      custom: { ...pending.custom, linkleads_resolution_status: 'RESOLVED',
+        linkleads_identity_source: 'member_id_resolved',
+        linkleads_profile_url: 'https://www.linkedin.com/in/priscila-rocha/' } });
+    const campaign = engagementCampaign({ id: 'c-identity', accountId: 'acc', name: 'Identidade', commentMode: 'manual' });
+    crm.saveCampaign(campaign);
+    crm.enqueue('c-identity', campaign.actions[0]!.id, pending.id);
+    crm.setStatus('c-identity', campaign.actions[0]!.id, pending.id, 'failed', 'IDENTITY_UNVERIFIED');
+
+    expect(crm.addToCollection('sn', [{ ...pending, id: 'sn:' + hash }])).toBe(0);
+    expect(crm.findByMemberId('33574315')?.id).toBe(pending.id);
+    expect(crm.findBySnId(hash)?.publicId).toBe('priscila-rocha');
+    expect(crm.getPerson(pending.id)?.custom).toMatchObject({
+      linkleads_resolution_status: 'RESOLVED', linkleads_identity_source: 'member_id_resolved' });
+    expect(crm.campaignActionRows('c-identity').total).toBe(1);
+    expect(crm.campaignActionRows('c-identity',{filter:'failed'}).total).toBe(1);
+    expect((crm.db.prepare('SELECT COUNT(*) as n FROM people').get() as { n: number }).n).toBe(1);
+  });
+
+  it('conflito entre public_id e member_id não une homônimos nem apaga registros', () => {
+    const crm = new LocalCrm(openAccountDb(':memory:'), 'UTC');
+    crm.createCollection('sn', 'SN', 'csv');
+    crm.upsertPerson({ id: 'a', publicId: 'pessoa-a', memberId: '111', custom: { sn_id: 'ACwAAAAA' } });
+    crm.upsertPerson({ id: 'b', publicId: 'pessoa-b', memberId: '222', custom: { sn_id: 'ACwAAABB' } });
+    expect(() => crm.addToCollection('sn', [{ id: 'novo', publicId: 'pessoa-a',
+      memberId: '222', custom: { sn_id: 'ACwAAAAA' } }])).toThrow(/Conflito de identidade/);
+    expect((crm.db.prepare('SELECT COUNT(*) as n FROM people').get() as { n: number }).n).toBe(2);
+    expect(crm.listCollections()[0]?.size).toBe(0);
+  });
+});
