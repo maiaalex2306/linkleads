@@ -134,7 +134,7 @@ export function importPeopleFromCsv(text: string, makeId: (publicId: string) => 
     const hasName = !!((rec.firstName && rec.lastName) || (rec.fullName && rec.fullName.trim().split(/\s+/).length >= 2));
     // Links do Sales Navigator também podem vir em coluna livre do export.
     // Preservar o caminho INTEIRO, inclusive os segmentos após as vírgulas.
-    const embeddedSales = cols.flatMap((value) => [...value.matchAll(/https:\/\/(?:[a-z]{2,3}\.)?linkedin\.com\/sales\/(?:people|lead|profile)\/[A-Za-z0-9_-]+(?:,[A-Za-z0-9_-]+)*\/?(?:\?[^ \t\r\n"'<>\])}]*)?/gi)].map((m) => m[0]!));
+    const embeddedSales = cols.flatMap((value) => [...value.matchAll(/https:\/\/(?:[a-z]{2,3}\.)?linkedin\.com\/sales\/(?:people|lead|profile)\/[A-Za-z0-9_-]+(?:,[A-Za-z0-9_-]+)*\/?/gi)].map((m) => m[0]!));
     const sourceUrl = urlCandidates.find((v) => /linkedin\.com\/in\//i.test(v))
       ?? urlCandidates.find((v) => /linkedin\.com\/sales\//i.test(v))
       ?? embeddedSales[0]
