@@ -2,6 +2,8 @@ name: Windows - recuperacao portatil sem NSIS
 on:
   push:
     branches: [main, fix/windows-portable-recovery-20261112, feature/phase3-identity-salesnav-20261112]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
