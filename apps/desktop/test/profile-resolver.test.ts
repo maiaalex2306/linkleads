@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { memberIdFromSalesHash } from '@linkleads/core';
 import type { Person } from '@linkleads/core';
 import { parseSalesSource, profileResolutionRoutes, samePersonName, snHashCore } from '../src/main/linkedin/profile-resolver.js';
 
@@ -12,6 +13,12 @@ describe('resolver de identidade — somente leitura/rotas conhecidas', () => {
       linkleads_source_url: 'https://www.linkedin.com/sales/people/' + hash + ',9rcn,NAME_SEARCH/',
     },
   };
+  it('extrai corretamente member_id de dois hashes independentes', () => {
+    expect(memberIdFromSalesHash(hash)).toBe('33574315');
+    expect(memberIdFromSalesHash('ACwAAA8BYqEBlKc364xhzvygIeuJJ3rATiwe2NE')).toBe('251749025');
+    expect(memberIdFromSalesHash('ACwAAAna')).toBeUndefined();
+    expect(memberIdFromSalesHash('ACoAAA8BYqEBCGLg_vT_ca6mMEqkpp9nVffJ3hc')).toBeUndefined();
+  });
   it('preserva hash e URL original, sem fabricar /in/', () => {
     expect(snHashCore(hash + ',9rcn,NAME_SEARCH')).toBe(hash);
     expect(parseSalesSource(lead.custom?.linkleads_source_url)).toEqual({
@@ -27,9 +34,11 @@ describe('resolver de identidade — somente leitura/rotas conhecidas', () => {
       ...lead, memberId: undefined,
       custom: { sn_id: hash, linkleads_sn_hash_core: hash },
     });
-    expect(routes).toEqual([{ method: 'sales_hash',
+    expect(routes.map((r) => r.method)).toEqual(['sales_hash', 'member_legacy']);
+    expect(routes[0]).toEqual({ method: 'sales_hash',
       url: 'https://www.linkedin.com/sales/people/' + hash + '/',
-      requiresNameConfirmation: true }]);
+      requiresNameConfirmation: true });
+    expect(routes[1]?.url).toBe('https://www.linkedin.com/profile/view?id=33574315');
   });
   it('public_id isolado é candidato e não confirmação automática', () => {
     const routes = profileResolutionRoutes({
