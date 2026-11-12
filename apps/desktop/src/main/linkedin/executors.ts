@@ -681,7 +681,7 @@ export async function gotoProfile(d: ExecutorDeps, p: Person, suffix = ''): Prom
         continue;
       }
       let observed = profileSlug(d.driver.wc.getURL());
-      if (!observed && (route.method === 'sales_source' || route.method === 'sales_hash')) {
+      if (!observed && (route.method === 'sales_source')) {
         const links = await d.driver.read(salesPagePublicProfileLinks).catch(() => [] as string[]);
         const slugs = [...new Set(links.map(profileSlug).filter((s): s is string => !!s))];
         if (slugs.length > 1) { attempts.push(route.method + ': múltiplos perfis possíveis'); continue; }
