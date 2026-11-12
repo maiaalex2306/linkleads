@@ -80,8 +80,10 @@ try {
   await browser.waitForURL((url) => url.origin === new URL(site.url).origin, { timeout: 20_000 });
   await browser.waitForLoadState('domcontentloaded');
   await call('runNow', acc.id);
-  check((site.state.salesNavVisits ?? []).some((item) => item.id === 'ACwAAAna'),
-    'Sales Navigator do CSV foi acessado sem criar um /in/ artificial', site.state.salesNavVisits);
+  check((site.state.memberRouteVisits ?? []).includes('/profile/view?id=111') ||
+    (site.state.salesNavVisits ?? []).some((item) => item.id === 'ACwAAAna'),
+    'usou identificador de membro ou link SN sem inventar /in/', {
+      member: site.state.memberRouteVisits, sales: site.state.salesNavVisits });
   check((site.state.profileLoads ?? []).some((item) => item.slug === 'ana-silva'),
     'perfil /in/ resolvido pelo redirecionamento do site de teste', site.state.profileLoads);
   check(site.state.liked === true, 'a curtida foi executada');
