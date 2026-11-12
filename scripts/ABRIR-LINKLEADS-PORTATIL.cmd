@@ -22,8 +22,9 @@ if not errorlevel 1 goto ALREADY_RUNNING
 
 echo Abrindo LinkLeads...
 >> "%REPORT%" echo ETAPA: EXECUTAR
+rem START pode herdar ERRORLEVEL=1 do FIND anterior mesmo quando abre com sucesso.
+rem A única prova de sucesso agora é JANELA_OK, verificada abaixo.
 start "" /D "%ROOT%LinkLeads" "%EXE%"
-if errorlevel 1 goto START_FAILED
 
 echo Verificando janela real do programa...
 rem Usa ping local, pois TIMEOUT falha quando CMD roda com stdin redirecionado.
@@ -68,8 +69,3 @@ echo Em seguida execute ESTE arquivo novamente.
 if not "%LINKLEADS_NONINTERACTIVE%"=="1" pause
 exit /b 3
 
-:START_FAILED
-echo ERRO: Windows nao iniciou o executavel.
->> "%REPORT%" echo STATUS: ERRO_START
-if not "%LINKLEADS_NONINTERACTIVE%"=="1" pause
-exit /b 5
