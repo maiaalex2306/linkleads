@@ -47,6 +47,38 @@ export function publicIdFromUrl(url: string): string | undefined {
   }
 }
 
+/**
+ * O ID numérico do membro aparece nos bytes 4..7 de hashes Sales Navigator
+ * do formato ACwA + payload Base64URL (prefixo binário 00 2c 00 00).
+ * Conferido independentemente nos pares 33574315 e 251749025.
+ * NÃO equivale ao slug /in/ nem garante que uma rota Basic estará acessível.
+ * Retorna undefined para formatos diferentes, em vez de fabricar identidade.
+ */
+export function memberIdFromSalesHash(raw: string | undefined): string | undefined {
+  const core = raw?.trim().split(',')[0]?.trim();
+  if (!core || !/^ACw[A-Za-z0-9_-]{30,}$/.test(core) || core.length % 4 === 1) return undefined;
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+  let accumulator = 0;
+  let bits = 0;
+  const bytes: number[] = [];
+  for (const ch of core) {
+    const value = alphabet.indexOf(ch);
+    if (value < 0) return undefined;
+    accumulator = (accumulator << 6) | value;
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      bytes.push((accumulator >>> bits) & 255);
+      accumulator &= (1 << bits) - 1;
+      if (bytes.length === 8) break;
+    }
+  }
+  if (bytes.length !== 8 || bytes[0] !== 0 || bytes[1] !== 44 ||
+    bytes[2] !== 0 || bytes[3] !== 0) return undefined;
+  const id = bytes[4]! * 16777216 + bytes[5]! * 65536 + bytes[6]! * 256 + bytes[7]!;
+  return id > 0 ? String(id) : undefined;
+}
+
 const norm = (h: string) => h.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
 /** Sinônimos de cabeçalho aceitos (pt/en, exportações comuns). */
@@ -130,7 +162,15 @@ export function importPeopleFromCsv(text: string, makeId: (publicId: string) => 
     // Sales Navigator, /pub/ e member_id sem /in/ permanecem em revisão; nunca escolher homônimos.
     const any = [...urlCandidates, ...cols].join(' ');
     const snId = (rec.snId?.split(',')[0] || any.match(/linkedin\.com\/sales\/(?:people|lead)\/([A-Za-z0-9_-]+)/i)?.[1]) || undefined;
-    const memberId = rec.memberId && /^\d+$/.test(rec.memberId) ? rec.memberId : undefined;
+    const suppliedMemberId = rec.memberId && /^\d+$/.test(rec.memberId) ? rec.memberId : undefined;
+    const decodedMemberId = memberIdFromSalesHash(snId);
+    const memberId = suppliedMemberId ?? decodedMemberId;
+    if (decodedMemberId) {
+      custom.linkleads_member_id_from_hash = decodedMemberId;
+      if (!suppliedMemberId) custom.linkleads_member_id_derived = 'true';
+      if (suppliedMemberId && suppliedMemberId !== decodedMemberId)
+        custom.linkleads_member_id_conflict = suppliedMemberId + ' != ' + decodedMemberId;
+    }
     // Links do Sales Navigator também podem vir em coluna livre do export.
     // Preservar o caminho INTEIRO, inclusive os segmentos após as vírgulas.
     const embeddedSales = cols.flatMap((value) => [...value.matchAll(/https:\/\/(?:[a-z]{2,3}\.)?linkedin\.com\/sales\/(?:people|lead|profile)\/[A-Za-z0-9_-]+(?:,[A-Za-z0-9_-]+)*\/?/gi)].map((m) => m[0]!));
