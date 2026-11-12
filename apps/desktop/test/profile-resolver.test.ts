@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { memberIdFromSalesHash } from '@linkleads/core';
 import type { Person } from '@linkleads/core';
-import { parseSalesSource, profileResolutionRoutes, samePersonName, snHashCore } from '../src/main/linkedin/profile-resolver.js';
+import { parseSalesSource, profileResolutionRoutes, samePersonCompany, samePersonName, snHashCore } from '../src/main/linkedin/profile-resolver.js';
 
 describe('resolver de identidade — somente leitura/rotas conhecidas', () => {
   const hash = 'ACwAAAIATasBA_OC0NMUDatWeEBCssGNHCpTT6U';
@@ -55,8 +55,10 @@ describe('resolver de identidade — somente leitura/rotas conhecidas', () => {
       requiresNameConfirmation: true,
     });
   });
-  it('não fabrica URL Sales Navigator cortada depois da vírgula', () => {
-    expect(parseSalesSource('https://www.linkedin.com/sales/people/' + hash)).toBeUndefined();
+  it('admite URL original válida sem segmentos opcionais de pesquisa', () => {
+    expect(parseSalesSource('https://www.linkedin.com/sales/people/' + hash)?.core).toBe(hash);
+    expect(parseSalesSource('https://www.linkedin.com/sales/lead/' + hash)?.core).toBe(hash);
+    expect(parseSalesSource('https://www.linkedin.com/sales/people/')).toBeUndefined();
   });
   it('rejeita hosts externos, ids suspeitos e senhas em URLs', () => {
     for (const url of [
@@ -67,6 +69,14 @@ describe('resolver de identidade — somente leitura/rotas conhecidas', () => {
       'https://www.linkedin.com/sales/people/../../in/ana/',
     ]) expect(parseSalesSource(url)).toBeUndefined();
     expect(profileResolutionRoutes({ id: 'bad', memberId: 'abc123' })).toEqual([]);
+  });
+  it('candidato público exige prova complementar de empresa; homônimo não basta', () => {
+    expect(samePersonCompany(lead, 'Volkswagen do Brasil')).toBe(true);
+    expect(samePersonCompany(lead, 'Outra montadora')).toBe(false);
+    expect(samePersonCompany(lead, null)).toBe(false);
+    expect(profileResolutionRoutes({ ...lead, custom: {
+      linkleads_import_public_id_unverified: 'priscila%2frocha',
+    } }).every((r) => r.method !== 'exported_public_candidate')).toBe(true);
   });
   it('aceita nome com acento e rejeita nome de outra pessoa', () => {
     expect(samePersonName(lead, 'Priscila de Rocha')).toBe(true);
