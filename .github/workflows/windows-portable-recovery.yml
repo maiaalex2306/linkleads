@@ -1,7 +1,7 @@
 name: Windows - recuperacao portatil sem NSIS
 on:
   push:
-    branches: [fix/windows-portable-recovery-20261112]
+    branches: [main, fix/windows-portable-recovery-20261112]
   workflow_dispatch:
 
 permissions:
