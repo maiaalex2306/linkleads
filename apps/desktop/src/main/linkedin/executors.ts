@@ -769,7 +769,9 @@ export async function gotoProfile(d: ExecutorDeps, p: Person, suffix = ''): Prom
   await d.driver.assertNotBlocked();
   if (profileSlug(d.driver.wc.getURL()) !== slug)
     return { needsReview: 'Redirecionamento para perfil ou domínio diferente da identidade resolvida.' };
-  if (verifiedRoute) {
+  // A pagina /recent-activity/all/ nao apresenta h1 de perfil.
+  // A identidade foi validada na pagina /in/ antes do acesso as atividades.
+  if (verifiedRoute && !suffix) {
     const finalIdentity = await d.driver.read(extractProfile,
       d.driver.sel as unknown as Record<string, readonly string[]>)
       .catch(() => ({ name: null }));
