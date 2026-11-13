@@ -701,10 +701,10 @@ export async function gotoProfile(d: ExecutorDeps, p: Person, suffix = ''): Prom
         attempts.push(route.method + ': sem URL pública verificável');
         continue;
       }
-      const observedMemberId = memberIdFromBasicOpaquePublicId(observed);
+      const observedMemberId = memberIdFromBasicOpaquePublicId(observed) ?? memberIdFromSalesHash(observed);
       const expectedMemberId = p.memberId ?? derivedMemberId;
       if (observedMemberId && expectedMemberId && observedMemberId !== expectedMemberId) {
-        attempts.push(route.method + ': member_id do /in/ACo nao corresponde ao lead');
+        attempts.push(route.method + ': member_id do perfil opaco /in/ nao corresponde ao lead');
         continue;
       }
       // URL Basic /in/ACo... pode redirecionar para um slug de nome.
