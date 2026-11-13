@@ -211,3 +211,14 @@ describe('CSV de identidade: hash do Sales Navigator independente da URL', () =>
     expect(r.people[0]?.custom?.linkleads_open_strategy).toBe('member_legacy');
   });
 });
+
+describe('URL Sales Navigator completa com query e dados de origem', () => {
+  it('preserva ?_ntb e tokens apos as virgulas em coluna de observacao', () => {
+    const url = 'https://www.linkedin.com/sales/lead/ACwAAAIATasBA_OC0NMUDatWeEBCssGNHCpTT6U,NAME_SEARCH,sSHS/?_ntb=abc123';
+    const csv = ['Nome completo;Observacao', 'Carlos Pereira;"LinkedIn: ' + url + '"'].join('\n');
+    const result = importPeopleFromCsv(csv);
+    expect(result.people).toHaveLength(1);
+    expect(result.people[0]?.custom?.linkleads_source_url).toBe(url);
+    expect(result.people[0]?.custom?.linkleads_sn_hash_core).toBe('ACwAAAIATasBA_OC0NMUDatWeEBCssGNHCpTT6U');
+  });
+});
