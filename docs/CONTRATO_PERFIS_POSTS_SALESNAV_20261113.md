@@ -33,7 +33,8 @@ Data: 2026-11-13. Diretorio de instalacao imutavel: `D:\LINKLEADS`.
 ## 4. Distribuição Windows (padrão obrigatório)
 - Único instalador: `INSTALAR-LINKLEADS.cmd` na raiz do ZIP.
 - Único destino: `D:\LINKLEADS` (APP/LinkLeads.exe, relatórios e atalho), sem subpastas por versão.
-- Atualizar sem exigir backup, sem exclusão de campanhas, sem NSIS.
+- Atualizar com backup local SHA-256 obrigatório, staging e rollback do código;
+  nunca excluir campanhas nem usar NSIS.
 - Antes de liberar: testes de identidade, posts, compilação, janela visível, instalação real em D:\LINKLEADS, reparo, atalho e SHA-256 no runner Windows.
 - **Testes simulados não comprovam que 802/802 hashes são resolvíveis em conta Basic.** A homologação real com consentimento continua obrigatória.
 

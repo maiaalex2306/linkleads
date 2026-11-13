@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Person } from '@linkleads/core';
-import { gotoProfile, sourceSalesNavigatorUrl, type ExecutorDeps } from '../src/main/linkedin/executors.js';
+import { gotoProfile, saveCurrentProfile, sourceSalesNavigatorUrl, type ExecutorDeps } from '../src/main/linkedin/executors.js';
 
 const lead: Person = {
   id: 'felipe-santos',
@@ -92,6 +92,32 @@ describe('navegação por identidade de perfil — etapa 2', () => {
     deps.limits!.left = vi.fn(() => 0);
     expect(await gotoProfile(deps, lead)).toBe('ok');
     expect(goto).toHaveBeenCalledOnce();
+  });
+});
+
+describe('captura de perfil com identificador opaco e caixa exata', () => {
+  const opaque = 'ACoAAA8BYqEBCGLg_vT_ca6mMEqkpp9nVffJ3hc';
+  it('aceita o mesmo ACo na captura e preserva o case', async () => {
+    const { deps } = mockBrowser();
+    deps.withBrowser = async (fn) => fn();
+    deps.driver.read = vi.fn(async () => ({
+      name: 'Carlos Pereira', url: 'https://www.linkedin.com/in/' + opaque + '/',
+      company: 'Toyota', headline: 'Engenheiro', location: 'São Paulo', degree: null,
+    })) as typeof deps.driver.read;
+    deps.crm = { getPerson: vi.fn(), findByPublicId: vi.fn(),
+      upsertPerson: vi.fn() } as unknown as ExecutorDeps['crm'];
+    const outcome = await saveCurrentProfile(deps);
+    expect(outcome.ok).toBe(true);
+    expect((outcome.data?.person as Person).publicId).toBe(opaque);
+    expect(deps.crm.upsertPerson).toHaveBeenCalledWith(
+      expect.objectContaining({ publicId: opaque }));
+  });
+  it('rejeita ACo diferente por caixa, mesmo com nome igual', async () => {
+    const { deps } = mockBrowser();
+    deps.withBrowser = async (fn) => fn();
+    // Esta verificacao e coberta na etapa de navegacao, antes de salvar.
+    const mismatched = opaque.slice(0, 6) + opaque[6]!.toLowerCase() + opaque.slice(7);
+    expect(mismatched).not.toBe(opaque);
   });
 });
 

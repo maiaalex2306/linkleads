@@ -192,6 +192,8 @@ exit /b 5
 
 :ROLLBACK
 >> "%LL_REPORT%" echo ETAPA: ROLLBACK
+rem Em rollback apos abrir janela, interromper somente o EXE iniciado pelo instalador.
+powershell.exe -NoProfile -NonInteractive -Command "$exe=$env:LL_EXE;Get-CimInstance Win32_Process -Filter "Name='LinkLeads.exe'" -ErrorAction SilentlyContinue|Where-Object {$_.ExecutablePath -ieq $exe}|ForEach-Object {Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue}" >NUL 2>NUL
 if "%LL_REPAIR_MODE%"=="1" goto FAIL
 if "%LL_SWITCHED%"=="1" if exist "%LL_APP%\" move "%LL_APP%" "%LL_FAILED%" >NUL
 if exist "%LL_PREVIOUS%\" (

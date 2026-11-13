@@ -202,7 +202,10 @@ export class AccountInstance {
         const r = await this.collectDiagnosis(context);
         const comparison = r.layout.comparison?.status;
         return !r.blocked.checkpoint && !r.blocked.loggedOut &&
-          comparison !== 'UI_CHANGED' && comparison !== 'BASELINE_UNAVAILABLE' &&
+          comparison !== 'UI_CHANGED' &&
+          // Primeira visita com baseline ainda incompleta: somente liberar
+          // quando o DOM ja contem URN canonica. Guardas por post seguem ativos.
+          (comparison !== 'BASELINE_UNAVAILABLE' || (r.posts?.canonical ?? 0) > 0) &&
           r.primaryCode !== 'UI_CHANGED';
       },
       reportUnrecognized: async (context?: DiagnosisContext) => {
