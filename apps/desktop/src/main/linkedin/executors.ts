@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { ActionExecutor, BudgetKey, ExecutionContext, ExecutionResult, Person, PostSnapshot } from '@linkleads/core';
-import { detectJobChange, getActionDefinition, memberIdFromSalesHash, parseRelativeAgeDays, publicIdFromUrl } from '@linkleads/core';
+import { detectJobChange, getActionDefinition, memberIdFromBasicOpaquePublicId, memberIdFromSalesHash, parseRelativeAgeDays, publicIdFromUrl } from '@linkleads/core';
 import type { CommentSettings, LlmClient, PostInterpreter } from '@linkleads/ai';
 import type { IntegrationCrm } from '@linkleads/db';
 import type { EnrichmentProvider } from '@linkleads/integrations';
@@ -666,9 +666,9 @@ export async function gotoProfile(d: ExecutorDeps, p: Person, suffix = ''): Prom
     (!slug || profileSlug(d.driver.wc.getURL()) !== slug))
     return { retryAt: d.limits.freeAt('profile_url') };
 
+  let verifiedRoute: ProfileRoute | undefined;
   if (!slug) {
     const attempts: string[] = [];
-    let verifiedRoute: ProfileRoute | undefined;
     for (const route of routes) {
       if (d.limits && d.limits.left('profile_url') <= 0)
         return { retryAt: d.limits.freeAt('profile_url') };
@@ -706,6 +706,12 @@ export async function gotoProfile(d: ExecutorDeps, p: Person, suffix = ''): Prom
         attempts.push(route.method + ': destino divergente do arquivo');
         continue;
       }
+      const observedMemberId = memberIdFromBasicOpaquePublicId(observed);
+      const expectedMemberId = p.memberId ?? derivedMemberId;
+      if (observedMemberId && expectedMemberId && observedMemberId !== expectedMemberId) {
+        attempts.push(route.method + ': member_id do /in/ACo nao corresponde ao lead');
+        continue;
+      }
       // Mesmo quando a plataforma redireciona, conferir o nome exibido:
       // previne associação inadvertida a um perfil de terceiro.
       const profile = await d.driver.read(extractProfile,
@@ -739,8 +745,16 @@ export async function gotoProfile(d: ExecutorDeps, p: Person, suffix = ''): Prom
     if (!slug || !verifiedRoute)
       return { needsReview: 'Perfil não resolvido. Tentativas: ' + attempts.join('; ').slice(0, 800) +
         '. Conta Basic pode não disponibilizar rotas do Sales Navigator; não selecionar homônimos.' };
-    // Salvar no MESMO registro antes das atividades. A confirmação do destino
-    // já aconteceu; falha posterior em atividades não desfaz a identidade.
+  }
+
+  const finalUrl = BASE + '/in/' + encodeURIComponent(slug) + '/' + suffix;
+  await d.driver.goto(finalUrl);
+  await d.driver.assertNotBlocked();
+  if (profileSlug(d.driver.wc.getURL()) !== slug)
+    return { needsReview: 'Redirecionamento para perfil ou domínio diferente da identidade resolvida.' };
+  // Somente gravar a identidade quando a navegação FINAL estiver confirmada.
+  // Um candidato ACw nao se transforma automaticamente num /in/ACo.
+  if (verifiedRoute) {
     p.publicId = slug;
     p.custom = { ...(p.custom ?? {}),
       linkleads_profile_url: 'https://www.linkedin.com/in/' + encodeURIComponent(slug) + '/',
@@ -751,11 +765,5 @@ export async function gotoProfile(d: ExecutorDeps, p: Person, suffix = ''): Prom
       linkleads_identity_review_required: 'false' };
     d.crm.upsertPerson(p);
   }
-
-  const finalUrl = BASE + '/in/' + encodeURIComponent(slug) + '/' + suffix;
-  await d.driver.goto(finalUrl);
-  await d.driver.assertNotBlocked();
-  if (profileSlug(d.driver.wc.getURL()) !== slug)
-    return { needsReview: 'Redirecionamento para perfil ou domínio diferente da identidade resolvida.' };
   return 'ok';
 }
