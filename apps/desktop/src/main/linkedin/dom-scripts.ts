@@ -786,11 +786,13 @@ export function postExpandPoint(
   return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
 }
 
+declare function __llPostExpandPoint(sel: Record<string, readonly string[]>, urn: string): { x: number; y: number } | null;
+
 /** Reconfere o ponto antes de expandir um conteúdo (possível virtualização). */
 export function postExpandGuard(
   sel: Record<string, readonly string[]>, urn: string, x: number, y: number,
 ): boolean {
-  const point = postExpandPoint(sel, urn);
+  const point = __llPostExpandPoint(sel, urn);
   if (!point || Math.abs(point.x - x) > 20 || Math.abs(point.y - y) > 20) return false;
   const hit = document.elementFromPoint(x, y);
   if (!hit) return false;
