@@ -419,7 +419,37 @@ try {
   check(state.state === false && !state.guard,
     'Fase 3: overlay que intercepta pixel não autoriza clique', state);
 
-  console.log('E2E FASE 3 — RECONHECIMENTO DE PUBLICAÇÕES OK');
+
+  // FASE 7: múltiplos links de perfis não substituem o autor de um cabeçalho verificável.
+  await page.setContent(
+    '<main><div class="feed-shared-update-v2" data-urn="urn:li:activity:7381234567890129811">' +
+    '<div class="update-components-actor"><a class="update-components-actor__meta-link" href="https://www.linkedin.com/in/douglas-rodrigues/">Douglas Rodrigues</a>' +
+    '<span class="update-components-actor__sub-description">2 d</span></div>' +
+    '<div class="update-components-text">Obrigado a <a href="https://www.linkedin.com/in/renato-bonfogo/">Renato</a>.</div>' +
+    '<button aria-label="Like" aria-pressed="false">Like</button></div></main>'
+  );
+  posts = await scan();
+  check(posts.length === 1 && posts[0].actorHref?.endsWith('/douglas-rodrigues/') &&
+    posts[0].cardIdentity?.identityStatus === 'CONFIRMED',
+    'Fase 7: cabeçalho moderno e menção preservam autoria principal', posts);
+
+  // O mesmo post pode surgir novamente durante a virtualização / carregamento do feed.
+  const repeated = '<div class="feed-shared-update-v2" data-urn="urn:li:activity:7381234567890129812">' +
+    '<div class="update-components-actor"><a href="https://www.linkedin.com/in/renato-bonfogo/">Renato</a>' +
+    '<span class="update-components-actor__sub-description">2 d</span></div>' +
+    '<div class="update-components-text">Publicação repetida.</div>' +
+    '<button aria-pressed="false" aria-label="Like">Like</button></div>';
+  await page.setContent('<main>' + repeated + repeated + '</main>');
+  posts = await scan();
+  check(posts.length === 1 && posts[0].urn === 'urn:li:activity:7381234567890129812',
+    'Fase 7: duas renderizações do mesmo post geram uma identidade lógica', posts);
+
+  await page.setContent(baseCard('<button aria-label="Like" aria-pressed="false" disabled>Like</button>'));
+  state = await probe(reactionUrn);
+  check(state.state === null && !state.guard && state.reason === 'DISABLED',
+    'Fase 7: botão de reação desabilitado nunca autoriza clique', state);
+
+  console.log('E2E FASE 3/7 — MATRIZ DE RECONHECIMENTO OK');
 } catch (error) {
   console.error(error?.stack ?? error);
   process.exitCode = 1;
