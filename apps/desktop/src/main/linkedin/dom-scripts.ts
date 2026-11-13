@@ -411,17 +411,27 @@ export function extractPosts(sel: Record<string, readonly string[]>, limit: numb
 }
 
 export function likeState(sel: Record<string, readonly string[]>, urn: string): boolean | null {
-  const REACT = /(gostei|like|reagir|react|curtir|curtida)/i;
-  const NOT = /(coment|comment|repost|compart|share|enviar|send|salvar|save)/i;
   const container = __llPostContainers({ postItem: sel.postItem!, likeButton: sel.likeButton! }).find((c) => c.urn === urn)?.el;
   if (!container) return null;
-  for (const c of sel.likeButton!) {
-    const b = container.querySelector(c);
-    if (b && b.hasAttribute('aria-pressed')) return b.getAttribute('aria-pressed') === 'true';
+  const embedded = '.feed-shared-mini-update-v2, .update-components-mini-update-v2, .feed-shared-article, .update-components-article, [data-testid*="quoted"], [data-test-id*="reshared"]';
+  const ownButton = (node: Element): boolean => {
+    let ancestor: Element | null = node.parentElement;
+    while (ancestor && ancestor !== container) {
+      if (ancestor.matches(embedded) || ancestor.matches('[data-urn], [data-activity-urn]')) return false;
+      ancestor = ancestor.parentElement;
+    }
+    return true;
+  };
+  let button: HTMLElement | undefined;
+  for (const selector of sel.likeButton!) {
+    const found = (Array.from(container.querySelectorAll(selector)) as HTMLElement[])
+      .find(ownButton);
+    if (found) { button = found; break; }
   }
-  const b = (Array.from(container.querySelectorAll('button, [role="button"]')) as HTMLElement[]).find((x) => __llIsReact(x));
-  if (b && b.hasAttribute('aria-pressed')) return b.getAttribute('aria-pressed') === 'true';
-  const label = b?.getAttribute('aria-label') ?? '';
+  if (!button) button = (Array.from(container.querySelectorAll('button, [role="button"]')) as HTMLElement[])
+    .find((node) => ownButton(node) && __llIsReact(node));
+  if (button?.hasAttribute('aria-pressed')) return button.getAttribute('aria-pressed') === 'true';
+  const label = button?.getAttribute('aria-label') ?? '';
   if (/situa[cç][aã]o do bot[aã]o de rea[cç][aã]o:\s*nenhuma rea[cç][aã]o|reaction button state:\s*no reaction/i.test(label)) return false;
   if (/situa[cç][aã]o do bot[aã]o de rea[cç][aã]o:\s*(?!nenhuma rea[cç][aã]o)\S|reaction button state:\s*(?!no reaction)\S/i.test(label)) return true;
   return null;
