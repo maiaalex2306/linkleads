@@ -211,7 +211,10 @@ export function evaluatePost(
   if (post.cardIdentity?.identityStatus === 'CONFLICT' || post.postKind === 'UNKNOWN')
     return result('REVIEW_REQUIRED', 'POST_FOUND', 'POST_ID_CONFLICT',
       'Conflito na identidade do cartão ou entre identificadores da publicação');
-  if (!post.text && !post.hasMedia && !post.cardIdentity?.embeddedPostUrn)
+  // Repost simples pode apresentar conteúdo somente no cartão citado.
+  // Sem texto próprio a IA poderá recusar o comentário, mas o compartilhamento
+  // continua sujeito à configuração explícita de incluir republicações.
+  if (!post.text && !post.hasMedia && !post.cardIdentity?.embeddedPostUrn && !isReshare)
     return result('NOT_ELIGIBLE', 'POST_FOUND', 'EMPTY_CONTENT', 'Publicação sem conteúdo utilizável');
   if (isReshare && !settings.includeReshares)
     return result('NOT_ELIGIBLE', 'POST_CLASSIFIED', 'RESHARE_EXCLUDED',
