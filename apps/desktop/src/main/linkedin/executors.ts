@@ -437,6 +437,20 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
       d.withBrowser(() =>
         guard(async () => {
           const s = ctx.action.settings as LikeSettings;
+          const previous = d.crm.latestLikeAttempt(ctx.person.id);
+          if (previous?.status === 'confirmed') {
+            d.crm.recordEngagementEffect({
+              campaignId: ctx.campaignId, actionId: ctx.action.id, personId: ctx.person.id,
+              postUrl: previous.postUrl, stage: 'like', status: 'confirmed',
+              reason: 'RECOVERED_FROM_LEDGER',
+            });
+            return { ok: true, data: { post: previous.postUrl, alreadyLiked: true,
+              likeAttempted: false, recovered: true } };
+          }
+          if (previous && (previous.status === 'started' || previous.status === 'uncertain'))
+            return { ok: false, reason: 'NO_REAL_EFFECT',
+              message: 'Curtida previamente iniciada ou incerta: conciliação manual obrigatória, sem novo clique',
+              data: { post: previous.postUrl, likeAttempted: false, uncertainLike: true } };
           const open = await gotoProfile(d, ctx.person, 'recent-activity/all/');
           if (open !== 'ok') return openFailed(open);
           await d.driver.waitUntil(async () =>
@@ -478,21 +492,46 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
               return { ok: false, reason: 'NO_REAL_EFFECT',
                 message: 'Estado de curtida incerto imediatamente antes do clique; nenhuma interação enviada' };
             }
+            d.crm.savePost(ctx.person.id, {
+              url: post.urn, text: post.text, postedAt: post.age ?? undefined, hasMedia: post.hasMedia,
+            });
+            d.crm.recordEngagementEffect({
+              campaignId: ctx.campaignId, actionId: ctx.action.id, personId: ctx.person.id,
+              postUrl: post.urn, stage: 'selection', status: 'confirmed',
+            });
+            // Reserva durável ANTES do evento nativo. Crash -> 'started', sem retry.
+            if (!d.crm.beginLikeAttempt(post.urn, ctx.person.id, ctx.campaignId, ctx.action.id))
+              return { ok: false, reason: 'NO_REAL_EFFECT',
+                message: 'Já existe tentativa de curtida neste post: revisar o ledger antes de repetir',
+                data: { post: post.urn, likeAttempted: false } };
+            d.crm.recordEngagementEffect({
+              campaignId: ctx.campaignId, actionId: ctx.action.id, personId: ctx.person.id,
+              postUrl: post.urn, stage: 'like', status: 'started',
+            });
             await d.driver.input.think(800, 1900);
             // O feed pode ser virtualizado durante a pausa e o movimento do
             // mouse. Revalidar a URN, o estado NÃO CURTIDO, o botão e o pixel
             // imediatamente antes de mouseDown: nunca desfazer uma curtida.
             const click = await d.driver.clickVerifiedLike(post.urn);
             if (click !== 'CLICKED') {
+              d.crm.finishLikeAttempt(post.urn, 'cancelled');
+              d.crm.recordEngagementEffect({
+                campaignId: ctx.campaignId, actionId: ctx.action.id, personId: ctx.person.id,
+                postUrl: post.urn, stage: 'like', status: 'blocked', reason: 'PREFLIGHT_ABORTED',
+              });
               await d.reportUnrecognized?.().catch(() => undefined);
               return { ok: false, reason: 'NO_REAL_EFFECT',
                 message: click === 'NOT_FOUND'
                   ? 'Botão do mesmo post não está mais acessível; nenhuma curtida enviada'
-                  : 'A identidade, a reação ou o pixel de clique mudou antes da interação; ação abortada' };
+                  : 'A identidade, a reação ou o pixel de clique mudou antes da interação; ação abortada',
+                data: { post: post.urn, likeAttempted: false } };
             }
-            const snapshot: PostSnapshot = { url: post.urn, text: post.text, postedAt: post.age ?? undefined, hasMedia: post.hasMedia };
-            d.crm.savePost(ctx.person.id, snapshot);
-            return { ok: true, data: { post: post.urn } };
+            d.crm.finishLikeAttempt(post.urn, 'uncertain');
+            d.crm.recordEngagementEffect({
+              campaignId: ctx.campaignId, actionId: ctx.action.id, personId: ctx.person.id,
+              postUrl: post.urn, stage: 'like', status: 'uncertain', reason: 'CLICK_SENT_AWAITING_VERIFICATION',
+            });
+            return { ok: true, data: { post: post.urn, likeAttempted: true } };
           }
           return { ok: false, reason: 'NO_REAL_EFFECT',
             message: 'Nenhum botão de curtir verificável após percorrer a página de atividades' };
@@ -506,7 +545,12 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
         async () => (await d.driver.read(likeState, d.driver.sel as unknown as Record<string, readonly string[]>, urn)) === true,
         8_000,
       );
-      if (ok) d.crm.markPostLiked(urn);
+      d.crm.finishLikeAttempt(urn, ok ? 'confirmed' : 'uncertain');
+      d.crm.recordEngagementEffect({
+        campaignId: _ctx.campaignId, actionId: _ctx.action.id, personId: _ctx.person.id,
+        postUrl: urn, stage: 'like', status: ok ? 'confirmed' : 'uncertain',
+        reason: ok ? undefined : 'STATE_NOT_CONFIRMED_AFTER_CLICK',
+      });
       return ok;
     },
   };
