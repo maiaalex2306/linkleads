@@ -1,7 +1,7 @@
 import {
   llIsReact, llPostContainers, llReactionTarget, llReactionClickGuard,
   llCommentControls, commentEvidence, commentEditorPoint, commentSubmitPoint,
-  commentClickGuard, postExpandPoint, postExpandGuard,
+  commentClickGuard, commentOpenGuard, postExpandPoint, postExpandGuard,
 } from './dom-scripts.js';
 import type { WebContents } from 'electron';
 import { HumanInput } from '../human-input.js';
@@ -304,6 +304,17 @@ export class PageDriver {
       await new Promise((done) => setTimeout(done, 220));
     }
     return null;
+  }
+
+  /** Só abre comentários se o botão continuar pertencendo ao post alvo. */
+  async openVerifiedCommentBox(urn: string): Promise<boolean> {
+    const point = await this.scrollIntoView('commentButton', { urn, containerKey: 'postItem' });
+    if (!point) return false;
+    const ok = await this.input.click(point.x, point.y, (x, y) =>
+      this.read(commentOpenGuard,
+        this.sel as unknown as Record<string, readonly string[]>, urn, x, y));
+    if (!ok) this.emit?.('comment_open_preflight_aborted', { postUrn: urn });
+    return ok;
   }
 
   /** Só foca o editor se ele continuar sendo o único editor do URN. */
