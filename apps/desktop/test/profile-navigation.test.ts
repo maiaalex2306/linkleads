@@ -161,6 +161,21 @@ describe('CSV Sales Navigator somente hash — navegação Basic observada', () 
     expect(p.publicId).toBe('carlos-pereira');
   });
 
+  it('resolve /in/ACw SEM redirect usando link canonical /in/ real do proprio documento', async () => {
+    const { deps, goto } = mockBrowser();
+    const upsertPerson = vi.fn();
+    deps.crm = { upsertPerson, findByPublicId: vi.fn() } as unknown as ExecutorDeps['crm'];
+    deps.driver.read = vi.fn(async (fn: { name?: string }) =>
+      fn.name === 'salesPagePublicProfileLinks'
+        ? ['https://www.linkedin.com/in/carlos-pereira/']
+        : ({ name: 'Carlos Pereira', company: 'Toyota' })) as ExecutorDeps['driver']['read'];
+    const p=person();
+    expect(await gotoProfile(deps,p)).toBe('ok');
+    expect(goto).toHaveBeenCalledWith('https://www.linkedin.com/in/' + hash + '/');
+    expect(goto).toHaveBeenCalledWith('https://www.linkedin.com/in/carlos-pereira/');
+    expect(p.publicId).toBe('carlos-pereira');
+  });
+
   it('nao confunde URL Basic /in/ACw existente com perfil 404 sem conteudo', async () => {
     const { deps } = mockBrowser();
     const upsertPerson = vi.fn();
