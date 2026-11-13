@@ -690,8 +690,10 @@ export class AccountInstance {
       shape: report.layout.shape, healthy,
     });
     report.layout.comparison = baseline;
-    if (baseline.status === 'UI_CHANGED' || baseline.status === 'BASELINE_UNAVAILABLE')
+    if (baseline.status === 'UI_CHANGED')
       this.driver.setPageContractHealth(report.page, false);
+    // BASELINE_UNAVAILABLE nao prova quebra de contrato: somente o guard
+    // por post/autoria/reacao pode autorizar cliques, nunca o baseline ausente.
     else if (baseline.status === 'MATCH' || baseline.status === 'BASELINE_CREATED')
       this.driver.setPageContractHealth(report.page, true);
     // DRIFT_DETECTED não é homologação automática: apenas registra e deixa
