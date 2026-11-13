@@ -47,7 +47,7 @@ import { InstanceManager } from './instance-manager.js';
 import { Settings } from './settings.js';
 import { trace } from './trace.js';
 import { campaignDisplayStatus } from './campaign-status.js';
-import { SAFE_RETRY_REASONS, isSafeManualRetry } from './retry-policy.js';
+import { SAFE_RETRY_REASONS, isSafeManualRetry, assertRecognitionReprocessAllowed } from './retry-policy.js';
 import { actionCatalogForEditor, validateCampaignWorkflow } from './workflow-model.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -350,13 +350,14 @@ ipcMain.handle('campaigns:recognitionRetryCandidates', (_e, id: string, campaign
  */
 ipcMain.handle('campaigns:reprocessRecognitionFailures', (_e, id: string, campaignId: string) => {
   const a = account(id);
-  if (a.paused) throw new Error('Conta pausada por segurança; revisão necessária antes do reprocessamento.');
   const crm = crms.get(a);
   const campaign = crm.loadCampaign(campaignId, id);
   if (!campaign) throw new Error('Campanha inexistente nesta conta.');
-  if (campaign.archived) throw new Error('Restaure a campanha arquivada antes de reprocessar.');
-  if (campaign.active || instances.get(id)?.schedulerRunning())
-    throw new Error('Pause a campanha e pare o executor antes do reprocessamento controlado.');
+  assertRecognitionReprocessAllowed({
+    accountPaused: a.paused, campaignActive: campaign.active,
+    campaignArchived: !!campaign.archived,
+    runnerRunning: !!instances.get(id)?.schedulerRunning(),
+  });
   const count = crm.reprocessRecognitionFailures(campaignId);
   trace.record('campaign', 'recognition_failures_reprocessed', { count, policy: 'pre_click_no_effects_v1' },
     { accountId: id, campaignId });
