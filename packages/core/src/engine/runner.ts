@@ -164,7 +164,9 @@ export class CampaignRunner {
       const verified = executor.verify
         ? await withTimeout(executor.verify(ctx, result), this.verifyTimeoutMs).catch(() => false)
         : false;
-      if (!verified) result = { ok: false, reason: 'NO_REAL_EFFECT' };
+      if (!verified) result = { ok: false, reason: 'NO_REAL_EFFECT',
+        message: 'Verificação de efeito real inconclusiva; não repetir automaticamente',
+        data: result.data };
     }
 
     // A atividade geral inclui a interação externa, além das navegações já
@@ -173,7 +175,8 @@ export class CampaignRunner {
     // Resultado inconclusivo entra conservadoramente no orçamento para evitar
     // repetição excessiva; não representa confirmação de sucesso.
     const alreadyDone = result.ok && (
-      result.data?.alreadyLiked === true || result.data?.already === 'not_pending'
+      result.data?.alreadyLiked === true || result.data?.alreadyCommented === true ||
+      result.data?.already === 'not_pending'
     );
     // Ações compostas precisam prestar contas por efeito (curtida, comentário).
     // Um rascunho aguardando aprovação pode conter curtida já comprovada.
@@ -186,6 +189,15 @@ export class CampaignRunner {
           if (key === 'likes' || key === 'comments')
             store.recordUsage(account.id, key, this.now());
         }
+      }
+    } else if (action.type === 'CommentPost' || action.type === 'LikePosts') {
+      const attempted = action.type === 'CommentPost'
+        ? result.data?.commentAttempted === true
+        : result.data?.likeAttempted === true;
+      if ((result.ok && !alreadyDone) || attempted) {
+        for (const key of def.consumes) store.recordUsage(account.id, key, this.now());
+        if (def.requiresVerification && !def.consumes.includes('activity'))
+          store.recordUsage(account.id, 'activity', this.now());
       }
     } else if ((result.ok && !alreadyDone) || (!result.ok && result.reason === 'NO_REAL_EFFECT')) {
       for (const key of def.consumes) store.recordUsage(account.id, key, this.now());
@@ -204,9 +216,9 @@ export class CampaignRunner {
 
     if (!result.ok && result.reason === 'AWAITING_APPROVAL') {
       // fica em `processed` até o usuário aprovar (ver resolveApproval)
-      store.setStatus(campaign.id, action.id, person.id, 'processed', 'AWAITING_APPROVAL');
+      store.setStatus(campaign.id, action.id, person.id, 'processed', 'AWAITING_APPROVAL', result.message);
       report.awaitingApproval++;
-      this.opts.onProgress?.({ type: 'done', campaign, action, person, step: i + 1, total: campaign.actions.length, ok: false, reason: 'AWAITING_APPROVAL' });
+      this.opts.onProgress?.({ type: 'done', campaign, action, person, step: i + 1, total: campaign.actions.length, ok: false, reason: 'AWAITING_APPROVAL', message: result.message });
       return 'ran';
     }
 

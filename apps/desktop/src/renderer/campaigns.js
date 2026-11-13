@@ -288,10 +288,34 @@ function campaignCard(a, c, cols) {
       h('table', {}, h('tr', {}, h('th', {}, 'Pessoa'), h('th', {}, 'Empresa'), h('th', {}, 'Etapa'), h('th', {}, 'Situação'), h('th', {}, 'Quando')),
         ...people.slice(0, 300).map((p) => h('tr', {}, h('td', {}, p.name), h('td', {}, p.company || '—'), h('td', {}, p.actionName),
           h('td', {}, h('span', { class: 'badge ' + p.status }, STATUS[p.status]), p.reason ? h('span', { class: 'muted' }, ' ' + (REASONS[p.reason] || p.reason)) : '',
-            p.message && p.status === 'failed' ? h('div', { class: 'muted', style: 'font-size:12px;max-width:420px' }, p.message) : ''),
+            p.message && (p.status === 'failed' || p.reason === 'AWAITING_APPROVAL') ? h('div', { class: 'muted', style: 'font-size:12px;max-width:420px' }, p.message) : ''),
           h('td', { class: 'muted' }, when(p))))));
   };
   showPeople(c.people);
+  const hasEngagement = c.actions.some((action) => action.type === 'LikeAndComment' || action.type === 'LikePosts');
+  const showEffects = async () => {
+    const events = await safe(() => api.engagementEffects(a.id, c.id));
+    if (!events) return;
+    showingTable = false;
+    const names = new Map(c.people.map((p) => [p.personId, p.name]));
+    const labels = { selection: 'Post identificado', like: 'Curtida', ai: 'Análise da IA', approval: 'Aprovação', comment: 'Comentário' };
+    const states = { started: 'Iniciado', confirmed: 'Confirmado', pending: 'Aguardando aprovação',
+      uncertain: 'Incerto — revisão necessária', blocked: 'Bloqueado', skipped: 'Descartado pela IA', rejected: 'Rejeitado' };
+    body.replaceChildren(
+      h('div', { class: 'row' }, h('strong', {}, 'Linha do tempo dos efeitos'),
+        h('button', { onclick: () => showPeople(c.people) }, 'Voltar à fila')),
+      h('p', { class: 'muted' }, 'Cada curtida, análise, aprovação e comentário é registrado separadamente. Resultados incertos não são repetidos.'),
+      events.length ? h('table', {},
+        h('tr', {}, h('th', {}, 'Data'), h('th', {}, 'Pessoa'), h('th', {}, 'Efeito'), h('th', {}, 'Estado'), h('th', {}, 'Motivo')),
+        ...events.map((event) => h('tr', {},
+          h('td', {}, event.at || '—'),
+          h('td', {}, names.get(event.personId) || 'Contato da campanha'),
+          h('td', {}, labels[event.stage] || event.stage),
+          h('td', {}, states[event.status] || event.status),
+          h('td', { class: 'muted' }, event.reason || '—'))))
+        : h('div', { class: 'muted' }, 'Nenhuma interação nova registrada nesta versão. Dados históricos preservados.'),
+    );
+  };
   campaignTables.set(c.id, (fresh) => {
     if (!body.isConnected || !showingTable) return;
     countsEl.textContent = countsOf(fresh.people);
@@ -311,6 +335,19 @@ function campaignCard(a, c, cols) {
       h('button', { class: 'primary', onclick: () => openCampaignWorkspace(c.id) }, 'Abrir campanha'),
       addCol,
       exportButton(a, { campaignId: c.id, name: c.name }),
+      hasEngagement && h('button', { title: 'Exibir seleção, curtida, IA, aprovação e publicação com resultados separados',
+        onclick: showEffects }, 'Histórico de interações'),
+      hasEngagement && !a.paused && !a.runnerEnabled && !c.active &&
+        c.people.some((p) => p.status === 'failed' && ['NO_POST', 'NO_REAL_EFFECT'].includes(p.reason)) &&
+        h('button', { title: 'Somente falhas antigas de parser comprovadamente anteriores ao clique', onclick: async () => {
+          const review = await safe(() => api.recognitionRetryCandidates(a.id, c.id));
+          if (!review) return;
+          if (!review.count) return toast('Não existem falhas comprovadamente seguras para reprocessar.');
+          if (!window.confirm('Reprocessar ' + review.count + ' falha(s) sem efeito persistente?\n' +
+            'Nenhum comentário ou curtida de resultado incerto será repetido. A campanha continuará pausada.')) return;
+          const n = await safe(() => api.reprocessRecognitionFailures(a.id, c.id));
+          if (n != null) { toast(n + ' pessoa(s) devolvidas à fila com histórico preservado.'); renderView(); }
+        } }, 'Reavaliar falhas antigas'),
       !a.paused && !a.runnerEnabled && c.people.some((p) => p.status === 'failed' && ['LIMIT_REACHED', 'IDENTITY_UNVERIFIED'].includes(p.reason)) && h('button', { title: 'Reencaminha falhas de limite ou identidade antes da interação; não repete efeitos incertos', onclick: async () => {
         const n = await safe(() => api.retryFailed(a.id, c.id));
         if (n != null) { toast(n ? `${n} pessoa(s) voltaram para a fila` : 'Nenhuma falha segura para reprocessar'); renderView(); }
@@ -318,7 +355,10 @@ function campaignCard(a, c, cols) {
       h('button', { onclick: () => { showingTable = false; body.replaceChildren(campaignEditor(a, c, () => renderView())); } }, 'Editar etapas'),
       h('button', { class: c.active ? '' : 'primary', onclick: () => safe(() => api.setCampaignActive(a.id, c.id, !c.active)).then(renderView) }, c.active ? 'Pausar' : 'Ativar'),
     ),
-    h('div', { class: 'muted' }, c.actions.map((x) => x.name + (x.waitHours ? ` (+${+(x.waitHours / 24).toFixed(1)}d)` : '')).join(' → ')),
+    h('div', { class: 'muted' }, c.actions.map((x) => x.name +
+      (x.type === 'LikeAndComment' && x.settings?.commentEnabled !== false
+        ? (x.settings?.mode === 'auto' ? ' · IA publica após validação' : ' · IA aguarda aprovação')
+        : '') + (x.waitHours ? ` (+${+(x.waitHours / 24).toFixed(1)}d)` : '')).join(' → ')),
     body,
   );
 }

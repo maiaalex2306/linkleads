@@ -169,6 +169,36 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
       );
     `,
   },
+  {
+    version: 13,
+    // Somente estruturas aditivas: nenhum registro ou coluna anterior removido.
+    sql: `
+      CREATE TABLE IF NOT EXISTS like_attempt_ledger (
+        post_url TEXT PRIMARY KEY,
+        person_id TEXT NOT NULL,
+        campaign_id TEXT NOT NULL,
+        action_id TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('started','confirmed','uncertain','cancelled')),
+        started_at TEXT NOT NULL DEFAULT (datetime('now')),
+        finished_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_like_attempt_person
+        ON like_attempt_ledger(person_id, started_at);
+      CREATE TABLE IF NOT EXISTS engagement_effects (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        campaign_id TEXT NOT NULL,
+        action_id TEXT NOT NULL,
+        person_id TEXT NOT NULL,
+        post_url TEXT,
+        stage TEXT NOT NULL,
+        status TEXT NOT NULL,
+        reason TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_engagement_effects_campaign
+        ON engagement_effects(campaign_id, person_id, id);
+    `,
+  },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.version;
@@ -686,6 +716,134 @@ export class LocalCrm extends SqliteCampaignStore {
 
   markPostLiked(url: string): void {
     this.db.prepare(`UPDATE posts SET liked_at = datetime('now') WHERE url = ?`).run(url);
+  }
+
+  /** Ledger exclusivo de curtidas por conta (SQLite de cada partição).
+   * INSERT OR IGNORE: uma queda não pode autorizar clique duplicado.
+   */
+  beginLikeAttempt(postUrl: string, personId: string, campaignId: string, actionId: string): boolean {
+    const attempt = this.db.prepare(
+      "INSERT OR IGNORE INTO like_attempt_ledger (post_url, person_id, campaign_id, action_id, status) VALUES (?,?,?,?, 'started')",
+    ).run(postUrl, personId, campaignId, actionId);
+    return Number(attempt.changes) === 1;
+  }
+
+  likeAttempt(postUrl: string): { personId: string; status: 'started' | 'confirmed' | 'uncertain' | 'cancelled' } | undefined {
+    const row = this.db.prepare(
+      'SELECT person_id, status FROM like_attempt_ledger WHERE post_url = ?',
+    ).get(postUrl) as { person_id: string; status: 'started' | 'confirmed' | 'uncertain' | 'cancelled' } | undefined;
+    return row && { personId: row.person_id, status: row.status };
+  }
+
+  /** Estado persistente mais recente permite retomar APENAS uma curtida já confirmada.
+   * Um registro 'started' após reinício é incerto, nunca um convite a reclicar.
+   */
+  latestLikeAttempt(personId: string, campaignId: string, actionId: string): { postUrl: string; status: 'started' | 'confirmed' | 'uncertain' | 'cancelled' } | undefined {
+    const row = this.db.prepare(
+      "SELECT post_url, status FROM like_attempt_ledger WHERE person_id=? AND campaign_id=? AND action_id=? AND status != 'cancelled' ORDER BY started_at DESC, rowid DESC LIMIT 1",
+    ).get(personId, campaignId, actionId) as { post_url: string; status: 'started' | 'confirmed' | 'uncertain' } | undefined;
+    return row && { postUrl: row.post_url, status: row.status };
+  }
+
+  /** Conciliação atômica entre ledger da curtida e post do CRM. */
+  finishLikeAttempt(postUrl: string, status: 'confirmed' | 'uncertain' | 'cancelled'): void {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const updated = this.db.prepare(
+        "UPDATE like_attempt_ledger SET status=?, finished_at=datetime('now') WHERE post_url=? AND status IN ('started','uncertain')",
+      ).run(status, postUrl);
+      if (Number(updated.changes) && status === 'confirmed')
+        this.db.prepare("UPDATE posts SET liked_at=COALESCE(liked_at,datetime('now')) WHERE url=?").run(postUrl);
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
+  /** Efeitos auditáveis separados: seleção, curtida, IA, aprovação e envio.
+   * Não grava texto de post/comentário nem tokens nas linhas do ledger.
+   */
+  recordEngagementEffect(input: {
+    campaignId: string; actionId: string; personId: string; postUrl?: string;
+    stage: 'selection' | 'like' | 'ai' | 'approval' | 'comment';
+    status: 'started' | 'confirmed' | 'uncertain' | 'pending' | 'blocked' | 'skipped' | 'rejected';
+    reason?: string;
+  }): void {
+    this.db.prepare(
+      "INSERT INTO engagement_effects(campaign_id,action_id,person_id,post_url,stage,status,reason) VALUES(?,?,?,?,?,?,?)",
+    ).run(input.campaignId, input.actionId, input.personId, input.postUrl ?? null,
+      input.stage, input.status, input.reason?.slice(0,160) ?? null);
+  }
+
+  engagementEffects(campaignId: string, personId?: string, limit = 200): Array<{
+    id: number; actionId: string; personId: string; postUrl: string | null;
+    stage: string; status: string; reason: string | null; at: string;
+  }> {
+    const rows = personId
+      ? this.db.prepare('SELECT * FROM engagement_effects WHERE campaign_id=? AND person_id=? ORDER BY id DESC LIMIT ?')
+        .all(campaignId, personId, limit) as Row[]
+      : this.db.prepare('SELECT * FROM engagement_effects WHERE campaign_id=? ORDER BY id DESC LIMIT ?')
+        .all(campaignId, limit) as Row[];
+    return rows.map((r) => ({
+      id: Number(r.id), actionId: String(r.action_id), personId: String(r.person_id),
+      postUrl: r.post_url == null ? null : String(r.post_url),
+      stage: String(r.stage), status: String(r.status),
+      reason: r.reason == null ? null : String(r.reason), at: String(r.created_at),
+    }));
+  }
+
+  /** Recuperação exclusivamente de falhas de PARSER anteriores ao clique, com
+   * evidência textual explícita e NENHUM indício persistente de interação.
+   * Um NO_POST genérico ou falha pós-clique jamais entra neste conjunto.
+   */
+  recognitionRetryCandidates(campaignId: string): Array<{ actionId: string; personId: string }> {
+    const rows = this.db.prepare(
+      `SELECT cap.action_id, cap.person_id, cap.reason, cap.message
+       FROM campaign_action_people cap JOIN campaign_actions a ON a.id=cap.action_id
+       WHERE cap.campaign_id=? AND cap.status='failed'
+         AND a.type IN ('LikeAndComment','LikePosts')
+         AND cap.reason IN ('NO_REAL_EFFECT','NO_POST')
+         AND NOT EXISTS (SELECT 1 FROM posts p WHERE p.person_id=cap.person_id
+           AND (p.liked_at IS NOT NULL OR p.commented_at IS NOT NULL))
+         AND NOT EXISTS (SELECT 1 FROM like_attempt_ledger l WHERE l.person_id=cap.person_id)
+         AND NOT EXISTS (SELECT 1 FROM comment_submission_ledger cl
+           JOIN posts p ON p.url=cl.post_url WHERE p.person_id=cap.person_id)
+         AND NOT EXISTS (SELECT 1 FROM comment_drafts d
+           WHERE d.person_id=cap.person_id AND d.campaign_id=cap.campaign_id)
+       ORDER BY cap.seq`,
+    ).all(campaignId) as Row[];
+    const preClickParser = /^(?:Achei \d+ post|Primeiro cartão encontrado|Nenhuma publicação elegível|Não foi possível comprovar autoria|Post.*(?:autoria|classifica)|Publicação.*(?:autor|classific)|Estado de curtida incerto imediatamente antes do clique)/i;
+    return rows.filter((r) => preClickParser.test(String(r.message ?? ''))).map((r) => ({
+      actionId: String(r.action_id), personId: String(r.person_id),
+    }));
+  }
+
+  /** Reprocessar só após comando explícito, mantendo action_log histórico.
+   * O mesmo lote é seguro após atualização: reconsulta as evidências na transação.
+   */
+  reprocessRecognitionFailures(campaignId: string): number {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const candidates = this.recognitionRetryCandidates(campaignId);
+      let count = 0;
+      for (const { actionId, personId } of candidates) {
+        const updated = this.db.prepare(
+          "UPDATE campaign_action_people SET status='queued', reason=NULL, message=NULL, not_before=NULL, updated_at=datetime('now') WHERE campaign_id=? AND action_id=? AND person_id=? AND status='failed'",
+        ).run(campaignId, actionId, personId);
+        if (Number(updated.changes)) {
+          count++;
+          this.db.prepare(
+            "INSERT INTO action_log(campaign_id,action_id,person_id,status,reason,message) VALUES (?,?,?,'queued',NULL,'Reprocessamento manual de falha de reconhecimento anterior ao clique')",
+          ).run(campaignId, actionId, personId);
+        }
+      }
+      this.db.exec('COMMIT');
+      return count;
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
   }
 
   /** Guarda análise, sem declarar que uma interação com a plataforma ocorreu. */

@@ -14,7 +14,7 @@ const csv = join(tmp, 'pessoa.csv');
 writeFileSync(csv, 'firstName,lastName,profileUrl\nAna,Silva,https://www.linkedin.com/in/ana-silva/\n');
 
 const site = await startFakeSite();
-const comment = 'Parabéns pela entrega! Gostaria de conhecer mais sobre esse trabalho.';
+const comment = 'A solução de telemetria e redução de perdas parece relevante. Como vocês mediram os resultados?';
 site.state.comments.push(comment); // já está na página ANTES de executar
 const app = await electron.launch({
   executablePath: require(join(dir, '../../node_modules/electron')),

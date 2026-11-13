@@ -33,7 +33,7 @@ const stubLlm: LlmClient = {
       post_interpretation: {
         language: 'pt', summary: `Resumo: ${req.user.match(/<post>\n([\s\S]{0,40})/)?.[1] ?? ''}`, mainPoint: 'ponto',
         authorWork: 'trabalho', topics: ['teste'], postType: 'conquista', sentiment: 'positivo', sensitive: false,
-        shouldComment: true, skipReason: '', comment: 'Parabéns pela entrega! Gostaria de conhecer mais sobre esse trabalho.',
+        shouldComment: true, skipReason: '', comment: /reúso|reuso/i.test(req.user) ? 'O trabalho com reúso de água mostra uma aplicação relevante de inovação. Como vocês mediram os resultados?' : 'A solução de telemetria e redução de perdas parece relevante. Como vocês mediram os resultados?',
       },
       outreach_message: {
         text: req.user.includes('nota de convite') ? 'Olá Ana, vi seu trabalho com telemetria e gostaria de me conectar.' : 'Obrigado por aceitar, Ana! Como vocês mediram as perdas?',
@@ -577,7 +577,8 @@ export class AccountInstance {
   }
 
   /** Abrir o navegador nunca implica iniciar o executor. */
-  schedulerRunning(): boolean { return Boolean(this.loop); }
+  /** Bloqueia alterações destravadas pela UI também durante um ciclo manual ainda em andamento. */
+  schedulerRunning(): boolean { return Boolean(this.loop || this.currentTick); }
 
   startScheduler(intervalMs = 5 * 60_000): void {
     this.stopScheduler();
@@ -698,8 +699,18 @@ export class AccountInstance {
     });
     // O status só muda após os controles. Bloqueios preservam o rascunho pendente.
     this.crm.updateDraft(draftId, { status: 'approved', comment: text });
+    if (draft.kind === 'comment') this.crm.recordEngagementEffect({
+      campaignId: draft.campaignId, actionId: draft.actionId, personId: draft.personId,
+      postUrl: draft.postUrl, stage: 'approval', status: 'confirmed', reason: 'MANUAL_APPROVED',
+    });
 
     const result = await this.executeDraft(draft, text);
+    if (draft.kind === 'comment') this.crm.recordEngagementEffect({
+      campaignId: draft.campaignId, actionId: draft.actionId, personId: draft.personId,
+      postUrl: draft.postUrl, stage: 'comment',
+      status: result.ok ? 'confirmed' : result.data?.commentAttempted === true ? 'uncertain' : 'blocked',
+      reason: result.ok ? undefined : result.reason,
+    });
     trace.record('approval', 'execute_result', {
       kind: draft.kind, ok: result.ok, reason: result.ok ? undefined : result.reason,
       length: result.ok ? 0 : (result.message?.length ?? 0),
@@ -708,12 +719,13 @@ export class AccountInstance {
     // A aprovação manual também consome o orçamento geral, tal como o motor.
     // Quando o efeito não pode ser confirmado, contabiliza conservadoramente
     // a tentativa; não representa confirmação de sucesso no LinkedIn.
-    if (result.ok || (!result.ok && result.reason === 'NO_REAL_EFFECT')) {
-      this.crm.recordUsage(this.account.id, 'activity', now());
-    }
-    if (!result.ok && result.reason === 'NO_REAL_EFFECT') {
+    const attemptedComment = draft.kind === 'comment' && result.data?.commentAttempted === true;
+    const chargeAttempt = draft.kind === 'comment'
+      ? (result.ok || attemptedComment)
+      : (result.ok || (!result.ok && result.reason === 'NO_REAL_EFFECT'));
+    if (chargeAttempt) this.crm.recordUsage(this.account.id, 'activity', now());
+    if (!result.ok && (draft.kind === 'comment' ? attemptedComment : result.reason === 'NO_REAL_EFFECT'))
       this.crm.recordUsage(this.account.id, budget, now());
-    }
     if (result.ok) {
       if (draft.kind === 'comment') {
         this.crm.markPostCommented(draft.postUrl, text, draft.interpretation);
@@ -736,6 +748,10 @@ export class AccountInstance {
     const draft = this.crm.getDraft(draftId);
     if (!draft || draft.status !== 'pending') return;
     this.crm.updateDraft(draftId, { status: 'rejected' });
+    if (draft.kind === 'comment') this.crm.recordEngagementEffect({
+      campaignId: draft.campaignId, actionId: draft.actionId, personId: draft.personId,
+      postUrl: draft.postUrl, stage: 'approval', status: 'rejected', reason: 'MANUAL_REJECTED',
+    });
     const campaign = this.crm.loadCampaign(draft.campaignId, this.account.id);
     if (campaign) resolveApproval(this.crm, campaign, draft.actionId, draft.personId, { executed: false, reason: 'REJECTED' }, now());
   }

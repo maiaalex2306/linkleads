@@ -54,7 +54,9 @@ Como escrever o comentário:
 - Sempre profissional, cordial e específico: cite algo concreto do post (um dado, uma ideia, o projeto), para ficar claro que foi lido.
 - Demonstre interesse genuíno em conhecer mais o trabalho da pessoa: por exemplo, uma pergunta curta sobre o projeto ou um convite leve para trocar ideias. Nada de pitch de vendas, links, emojis em excesso ou hashtags.
 - Respeite a faixa de tamanho indicada pelo usuário; se ausente, escreva de 1 a 3 frases. Escreva no idioma do post, salvo instrução em contrário.
-- Não invente fatos que não estão no post. Não bajule. Não comece com "Ótimo post".
+- Não invente fatos, percentuais, valores, nomes, resultados ou conquistas ausentes do texto. Não bajule. Não comece com "Ótimo post".
+- Sua análise e seu comentário devem compartilhar pelo menos um conceito concreto com o texto original.
+- Se o único conteúdo disponível for um anexo não lido, um título vago ou uma mensagem truncada, shouldComment=false.
 - Escreva em primeira pessoa, como o próprio usuário.`;
 
 export function buildUserMessage(post: PostSnapshot, person: Person, s: CommentSettings): string {
@@ -81,6 +83,57 @@ export function buildUserMessage(post: PostSnapshot, person: Person, s: CommentS
   return lines.filter((l, i, a) => l !== '' || a[i - 1] !== '').join('\n');
 }
 
+const TOPIC_STOP_WORDS = new Set(
+  'a o as os um uma de da do das dos em no na nos nas por para com que como quando onde ' +
+  'e ou ao aos se seu sua seus suas eu você vocês nós eles elas este esta isso esse essa ' +
+  'foi são ser ter tem muito mais sobre entre ainda tudo todos cada este aquele ' +
+  'trabalho importante interessante projeto resultado resultados entrega avanço ' +
+  'parabéns parabens gostaria saber conhecer compartilhar great work job very good ' +
+  'the and for with from this that what your our will have has done these more'
+    .split(/\s+/),
+);
+
+/** Tokenização determinística, sem usar o nome/cargo do perfil como prova de post. */
+export function groundedTerms(value: string): Set<string> {
+  const ascii = value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase();
+  return new Set(ascii.match(/[a-z0-9]{5,}/g)?.filter((word) =>
+    !TOPIC_STOP_WORDS.has(word) && !/^\d+$/.test(word)) ?? []);
+}
+
+/** Evidência mínima real para não consumir LLM com texto vazio ou só mídia. */
+export function hasSufficientPostText(text: string): boolean {
+  const clean = text.replace(/https?:\/\/\S+/g, '').replace(/\s+/g, ' ').trim();
+  const words = clean.split(/\s+/).filter(Boolean);
+  return clean.length >= 45 && words.length >= 7 &&
+    groundedTerms(clean).size >= 2 &&
+    !/(?:…|\.\.\.)\s*(?:ver mais|see more|mais|more)\s*$/i.test(clean);
+}
+
+/** Guardas de pertinência independentes do provedor de IA.
+ * Falha fechada: sem conceito comum ao post ou com novos valores numéricos,
+ * oferece revisão em vez de texto possivelmente inventado.
+ */
+export function validatePostInterpretation(post: PostSnapshot, result: PostInterpretation): PostInterpretation {
+  const reject = (reason: string): PostInterpretation => ({
+    ...result, shouldComment: false, comment: '', skipReason: reason,
+  });
+  if (!hasSufficientPostText(post.text))
+    return reject('Texto do post insuficiente ou incompleto para um comentário confiável');
+  if (!result.shouldComment) return result;
+  const comment = result.comment ?? '';
+  const fromPost = groundedTerms(post.text);
+  const common = [...groundedTerms(comment)].some((term) => fromPost.has(term));
+  if (!common)
+    return reject('O comentário não contém evidência temática verificável do post');
+  const numeric = (s: string) => new Set(
+    (s.match(/\b\d+(?:[.,]\d+)?\s*%?|\bR\$\s*\d+(?:[.,]\d+)?/g) ?? [])
+      .map((x) => x.toLowerCase().replace(/\s/g, '')));
+  const sourceNumbers = numeric(post.text);
+  if ([...numeric(comment)].some((n) => !sourceNumbers.has(n)))
+    return reject('O comentário introduziu números ou percentuais não presentes no post');
+  return result;
+}
+
 /** Contrato injetável (permite testar sem chamar a API). */
 export interface PostInterpreter {
   interpret(post: PostSnapshot, person: Person, settings?: CommentSettings): Promise<PostInterpretation>;
@@ -91,13 +144,19 @@ export class LlmPostInterpreter implements PostInterpreter {
   constructor(readonly llm: LlmClient) {}
 
   async interpret(post: PostSnapshot, person: Person, settings: CommentSettings = {}): Promise<PostInterpretation> {
+    if (!hasSufficientPostText(post.text))
+      return {
+        language: 'pt', summary: '', mainPoint: '', authorWork: '', topics: [],
+        postType: 'outro', sentiment: 'neutro', sensitive: false,
+        shouldComment: false, skipReason: 'Texto do post insuficiente ou truncado; IA não acionada', comment: '',
+      };
     const r = await this.llm.structured({
       name: 'post_interpretation',
       schema: PostInterpretationSchema,
       system: SYSTEM_PROMPT,
       user: buildUserMessage(post, person, settings),
     });
-    return sanitize(r, settings.maxChars ?? 400);
+    return validatePostInterpretation(post, sanitize(r, settings.maxChars ?? 400));
   }
 }
 

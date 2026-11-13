@@ -47,7 +47,7 @@ import { InstanceManager } from './instance-manager.js';
 import { Settings } from './settings.js';
 import { trace } from './trace.js';
 import { campaignDisplayStatus } from './campaign-status.js';
-import { SAFE_RETRY_REASONS, isSafeManualRetry } from './retry-policy.js';
+import { SAFE_RETRY_REASONS, isSafeManualRetry, assertRecognitionReprocessAllowed } from './retry-policy.js';
 import { actionCatalogForEditor, validateCampaignWorkflow } from './workflow-model.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -324,6 +324,44 @@ ipcMain.handle('campaigns:retryFailed', (_e, id: string, campaignId: string) => 
   const n = crm.retryFailed(campaignId, RETRYABLE);
   trace.record('campaign', 'safe_retry_requested', { count: n }, { accountId: id, campaignId });
   return n;
+});
+
+/**
+ * Fase 5: leitura da cadeia de efeitos, sem alterar estado.
+ * Conta/campanha validadas; não expõe texto, credenciais ou cookie.
+ */
+ipcMain.handle('campaigns:engagementEffects', (_e, id: string, campaignId: string, personId?: string) => {
+  const a = account(id);
+  const crm = crms.get(a);
+  const campaign = crm.loadCampaign(campaignId, id);
+  if (!campaign) throw new Error('Campanha inexistente nesta conta.');
+  return crm.engagementEffects(campaignId, personId, 250);
+});
+
+ipcMain.handle('campaigns:recognitionRetryCandidates', (_e, id: string, campaignId: string) => {
+  const a = account(id);
+  const crm = crms.get(a);
+  if (!crm.loadCampaign(campaignId, id)) throw new Error('Campanha inexistente nesta conta.');
+  return { count: crm.recognitionRetryCandidates(campaignId).length };
+});
+
+/** Reprocessamento EXPLICITAMENTE solicitado, apenas para falhas de reconhecimento
+ * anteriores ao clique e SEM qualquer efeito persistido. Nunca repetição em massa.
+ */
+ipcMain.handle('campaigns:reprocessRecognitionFailures', (_e, id: string, campaignId: string) => {
+  const a = account(id);
+  const crm = crms.get(a);
+  const campaign = crm.loadCampaign(campaignId, id);
+  if (!campaign) throw new Error('Campanha inexistente nesta conta.');
+  assertRecognitionReprocessAllowed({
+    accountPaused: a.paused, campaignActive: campaign.active,
+    campaignArchived: !!campaign.archived,
+    runnerRunning: !!instances.get(id)?.schedulerRunning(),
+  });
+  const count = crm.reprocessRecognitionFailures(campaignId);
+  trace.record('campaign', 'recognition_failures_reprocessed', { count, policy: 'pre_click_no_effects_v1' },
+    { accountId: id, campaignId });
+  return count;
 });
 
 /** Painel "Agora": o que a conta está fazendo, a próxima pausa/ciclo e os próximos passos agendados. */
