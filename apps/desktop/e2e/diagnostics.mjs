@@ -137,6 +137,10 @@ try {
   await ui.getByText('Validar o app na sua conta').waitFor();
   await ui.getByRole('button', { name: 'Diagnosticar página aberta' }).click();
   await ui.getByText(/#1 · empresa_pessoas/).waitFor();
+  await ui.getByText('Integridade e procedência dos seletores').first().waitFor();
+  await ui.getByText('Comparação estrutural por página e idioma').first().waitFor();
+  check((await ui.getByText('Integridade e procedência dos seletores').first().count()) === 1,
+    'interface exibe procedência dos seletores e fingerprint, não somente o JSON');
   await ui.screenshot({ path: join(shots, 'diagnostico.png'), fullPage: true });
 } catch (e) {
   fail(e.stack ?? e);
