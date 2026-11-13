@@ -404,7 +404,7 @@ export function extractPosts(sel: Record<string, readonly string[]>, limit: numb
     const ownCommentary = Array.from(it.querySelectorAll(
       '[data-test-id*="commentary"], [data-testid*="commentary"], .update-components-commentary, .feed-shared-commentary',
     )).some((node) => !inEmbedded(node) && !!(node.textContent ?? '').trim());
-    const hasAttachment = identity.embeddedPostUrn !== null || !!firstOwn([
+    const hasAttachment = identity.embeddedPostUrn !== null || !!it.querySelector(EMBED) || !!firstOwn([
       '.update-components-article', '.feed-shared-article',
       '.update-components-document__container', '.update-components-image',
     ]) || media;
