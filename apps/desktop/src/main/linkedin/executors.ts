@@ -292,11 +292,19 @@ export function choosePost(
     uncertain: true,
   };
   const assessments = posts.map((post) => evaluatePost(post, publicId, settings));
-  const approved = assessments.filter((item) => item.status === 'ELIGIBLE');
-  const candidate = approved.find((item) => item.post.liked === false) ??
-    (settings.allowAlreadyLiked ? approved.find((item) => item.post.liked === true) : undefined);
-  if (candidate) return { post: candidate.post, why: '' };
-  const reviews = assessments.filter((item) => item.status === 'REVIEW_REQUIRED');
+  // Mesmo contrato do firstUnlikedCandidate: não saltar um cartão incerto
+  // potencialmente elegível para comentar/curtir outro posterior.
+  const actionable = assessments.find((item) =>
+    item.post.liked !== true && item.status !== 'NOT_ELIGIBLE');
+  if (actionable?.status === 'ELIGIBLE')
+    return { post: actionable.post, why: '' };
+  const reviews = assessments.filter((item) =>
+    item.status === 'REVIEW_REQUIRED' && item.post.liked !== true);
+  if (!actionable && settings.allowAlreadyLiked) {
+    const alreadyLiked = assessments.find((item) =>
+      item.status === 'ELIGIBLE' && item.post.liked === true);
+    if (alreadyLiked) return { post: alreadyLiked.post, why: '' };
+  }
   if (reviews.length) {
     const count = (code: PostEvaluationCode) => reviews.filter((v) => v.code === code).length;
     const provisionalPosts = count('POST_ID_PROVISIONAL');
