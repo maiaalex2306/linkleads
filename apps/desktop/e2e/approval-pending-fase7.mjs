@@ -76,7 +76,24 @@ try {
     'rascunho continua pendente após reiniciar Electron', drafts);
   check(site.state.comments.length === 0,
     'reinício não publicou comentário sem autorização');
-  console.log('E2E FASE 7 — APROVAÇÃO PENDENTE E REINÍCIO OK');
+  // Apos autorizacao manual o site falso recebe o comentario, mas simula
+  // falha de renderizacao da lista. O estado deve permanecer reconciliavel.
+  site.state.noCommentRender = true;
+  await call(ui, 'openBrowser', acc.id);
+  const published = await call(ui, 'approveDraft', acc.id, drafts[0].id);
+  check(published.ok === false && site.state.comments.length === 1,
+    'comentario enviado uma vez com verificacao visual inconclusiva', published);
+  const review = await call(ui, 'listDrafts', acc.id, 'review');
+  check(review.length === 1 && review[0].status === 'approved',
+    'rascunho incerto permanece visivel e nao volta a pending', review);
+  await call(ui, 'confirmVisibleComment', acc.id, drafts[0].id);
+  const afterManual = await call(ui, 'listDrafts', acc.id, 'review');
+  check(afterManual.length === 0 && site.state.comments.length === 1,
+    'conciliacao humana nao envia um segundo comentario', afterManual);
+  const done = (await call(ui, 'listCampaigns', acc.id)).find((c) => c.id === campaignId).people;
+  check(done.some((r) => r.status === 'successful'),
+    'confirmacao manual concilia o status sem nova interacao', done);
+  console.log('E2E FASE 7 — APROVACAO, INCERTEZA E CONCILIACAO MANUAL OK');
 } catch (error) {
   console.error('FALHOU:', error?.stack ?? error);
   process.exitCode = 1;
