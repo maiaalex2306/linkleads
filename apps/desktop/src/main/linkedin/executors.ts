@@ -622,7 +622,9 @@ export function sourceSalesNavigatorUrl(p: Person): string | undefined {
 function salesPagePublicProfileLinks(): string[] {
   const root = document.querySelector('main') ?? document;
   const label = /(?:ver|visualizar|abrir|ir para|view|open|go to).{0,40}(?:perfil|profile)|(?:perfil|profile).{0,30}(?:linkedin|público|public)/i;
-  return Array.from(root.querySelectorAll('a[href*="/in/"]'))
+  const canonical = (document.querySelector('link[rel="canonical"]') as HTMLLinkElement | null)?.href;
+  const og = (document.querySelector('meta[property="og:url"]') as HTMLMetaElement | null)?.content;
+  const explicit = Array.from(root.querySelectorAll('a[href*="/in/"]'))
     .filter((el) => {
       const a = el as HTMLAnchorElement;
       const text = [a.textContent, a.getAttribute('aria-label'), a.getAttribute('title')]
@@ -630,6 +632,7 @@ function salesPagePublicProfileLinks(): string[] {
       const bounds = a.getBoundingClientRect();
       return bounds.width > 0 && bounds.height > 0 && label.test(text);
     }).map((el) => (el as HTMLAnchorElement).href);
+  return [...new Set([canonical, og, ...explicit].filter((x): x is string => !!x))];
 }
 
 const routeTestUrl = (url: string): string => {
@@ -681,9 +684,16 @@ export async function gotoProfile(d: ExecutorDeps, p: Person, suffix = ''): Prom
         continue;
       }
       let observed = profileSlug(d.driver.wc.getURL());
-      if (!observed && (route.method === 'sales_source')) {
+      // /in/ACw pode responder sem redirecionar, mas o documento revelar um
+      // canonical ou og:url /in/nome (ou /in/ACo). Nunca persistir o hash
+      // como public_id simplesmente porque ele aparece na barra de endereco.
+      const unresolvedHash = route.method === 'basic_hash_candidate' &&
+        observed === publicIdFromUrl(route.url);
+      if ((unresolvedHash || !observed) &&
+          (route.method === 'basic_hash_candidate' || route.method === 'sales_source')) {
         const links = await d.driver.read(salesPagePublicProfileLinks).catch(() => [] as string[]);
-        const slugs = [...new Set(links.map(profileSlug).filter((s): s is string => !!s))];
+        const slugs = [...new Set(links.map(profileSlug).filter((s): s is string =>
+          !!s && (!unresolvedHash || s !== observed)))];
         if (slugs.length > 1) { attempts.push(route.method + ': múltiplos perfis possíveis'); continue; }
         if (slugs.length === 1) {
           observed = slugs[0]!;
@@ -697,7 +707,8 @@ export async function gotoProfile(d: ExecutorDeps, p: Person, suffix = ''): Prom
           }
         }
       }
-      if (!observed || profileSlug(d.driver.wc.getURL()) !== observed) {
+      if (!observed || unresolvedHash && observed === publicIdFromUrl(route.url) ||
+          profileSlug(d.driver.wc.getURL()) !== observed) {
         attempts.push(route.method + ': sem URL pública verificável');
         continue;
       }
