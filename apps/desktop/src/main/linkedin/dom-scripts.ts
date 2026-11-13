@@ -68,6 +68,8 @@ export interface PostExtract {
   hasMedia: boolean;
   isReshare: boolean;
   liked: boolean | null;
+  /** Indicador de conteúdo recolhido, nunca remover só o marcador para alimentar IA. */
+  truncated?: boolean;
 }
 
 
@@ -473,7 +475,16 @@ export function extractPosts(sel: Record<string, readonly string[]>, limit: numb
         text = roots.map((node) => (node.innerText || '').trim()).filter(Boolean).join('\n\n').slice(0, 6000);
       }
     }
-    text = text.replace(/\s*…\s*mais$|\s*\.\.\.\s*(more|mais)$/i, '').trim();
+    // Não mascarar texto truncado: a expansão deve acontecer ANTES da IA.
+    const moreControls = Array.from(it.querySelectorAll(
+      'button, a, [role="button"], .feed-shared-inline-show-more-text__see-more-less-toggle',
+    )).filter((node) => !inEmbedded(node) &&
+      !node.closest('.comments-comment-entity, .comments-comment-item') &&
+      /^(?:…|\.\.\.)?\s*(?:ver mais|see more|mostrar mais|more)\s*$/i.test(
+        (node.getAttribute('aria-label') || node.textContent || '').replace(/\s+/g, ' ').trim()));
+    const truncated = moreControls.length > 0 ||
+      /(?:…|\.\.\.)\s*(?:mais|more)$/i.test(text);
+    text = text.trim();
     const reaction = __llReactionTarget(it, sel.likeButton!);
     const ageEl = firstOwn(sel.postAge!);
     const labelled = ageEl?.textContent?.replace(/\s+/g, ' ').trim() || '';
@@ -544,6 +555,7 @@ export function extractPosts(sel: Record<string, readonly string[]>, limit: numb
       hasMedia: media,
       isReshare,
       liked: reaction.state,
+      truncated,
     });
     if (out.length >= limit) break;
   }
@@ -557,113 +569,286 @@ export function likeState(sel: Record<string, readonly string[]>, urn: string): 
   return __llReactionTarget(matches[0]!.el, sel.likeButton!).state;
 }
 
-/** Encontra um único editor visível dentro da publicação identificada.
- * Nunca utiliza o primeiro editor global; outros posts podem estar abertos.
- * Retorna null se a identidade do contêiner ou o editor não forem inequívocos.
+/**
+ * Resolve os controles do MESMO post, sem confundir o botão que abre comentários
+ * com o botão de envio. Autocontida para PageDriver.read (mundo isolado).
  */
-export function commentEditorPoint(
+export function llCommentControls(
   sel: Record<string, readonly string[]>, urn: string,
-): { x: number; y: number } | null {
-  const root = __llPostContainers({ postItem: sel.postItem!, likeButton: sel.likeButton! })
-    .find((item) => item.urn === urn)?.el;
-  if (!root) return null;
-  const editors = new Set<HTMLElement>();
-  for (const selector of sel.commentEditor ?? []) {
-    for (const editor of Array.from(root.querySelectorAll(selector)) as HTMLElement[]) {
-      const rect = editor.getBoundingClientRect();
-      if (editor.getAttribute('contenteditable') === 'true' && rect.width > 0 && rect.height > 0)
-        editors.add(editor);
+): { root: Element | null; editor: HTMLElement | null; submit: HTMLButtonElement | null; reason: string } {
+  const cards = __llPostContainers({ postItem: sel.postItem!, likeButton: sel.likeButton! })
+    .filter((c) => c.urn === urn && c.identity.identityStatus === 'CONFIRMED');
+  if (cards.length !== 1) return { root: null, editor: null, submit: null, reason: 'CARD_UNVERIFIED' };
+  const root = cards[0]!.el;
+  const embedded = '.feed-shared-mini-update-v2, .update-components-mini-update-v2, .feed-shared-article, .update-components-article, [data-testid*="quoted"], [data-test-id*="reshared"]';
+  const own = (node: Element): boolean => {
+    let parent = node.parentElement;
+    while (parent && parent !== root) {
+      if (parent.matches(embedded) || parent.matches('[data-urn], [data-activity-urn]')) return false;
+      parent = parent.parentElement;
     }
-  }
-  if (editors.size !== 1) return null;
-  const rect = [...editors][0]!.getBoundingClientRect();
-  return { x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2) };
-}
-
-/** Localiza o botão de envio vinculado ao editor e à publicação corretos.
- * A busca nunca ultrapassa o contêiner da publicação identificada.
- */
-export function commentSubmitPoint(
-  sel: Record<string, readonly string[]>, urn: string,
-): { x: number; y: number } | null {
-  const root = __llPostContainers({ postItem: sel.postItem!, likeButton: sel.likeButton! })
-    .find((item) => item.urn === urn)?.el;
-  if (!root) return null;
+    return parent === root;
+  };
+  const visible = (node: Element): boolean => {
+    const rect = node.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0 &&
+      getComputedStyle(node).visibility !== 'hidden' && getComputedStyle(node).display !== 'none';
+  };
   const editors = new Set<HTMLElement>();
-  for (const selector of sel.commentEditor ?? []) {
-    for (const editor of Array.from(root.querySelectorAll(selector)) as HTMLElement[]) {
-      const rect = editor.getBoundingClientRect();
-      if (editor.getAttribute('contenteditable') === 'true' && rect.width > 0 && rect.height > 0)
-        editors.add(editor);
-    }
+  const candidates = [
+    ...(sel.commentEditor ?? []),
+    '.comments-comment-box [contenteditable="true"]',
+    '[data-testid*="comment-editor"][contenteditable="true"]',
+    '[data-test-id*="comment-editor"][contenteditable="true"]',
+    '.tiptap.ProseMirror[contenteditable="true"]',
+    '[role="textbox"][contenteditable="true"]',
+  ];
+  for (const selector of candidates) {
+    try {
+      for (const node of Array.from(root.querySelectorAll(selector))) {
+        if (!(node instanceof HTMLElement) ||
+          node.getAttribute('contenteditable') !== 'true' ||
+          node.closest('.comments-comment-entity, .comments-comment-item') ||
+          !own(node) || !visible(node)) continue;
+        editors.add(node);
+      }
+    } catch { /* configuração de seletor inválida: nunca ampliar o escopo */ }
   }
-  if (editors.size !== 1) return null;
+  if (editors.size !== 1) return { root, editor: null, submit: null,
+    reason: editors.size ? 'MULTIPLE_EDITORS' : 'EDITOR_NOT_FOUND' };
   const editor = [...editors][0]!;
-  let ancestor: Element | null = editor.parentElement;
-  for (let depth = 0; ancestor && (ancestor === root || root.contains(ancestor)) && depth < 12; depth++, ancestor = ancestor.parentElement) {
-    const matches = (Array.from(ancestor.querySelectorAll('button')) as HTMLButtonElement[])
-      .filter((button) => {
-        if (button.disabled) return false;
-        const rect = button.getBoundingClientRect();
-        if (rect.width <= 0 || rect.height <= 0) return false;
-        const label = (button.getAttribute('aria-label') || button.innerText || '').replace(/\s+/g, ' ').trim();
-        if (!/^(comentar|publicar|comment|post)$/i.test(label) &&
-          !button.matches('button.comments-comment-box__submit-button, button.comments-comment-box__submit-button--cr, form.comments-comment-box__form button[type="submit"]')) return false;
-        return Boolean(editor.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING);
-      });
-    if (matches.length > 1) return null;
-    if (matches.length === 1) {
-      const rect = matches[0]!.getBoundingClientRect();
-      return { x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2) };
+  let ancestor: Element | null = editor.closest('form') ??
+    editor.closest('.comments-comment-box, [data-testid*="comment-box"], [data-test-id*="comment-box"]') ??
+    editor.parentElement;
+  // Para editores sem form, subir apenas até um envelope que possua botão
+  // exclusivamente de envio, nunca escolher um botão global do cartão.
+  for (let depth = 0; ancestor && (ancestor === root || root.contains(ancestor)) && depth < 8;
+    depth++, ancestor = ancestor.parentElement) {
+    // Sem <form> é aceitável um envelope de comentários, nunca o cartão
+    // inteiro (que pode conter botões de publicação de outra funcionalidade).
+    if (!editor.closest('form') && ancestor === root) break;
+    const isForm = ancestor.matches('form');
+    const submits = new Set<HTMLButtonElement>();
+    const selectors = [
+      ...(sel.commentSubmit ?? []),
+      'button[type="submit"]',
+      'button[aria-label*="Publicar"]',
+      'button[aria-label*="Post comment"]',
+      'button[data-testid*="comment-submit"]',
+    ];
+    for (const selector of selectors) {
+      try {
+        for (const node of Array.from(ancestor.querySelectorAll(selector))) {
+          if (!(node instanceof HTMLButtonElement) || !own(node) || !visible(node)) continue;
+          // Um seletor customizado pode abranger também "abrir comentários".
+          const explicitSubmit = node.matches(
+            'button[type="submit"], .comments-comment-box__submit-button, .comments-comment-box__submit-button--cr, [data-testid*="comment-submit"], [data-test-id*="comment-submit"]');
+          const label = (node.getAttribute('aria-label') || node.innerText || '').replace(/\s+/g, ' ').trim();
+          const submitLabel = /^(publicar|post|postar|publish|post comment|publicar comentário|enviar comentário)$/i.test(label);
+          if ((!explicitSubmit && !submitLabel) ||
+            (node.closest('form') && node.closest('form') !== editor.closest('form')) ||
+            (editor.closest('form') && !editor.closest('form')!.contains(node)) ||
+            (node.disabled || node.getAttribute('aria-disabled') === 'true')) continue;
+          // "Comment"/"Comentar" só é envio quando o botão está no form
+          // do editor e é explicitamente type=submit.
+          if (/^(comentar|comment)$/i.test(label) && !(isForm && node.type === 'submit')) continue;
+          submits.add(node);
+        }
+      } catch { /* configuração inválida não vira seletor global */ }
     }
+    if (submits.size > 1) return { root, editor, submit: null, reason: 'MULTIPLE_SUBMITS' };
+    if (submits.size === 1) return { root, editor, submit: [...submits][0]!, reason: 'CONFIRMED' };
+    if (isForm) break; // não subir ao botão de comentar externo ao formulário
   }
-  return null;
+  return { root, editor, submit: null, reason: 'SUBMIT_NOT_FOUND' };
 }
 
-/** Confere o texto do único editor da publicação, nunca de outro post. */
+declare function __llCommentControls(sel: Record<string, readonly string[]>, urn: string): {
+  root: Element | null; editor: HTMLElement | null; submit: HTMLButtonElement | null; reason: string;
+};
+
+export function commentEditorPoint(sel: Record<string, readonly string[]>, urn: string): { x: number; y: number } | null {
+  const editor = __llCommentControls(sel, urn).editor;
+  if (!editor) return null;
+  const r = editor.getBoundingClientRect();
+  return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
+}
+
+export function commentSubmitPoint(sel: Record<string, readonly string[]>, urn: string): { x: number; y: number } | null {
+  const submit = __llCommentControls(sel, urn).submit;
+  if (!submit) return null;
+  const r = submit.getBoundingClientRect();
+  return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
+}
+
 export function editorText(sel: Record<string, readonly string[]>, urn: string): string {
-  const root = __llPostContainers({ postItem: sel.postItem!, likeButton: sel.likeButton! })
-    .find((item) => item.urn === urn)?.el;
-  if (!root) return '';
-  const editors = new Set<HTMLElement>();
-  for (const selector of sel.commentEditor ?? []) {
-    for (const editor of Array.from(root.querySelectorAll(selector)) as HTMLElement[]) {
-      const rect = editor.getBoundingClientRect();
-      if (editor.getAttribute('contenteditable') === 'true' && rect.width > 0 && rect.height > 0)
-        editors.add(editor);
-    }
-  }
-  if (editors.size !== 1) return '';
-  return [...editors][0]!.innerText.replace(/\s+/g, ' ').trim();
+  const editor = __llCommentControls(sel, urn).editor;
+  return editor ? (editor.innerText || editor.textContent || '').replace(/\s+/g, ' ').trim() : '';
 }
 
-/** Conta ocorrências completas do comentário SOMENTE no post identificado.
- * Comparar antes/depois evita confirmar uma mensagem que já estava na tela.
- * Não garante autoria em todo layout; ausência de prova = resultado incerto.
+/** Detecta o estado exato da publicação (conta, URN, interface) após o envio.
+ * Não basta um texto igual; o item precisa ser novo e atribuível à conta ativa.
  */
-export function matchingCommentCount(
+export function commentEvidence(
   sel: Record<string, readonly string[]>, urn: string, commentText: string,
-): number {
-  const norm = (t: string) => t.replace(/\s+/g, ' ').trim().toLocaleLowerCase();
-  const target = norm(commentText);
-  if (!target) return 0;
-  // Priorizar a identidade exata declarada no próprio cartão. Reexecutar
-  // heurísticas estruturais após abrir comentários pode alterar os ancestrais.
-  const direct = Array.from(document.querySelectorAll('[data-urn]'))
-    .find((el) => el.getAttribute('data-urn') === urn);
-  const container = direct ?? __llPostContainers({ postItem: sel.postItem!, likeButton: sel.likeButton! })
-    .find((item) => item.urn === urn)?.el;
-  if (!container) return 0;
-  const seen = new Set<Element>();
+): { count: number; ownedCount: number; editorEmpty: boolean; cardConfirmed: boolean } {
+  const norm = (s: string): string => s.replace(/\s+/g, ' ').trim().toLocaleLowerCase();
+  const expected = norm(commentText);
+  const cards = __llPostContainers({ postItem: sel.postItem!, likeButton: sel.likeButton! })
+    .filter((c) => c.urn === urn && c.identity.identityStatus === 'CONFIRMED');
+  if (!expected || cards.length !== 1)
+    return { count: 0, ownedCount: 0, editorEmpty: false, cardConfirmed: false };
+  const root = cards[0]!.el;
+  const rows = Array.from(root.querySelectorAll(
+    '.comments-comment-entity, .comments-comment-item, [data-testid="comment-item"], [data-test-id="comment-item"]'));
   let count = 0;
-  for (const selector of sel.commentItemText!) {
-    for (const el of Array.from(container.querySelectorAll(selector))) {
-      if (seen.has(el)) continue;
-      seen.add(el);
-      if (norm((el as HTMLElement).innerText ?? '') === target) count++;
-    }
+  let ownedCount = 0;
+  const selfProfiles = new Set(
+    (Array.from(document.querySelectorAll(
+      '.global-nav__me a[href*="/in/"], [data-testid="current-user"] a[href*="/in/"], a[data-test-id="nav-me-profile"][href*="/in/"]',
+    )) as HTMLAnchorElement[]).map((a) => {
+      try { return new URL(a.href, location.href).pathname.replace(/\/$/, ''); }
+      catch { return ''; }
+    }).filter(Boolean),
+  );
+  for (const row of rows) {
+    const childText = (Array.from(row.querySelectorAll(
+      '.comments-comment-item__main-content, .update-components-text, [data-testid="comment-text"], [data-test-id="comment-text"]',
+    )) as HTMLElement[])[0];
+    const ownText = norm(childText?.innerText ?? childText?.textContent ?? '');
+    if (ownText !== expected) continue;
+    count++;
+    const selfMarked = row.matches(
+      '.comments-comment-entity--mine, .comments-comment-entity--me, [data-author-self="true"], [data-testid="own-comment"]');
+    const writer = row.querySelector('a[href*="/in/"]') as HTMLAnchorElement | null;
+    const writerPath = (() => {
+      try { return writer ? new URL(writer.href, location.href).pathname.replace(/\/$/, '') : ''; }
+      catch { return ''; }
+    })();
+    if (selfMarked || (writerPath && selfProfiles.has(writerPath))) ownedCount++;
   }
-  return count;
+  const editor = __llCommentControls(sel, urn).editor;
+  return { count, ownedCount,
+    // Alguns layouts removem todo o formulário após Publicar. Isso também é
+    // um estado final válido DESDE que haja nova mensagem atribuída à conta.
+    editorEmpty: !editor || norm(editor.innerText || editor.textContent || '') === '',
+    cardConfirmed: true };
+}
+
+/** Compatibilidade com o bloqueio de texto idêntico pré-existente. */
+export function matchingCommentCount(sel: Record<string, readonly string[]>, urn: string, commentText: string): number {
+  return __llCommentEvidence(sel, urn, commentText).count;
+}
+
+declare function __llCommentEvidence(sel: Record<string, readonly string[]>, urn: string, commentText: string): {
+  count: number; ownedCount: number; editorEmpty: boolean; cardConfirmed: boolean;
+};
+
+/** Guarda final do editor e do envio, no mesmo pixel e mesmo URN. */
+export function commentClickGuard(
+  sel: Record<string, readonly string[]>, urn: string,
+  kind: 'editor' | 'submit', x: number, y: number, expectedText: string,
+): boolean {
+  const ctx = __llCommentControls(sel, urn);
+  const target = kind === 'editor' ? ctx.editor : ctx.submit;
+  if (!ctx.root || !target) return false;
+  if (kind === 'submit') {
+    const typed = (ctx.editor?.innerText || ctx.editor?.textContent || '').replace(/\s+/g, ' ').trim();
+    if (typed !== expectedText.replace(/\s+/g, ' ').trim()) return false;
+  }
+  const r = target.getBoundingClientRect();
+  if (r.width <= 0 || r.height <= 0 || x < r.left || x >= r.right || y < r.top || y >= r.bottom)
+    return false;
+  const hit = document.elementFromPoint(x, y);
+  return !!hit && (hit === target || target.contains(hit));
+}
+
+/** Botão que ABRE a área de comentários: não confundir com o envio. */
+export function commentOpenGuard(
+  sel: Record<string, readonly string[]>, urn: string, x: number, y: number,
+): boolean {
+  const cards = __llPostContainers({ postItem: sel.postItem!, likeButton: sel.likeButton! })
+    .filter((card) => card.urn === urn && card.identity.identityStatus === 'CONFIRMED');
+  if (cards.length !== 1) return false;
+  const root = cards[0]!.el;
+  const elements = new Set<HTMLElement>();
+  for (const selector of sel.commentButton ?? []) {
+    try {
+      for (const candidate of Array.from(root.querySelectorAll(selector))) {
+        if (!(candidate instanceof HTMLElement) ||
+          candidate.closest('form, .comments-comment-entity, .comments-comment-item') ||
+          !/^(?:comentar|comment|abrir comentários|show comments)$/i.test(
+            (candidate.getAttribute('aria-label') || candidate.innerText || '').replace(/\s+/g, ' ').trim())) continue;
+        let parent = candidate.parentElement;
+        let embedded = false;
+        while (parent && parent !== root) {
+          if (parent.matches('[data-urn], [data-activity-urn], .feed-shared-mini-update-v2, .update-components-mini-update-v2')) {
+            embedded = true; break;
+          }
+          parent = parent.parentElement;
+        }
+        if (!embedded && parent === root) elements.add(candidate);
+      }
+    } catch { /* configurar seletor inválido não abre um controle externo */ }
+  }
+  if (elements.size !== 1) return false;
+  const button = [...elements][0]!;
+  const rect = button.getBoundingClientRect();
+  if (!(rect.width > 0 && rect.height > 0) || x < rect.left || x >= rect.right || y < rect.top || y >= rect.bottom) return false;
+  const hit = document.elementFromPoint(x, y);
+  return !!hit && (hit === button || button.contains(hit));
+}
+
+/** Controle "ver mais" restrito ao TEXTO do post principal, jamais comentários. */
+export function postExpandPoint(
+  sel: Record<string, readonly string[]>, urn: string,
+): { x: number; y: number } | null {
+  const cards = __llPostContainers({ postItem: sel.postItem!, likeButton: sel.likeButton! })
+    .filter((c) => c.urn === urn && c.identity.identityStatus === 'CONFIRMED');
+  if (cards.length !== 1) return null;
+  const root = cards[0]!.el;
+  const selectors = [
+    ...(sel.postExpand ?? []),
+    '.update-components-text button',
+    '.feed-shared-inline-show-more-text button',
+    '.feed-shared-inline-show-more-text__see-more-less-toggle',
+    '[data-testid="post-text"] button', '[data-test-id="post-text"] button',
+  ];
+  const candidates = [...new Set(selectors.flatMap((selector) => {
+    try { return Array.from(root.querySelectorAll(selector)); }
+    catch { return [] as Element[]; }
+  }))] as HTMLElement[];
+  const controls = candidates.filter((node) => {
+    if (node.closest('.comments-comment-entity, .comments-comment-item')) return false;
+    let p: Element | null = node.parentElement;
+    while (p && p !== root) {
+      if (p.matches('[data-urn], [data-activity-urn], .feed-shared-mini-update-v2, .update-components-mini-update-v2')) return false;
+      p = p.parentElement;
+    }
+    const label = (node.getAttribute('aria-label') || node.textContent || '').replace(/\s+/g, ' ').trim();
+    const r = node.getBoundingClientRect();
+    return /^(?:…|\.\.\.)?\s*(?:ver mais|see more|mostrar mais|more)\s*$/i.test(label) &&
+      r.width > 0 && r.height > 0;
+  });
+  if (controls.length !== 1) return null;
+  const r = controls[0]!.getBoundingClientRect();
+  return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
+}
+
+declare function __llPostExpandPoint(sel: Record<string, readonly string[]>, urn: string): { x: number; y: number } | null;
+
+/** Reconfere o ponto antes de expandir um conteúdo (possível virtualização). */
+export function postExpandGuard(
+  sel: Record<string, readonly string[]>, urn: string, x: number, y: number,
+): boolean {
+  const point = __llPostExpandPoint(sel, urn);
+  if (!point || Math.abs(point.x - x) > 20 || Math.abs(point.y - y) > 20) return false;
+  const hit = document.elementFromPoint(x, y);
+  if (!hit) return false;
+  const candidates = ['button', '[role="button"]', 'a'];
+  const el = hit.closest(candidates.join(', '));
+  return !!el && /^(?:…|\.\.\.)?\s*(?:ver mais|see more|mostrar mais|more)\s*$/i.test(
+    (el.getAttribute('aria-label') || el.textContent || '').replace(/\s+/g, ' ').trim());
 }
 
 /** Busca legada, apenas para diagnóstico. NÃO usar como prova de envio. */

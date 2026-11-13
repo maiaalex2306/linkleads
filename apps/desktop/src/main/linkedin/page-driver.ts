@@ -1,4 +1,8 @@
-import { llIsReact, llPostContainers, llReactionTarget, llReactionClickGuard } from './dom-scripts.js';
+import {
+  llIsReact, llPostContainers, llReactionTarget, llReactionClickGuard,
+  llCommentControls, commentEvidence, commentEditorPoint, commentSubmitPoint,
+  commentClickGuard, commentOpenGuard, postExpandPoint, postExpandGuard,
+} from './dom-scripts.js';
 import type { WebContents } from 'electron';
 import { HumanInput } from '../human-input.js';
 import type { LabelKey, SelectorKey, SelectorMap } from './selectors.js';
@@ -41,7 +45,7 @@ export class PageDriver {
   /** Executa uma função pura no mundo isolado. A função não pode usar closures. */
   async read<T, A extends unknown[]>(fn: (...args: A) => T, ...args: A): Promise<T> {
     // cada leitura num escopo próprio (o ajudante de posts não pode ser redeclarado no mesmo mundo isolado)
-    const code = `(() => { const __llIsReact = ${llIsReact.toString()};\nconst llIsReact = __llIsReact;\nconst __llPostContainers = ${llPostContainers.toString()};\nconst __llReactionTarget = ${llReactionTarget.toString()};\nreturn (${fn.toString()})(...${JSON.stringify(args)}); })()`;
+    const code = `(() => { const __llIsReact = ${llIsReact.toString()};\nconst llIsReact = __llIsReact;\nconst __llPostContainers = ${llPostContainers.toString()};\nconst __llReactionTarget = ${llReactionTarget.toString()};\nconst __llCommentControls = ${llCommentControls.toString()};\nconst __llCommentEvidence = ${commentEvidence.toString()};\nconst __llPostExpandPoint = ${postExpandPoint.toString()};\nreturn (${fn.toString()})(...${JSON.stringify(args)}); })()`;
     const started = Date.now();
     try {
       const result = (await this.wc.executeJavaScriptInIsolatedWorld(ISOLATED_WORLD, [{ code }])) as T;
@@ -269,6 +273,81 @@ export class PageDriver {
     }
     this.emit?.('like_click_sent', { postUrn: urn });
     return 'CLICKED';
+  }
+
+  /**
+   * Ponto visível do editor, enviar ou ver-mais no mesmo URN. O método relê
+   * a geometria a cada scroll; o clique faz outra conferência após mouseMove.
+   */
+  private async postControlPoint(
+    kind: 'editor' | 'submit' | 'expand', urn: string,
+  ): Promise<{ x: number; y: number } | null> {
+    const selectors = this.sel as unknown as Record<string, readonly string[]>;
+    const readPoint = () => kind === 'editor'
+      ? this.read(commentEditorPoint, selectors, urn)
+      : kind === 'submit'
+        ? this.read(commentSubmitPoint, selectors, urn)
+        : this.read(postExpandPoint, selectors, urn);
+    for (let attempt = 0; attempt < 16; attempt++) {
+      const point = await readPoint();
+      if (!point) return null;
+      const status = await this.read(() => ({
+        vh: window.innerHeight,
+        scrollY: window.scrollY,
+        maxScroll: Math.max(0, document.documentElement.scrollHeight - window.innerHeight),
+      }));
+      if (point.y >= 8 && point.y <= status.vh - 8) return point;
+      const delta = Math.max(-650, Math.min(650, point.y - status.vh / 2));
+      if (Math.abs(delta) < 2 || (status.scrollY <= 0 && delta < 0) ||
+        (status.scrollY >= status.maxScroll - 1 && delta > 0)) return null;
+      await this.input.scroll(delta);
+      await new Promise((done) => setTimeout(done, 220));
+    }
+    return null;
+  }
+
+  /** Só abre comentários se o botão continuar pertencendo ao post alvo. */
+  async openVerifiedCommentBox(urn: string): Promise<boolean> {
+    const point = await this.scrollIntoView('commentButton', { urn, containerKey: 'postItem' });
+    if (!point) return false;
+    const ok = await this.input.click(point.x, point.y, (x, y) =>
+      this.read(commentOpenGuard,
+        this.sel as unknown as Record<string, readonly string[]>, urn, x, y));
+    if (!ok) this.emit?.('comment_open_preflight_aborted', { postUrn: urn });
+    return ok;
+  }
+
+  /** Só foca o editor se ele continuar sendo o único editor do URN. */
+  async focusVerifiedCommentEditor(urn: string): Promise<boolean> {
+    const point = await this.postControlPoint('editor', urn);
+    if (!point) return false;
+    const ok = await this.input.click(point.x, point.y, (x, y) =>
+      this.read(commentClickGuard,
+        this.sel as unknown as Record<string, readonly string[]>, urn, 'editor', x, y, ''));
+    if (!ok) this.emit?.('comment_editor_focus_aborted', { postUrn: urn });
+    return ok;
+  }
+
+  /** O botão de enviar deve pertencer ao formulário do editor e ao URN correto. */
+  async clickVerifiedCommentSubmit(urn: string, text: string): Promise<boolean> {
+    const point = await this.postControlPoint('submit', urn);
+    if (!point) return false;
+    const ok = await this.input.click(point.x, point.y, (x, y) =>
+      this.read(commentClickGuard,
+        this.sel as unknown as Record<string, readonly string[]>, urn, 'submit', x, y, text));
+    if (!ok) this.emit?.('comment_submit_preflight_aborted', { postUrn: urn });
+    return ok;
+  }
+
+  /** Expandir o conteúdo principal, não comentários/citações ou outros posts. */
+  async clickVerifiedPostMore(urn: string): Promise<boolean> {
+    const point = await this.postControlPoint('expand', urn);
+    if (!point) return false;
+    const ok = await this.input.click(point.x, point.y, (x, y) =>
+      this.read(postExpandGuard,
+        this.sel as unknown as Record<string, readonly string[]>, urn, x, y));
+    if (!ok) this.emit?.('post_more_preflight_aborted', { postUrn: urn });
+    return ok;
   }
 
   /**

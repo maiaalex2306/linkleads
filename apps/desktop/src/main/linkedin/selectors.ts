@@ -10,7 +10,7 @@ import { join } from 'node:path';
  * ATENÇÃO: estes seletores precisam ser validados numa conta real antes de uso em produção.
  */
 export const DEFAULT_SELECTORS = {
-  version: '2026.11.13-fase3',
+  version: '2026.11.13-fase4',
   // perfil
   profileName: ['main h1', 'h1.text-heading-xlarge', 'h1'],
   profileHeadline: ['main .pv-text-details__left-panel .text-body-medium', 'main section .text-body-medium.break-words'],
@@ -43,9 +43,36 @@ export const DEFAULT_SELECTORS = {
     '[role="button"][aria-checked]:has([data-test-icon*="thumbs-up"])',
   ],
   commentButton: ['button[aria-label^="Comentar"]', 'button[aria-label="Comment"]', 'button[aria-label="Comentar"]', 'button.comment-button'],
-  commentEditor: ['div.tiptap.ProseMirror[contenteditable="true"]', '.comments-comment-box-comment__text-editor [contenteditable="true"]', '.comments-comment-texteditor [contenteditable="true"]', '.ql-editor[contenteditable="true"]'],
-  commentSubmit: ['button.comments-comment-box__submit-button--cr', 'button.comments-comment-box__submit-button', 'form.comments-comment-box__form button[type="submit"]'],
-  commentItemText: ['.comments-comment-item__main-content', '.comments-comment-entity .update-components-text', 'article.comments-comment-entity'],
+  commentEditor: [
+    'div.tiptap.ProseMirror[contenteditable="true"]',
+    '.comments-comment-box-comment__text-editor [contenteditable="true"]',
+    '.comments-comment-texteditor [contenteditable="true"]',
+    '.ql-editor[contenteditable="true"]',
+    'form[role="form"] [role="textbox"][contenteditable="true"]',
+    '[data-testid*="comment-editor"][contenteditable="true"]',
+    '[data-test-id*="comment-editor"][contenteditable="true"]',
+    '.comments-comment-box [contenteditable="true"]',
+  ],
+  commentSubmit: [
+    'button.comments-comment-box__submit-button--cr',
+    'button.comments-comment-box__submit-button',
+    'form.comments-comment-box__form button[type="submit"]',
+    '[data-testid*="comment-submit"]',
+    '[data-test-id*="comment-submit"]',
+    'form[data-testid*="comment-box"] button[type="submit"]',
+  ],
+  postExpand: [
+    '.update-components-text button.feed-shared-inline-show-more-text__see-more-less-toggle',
+    '.feed-shared-inline-show-more-text__see-more-less-toggle',
+    '[data-testid="post-text"] button[aria-label*="more"]',
+    '[data-test-id="post-text"] button[aria-label*="mais"]',
+  ],
+  commentItemText: [
+    '.comments-comment-item__main-content',
+    '.comments-comment-entity .update-components-text',
+    '[data-testid="comment-text"]',
+    'article.comments-comment-entity',
+  ],
   emptyActivity: ['.artdeco-empty-state', '.pv-recent-activity-detail__no-content'],
   // perfil: botões de ação (filtrados por rótulo, ver LABELS)
   profileActions: ['main section .pv-top-card-v2-ctas button', 'main .pvs-profile-actions button', 'main section:first-of-type button'],
