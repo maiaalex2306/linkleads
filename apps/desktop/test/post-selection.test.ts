@@ -113,9 +113,10 @@ describe('escolha de publicação com confirmação do estado', () => {
     expect(selected.why).toMatch(/identidade do autor/);
     expect(firstUnlikedCandidate(posts, 'ana-silva', 'Ana Silva').uncertain).toBe(true);
   });
-  it('estado de curtida desconhecido é identificado como candidato de diagnóstico, nunca sucesso automático', () => {
+  it('estado de curtida desconhecido exige revisão e nunca autoriza clique', () => {
     const p = one('urn:li:activity:333333333333', null);
-    expect(pickPost([p], 'ana-silva', { maxPostAgeDays: 30 }, 'Ana Silva')?.liked).toBeNull();
+    expect(pickPost([p], 'ana-silva', { maxPostAgeDays: 30 }, 'Ana Silva')).toBeUndefined();
+    expect(choosePost([p], 'ana-silva', { maxPostAgeDays: 30 }, 'Ana Silva').uncertain).toBe(true);
   });
   it('365 dias é um limite inclusivo, mas 366 dias não é elegível', () => {
     const within = { ...one('urn:li:activity:777777777777', false), age: '365 d' };
