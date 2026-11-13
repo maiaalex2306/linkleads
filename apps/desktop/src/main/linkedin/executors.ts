@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { ActionExecutor, BudgetKey, ExecutionContext, ExecutionResult, Person, PostSnapshot } from '@linkleads/core';
-import { detectJobChange, getActionDefinition, memberIdFromBasicOpaquePublicId, memberIdFromSalesHash, parseRelativeAgeDays, publicIdFromUrl } from '@linkleads/core';
+import { detectJobChange, getActionDefinition, memberIdFromBasicOpaquePublicId, memberIdFromSalesHash, normalizeLinkedInPublicId, parseRelativeAgeDays, publicIdFromUrl } from '@linkleads/core';
 import type { CommentSettings, LlmClient, PostInterpreter } from '@linkleads/ai';
 import type { IntegrationCrm } from '@linkleads/db';
 import type { EnrichmentProvider } from '@linkleads/integrations';
@@ -20,8 +20,8 @@ export function profileSlug(href: string): string | undefined {
         !(url.hostname === 'linkedin.com' || url.hostname.endsWith('.linkedin.com')))) return undefined;
     const m = url.pathname.match(/^\/in\/([^/?#]+)/i);
     if (!m) return undefined;
-    const slug = decodeURIComponent(m[1]!).toLowerCase();
-    return /[\\/\s?#\x00-\x1f]/.test(slug) ? undefined : slug;
+    const slug = normalizeLinkedInPublicId(decodeURIComponent(m[1]!));
+    return !slug || /[\\/\s?#\x00-\x1f]/.test(slug) ? undefined : slug;
   } catch {
     return undefined;
   }
@@ -648,7 +648,7 @@ const routeTestUrl = (url: string): string => {
  * A ausência de resposta na conta Basic não autoriza escolher homônimos.
  */
 export async function gotoProfile(d: ExecutorDeps, p: Person, suffix = ''): Promise<OpenResult> {
-  let slug = p.publicId?.trim().toLowerCase();
+  let slug = normalizeLinkedInPublicId(p.publicId);
   if (slug && (slug.includes('/') || slug.includes('\\') || /[\s?#]/.test(slug)))
     return { needsReview: 'Identificador público inválido. Confira a URL do perfil.' };
   const derivedMemberId = memberIdFromSalesHash(p.custom?.sn_id ?? p.custom?.linkleads_sn_hash_core);
