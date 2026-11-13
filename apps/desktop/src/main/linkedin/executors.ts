@@ -206,7 +206,7 @@ export function firstUnlikedCandidate(
       // Opaque diferente continua incerto: pode ser outro membro ou alias não
       // reconciliado. Não autorizar interação por semelhança de nome.
       if (/^AC[owr]/i.test(actor))
-        return { post, why: 'Identificador opaco do autor diferente do perfil confirmado', uncertain: true };
+        return { why: 'Identificador opaco do autor diferente do perfil confirmado', uncertain: true };
       continue;
     }
     // Nome completo, mesmo exato, não identifica unicamente uma pessoa:
