@@ -29,6 +29,15 @@ export function parseCsv(text: string): string[][] {
   return rows;
 }
 
+/** Normaliza slugs legíveis, mas PRESERVA a caixa dos IDs opacos Base64URL ACo.
+ * Em IDs ACo a troca de maiúsculas/minúsculas muda a identidade do membro.
+ */
+export function normalizeLinkedInPublicId(raw?: string): string | undefined {
+  const slug = raw?.trim();
+  if (!slug) return undefined;
+  return /^ACo[A-Za-z0-9_-]{30,}$/.test(slug) ? slug : slug.toLowerCase();
+}
+
 /** Extrai o slug público de uma URL de perfil (/in/<slug>). */
 export function publicIdFromUrl(url: string): string | undefined {
   try {
@@ -39,7 +48,7 @@ export function publicIdFromUrl(url: string): string | undefined {
     if (host !== 'linkedin.com' && !host.endsWith('.linkedin.com')) return undefined;
     const match = parsed.pathname.match(/^\/in\/([^/?#]+)/i);
     if (!match || parsed.username || parsed.password || parsed.port) return undefined;
-    const slug = decodeURIComponent(match[1]!).toLowerCase();
+    const slug = normalizeLinkedInPublicId(decodeURIComponent(match[1]!));
     if (!slug || slug === '.' || slug === '..' || slug.includes('/') || slug.includes('\\') || /[\s?#]/.test(slug)) return undefined;
     return slug;
   } catch {
@@ -161,7 +170,8 @@ export function importPeopleFromCsv(text: string, makeId: (publicId: string) => 
       return;
     }
     const profileFromUrl = distinct[0];
-    const exportedId = rec.publicId && /^[a-z0-9][a-z0-9._%-]*$/i.test(rec.publicId) ? rec.publicId.toLowerCase() : undefined;
+    const exportedId = rec.publicId && /^[a-z0-9][a-z0-9._%-]*$/i.test(rec.publicId)
+      ? normalizeLinkedInPublicId(rec.publicId) : undefined;
     // public_id isolado ou link Sales Navigator nao comprovam um /in/ exato.
     const publicId = profileFromUrl;
     if (profileFromUrl) {
