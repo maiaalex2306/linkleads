@@ -733,19 +733,32 @@ export function commentWithAi(d: ExecutorDeps): ActionExecutor {
 
       // O conteúdo utilizado pela IA deve vir da publicação canônica expandida,
       // nunca do resumo parcial capturado no feed antes de curtir.
+      const effect = (stage: 'ai' | 'approval' | 'comment', status:
+        'started' | 'confirmed' | 'uncertain' | 'pending' | 'blocked' | 'skipped',
+        reason?: string) => d.crm.recordEngagementEffect({
+        campaignId: ctx.campaignId, actionId: ctx.action.id,
+        personId: ctx.person.id, postUrl: post.url, stage, status, reason,
+      });
+      effect('ai', 'started');
       const fullPost = await hydratePostForComment(d, ctx.person.id, post);
-      if (!fullPost.ok) return fullPost;
+      if (!fullPost.ok) {
+        effect('ai', 'blocked', 'POST_CONTENT_UNVERIFIED');
+        return fullPost;
+      }
       const postForAi = { ...post, text: (fullPost.data?.text as string) || post.text };
       let interpretation;
       try {
         interpretation = await interpreter.interpret(postForAi, d.crm.getPerson(ctx.person.id) ?? ctx.person, s);
       } catch (e) {
+        effect('ai', 'blocked', 'AI_INTERPRETATION_ERROR');
         return { ok: false, reason: 'ERROR', message: `IA: ${e instanceof Error ? e.message : String(e)}` };
       }
       if (!interpretation.shouldComment) {
         d.crm.savePostInterpretation(post.url, interpretation); // guarda decisão sem falso comentário
+        effect('ai', 'skipped', 'INSUFFICIENT_OR_SENSITIVE_CONTENT');
         return { ok: false, reason: 'AI_SKIPPED', message: interpretation.skipReason };
       }
+      effect('ai', 'confirmed');
 
       if ((s.mode ?? 'manual') === 'manual') {
         d.crm.saveDraft({
@@ -756,10 +769,17 @@ export function commentWithAi(d: ExecutorDeps): ActionExecutor {
           comment: interpretation.comment,
           interpretation,
         });
-        return { ok: false, reason: 'AWAITING_APPROVAL' };
+        effect('approval', 'pending', 'MANUAL_APPROVAL_REQUIRED');
+        return { ok: false, reason: 'AWAITING_APPROVAL',
+          message: 'Curtida confirmada. Comentário preparado pela IA aguardando aprovação humana.',
+          data: { post: post.url, commentAttempted: false, approvalPending: true } };
       }
 
+      effect('approval', 'confirmed', 'AUTO_MODE_CONFIGURED');
       const result = await d.withBrowser(() => publishComment(d, post.url, interpretation.comment));
+      effect('comment', result.ok ? 'confirmed'
+        : result.data?.commentAttempted === true ? 'uncertain' : 'blocked',
+      result.ok ? undefined : result.reason);
       if (result.ok) {
         d.crm.markPostCommented(post.url, interpretation.comment, interpretation);
         verified.set(ctx, true);
