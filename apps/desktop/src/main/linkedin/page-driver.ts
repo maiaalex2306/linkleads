@@ -6,7 +6,7 @@ import {
 import type { WebContents } from 'electron';
 import { HumanInput } from '../human-input.js';
 import type { LabelKey, SelectorKey, SelectorMap } from './selectors.js';
-import type { DiagnosticCode } from './diagnostics-policy.js';
+import type { CardDecision, DiagnosticCode } from './diagnostics-policy.js';
 
 /** Mundo JS isolado: lê o DOM sem ser visível aos scripts da página e sem alterá-la. */
 const ISOLATED_WORLD = 1987;
@@ -71,6 +71,17 @@ export class PageDriver {
   /** Telemetria sem conteúdo: diagnósticos são códigos, não HTML ou identidade. */
   recordDiagnostic(code: DiagnosticCode, phase: string, extra: { hasPost?: boolean; selector?: string } = {}): void {
     this.emit?.('diagnostic_failure', { code, phase, ...extra });
+  }
+
+  /** A decisão normal da campanha deve ser observável, não apenas o diagnóstico manual.
+   * Campos estritamente estruturais: nunca exportar dados do perfil/post.
+   */
+  recordCardAssessment(decision: CardDecision): void {
+    this.emit?.('card_assessed', {
+      code: decision.code, status: decision.status, step: decision.ordinal,
+      reason: decision.stage, found: decision.evidence.canonical,
+      kind: decision.evidence.kind,
+    });
   }
 
   /** Executa uma função pura no mundo isolado. A função não pode usar closures. */

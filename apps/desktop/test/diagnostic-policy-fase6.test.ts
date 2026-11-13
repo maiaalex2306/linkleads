@@ -121,6 +121,33 @@ describe('Fase 6 — diagnóstico de cada cartão sem expor autoria ou conteúdo
   });
 });
 
+describe('Fase 6 — telemetria das decisões durante execução', () => {
+  it('distingue republicação inconclusiva de conflito de identificadores', () => {
+    const unknown = card({ postKind: 'UNKNOWN' });
+    const evaluation = evaluatePost(unknown, 'ana-silva');
+    expect(evaluation.status).toBe('REVIEW_REQUIRED');
+    expect(evaluation.code).toBe('RESHARE_CLASSIFICATION_ERROR');
+    expect(cardDecision(unknown, 1, evaluation).code).toBe('RESHARE_CLASSIFICATION_ERROR');
+    expect(cardDecision(unknown, 1, evaluation).status).toBe('REVIEW_REQUIRED');
+  });
+
+  it('emite decisão com código e etapa, sem nomes, texto nem URN', () => {
+    const events: Array<{ name: string; details: Record<string, unknown> }> = [];
+    const wc = { getURL: () => 'https://www.linkedin.com/in/ana-silva/recent-activity/all/' };
+    const driver = new PageDriver(wc as unknown as WebContents,
+      selectors as unknown as SelectorMap, (name, details) => events.push({ name, details }));
+    driver.recordCardAssessment(cardDecision(card(), 1, evaluatePost(card(), 'ana-silva')));
+    expect(events[0]?.name).toBe('card_assessed');
+    expect(events[0]?.details).toMatchObject({
+      code: 'POST_ELIGIBLE', status: 'ELIGIBLE', step: 1,
+      reason: 'ELIGIBLE', found: true, kind: 'ORIGINAL',
+    });
+    expect(JSON.stringify(events)).not.toContain('ana-silva');
+    expect(JSON.stringify(events)).not.toContain('7381234567890129999');
+    expect(JSON.stringify(events)).not.toContain('telemetria');
+  });
+});
+
 describe('Fase 6 — comparação de contrato por layout/idioma', () => {
   it('não classifica variação de conteúdo como mudança de interface', () => {
     const base = shape();
@@ -188,5 +215,7 @@ describe('Fase 6 — privacidade de links e URNs no diagnóstico', () => {
     expect(diagnosticPath('https://www.linkedin.com/company/empresa-industrial/')).toBe('/company/[id]/');
     expect(diagnosticPath('https://www.linkedin.com/messaging/thread/abcdef12345/'))
       .toBe('/messaging/thread/[id]/');
+    expect(diagnosticPath('https://www.linkedin.com/sales/people/ACw-opaque-hash,NAME_SEARCH/'))
+      .toBe('/sales/people/[id]/');
   });
 });

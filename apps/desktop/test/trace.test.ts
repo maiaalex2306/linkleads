@@ -60,5 +60,6 @@ describe('TRACE JSONL', () => {
     expect(safeRoute('https://www.linkedin.com/feed/update/urn:li:activity:123?x=1')).toBe('www.linkedin.com/feed/update/[id]');
     expect(safeRoute('file:///C:/Users/usuario-privado/AppData/Roaming/linkleads/index.html')).toBe('[local-page]');
     expect(safeRoute('https://www.linkedin.com/messaging/thread/abc123/?key=secret')).toBe('www.linkedin.com/messaging/thread/[id]/');
+    expect(safeRoute('https://www.linkedin.com/sales/people/ACw-opaque-hash,NAME_SEARCH/')).toBe('www.linkedin.com/sales/people/[id]/');
   });
 });

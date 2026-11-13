@@ -11,6 +11,7 @@ export function diagnosticPath(rawUrl: string): string {
       .replace(/^\/(in|pub|company)\/[^/]+/i, '/$1/[id]')
       .replace(/^\/feed\/update\/[^/]+/i, '/feed/update/[id]')
       .replace(/^\/posts\/[^/]+/i, '/posts/[id]')
+      .replace(/^\/sales\/(people|lead|company)\/[^/]+/i, '/sales/$1/[id]')
       .replace(/^\/messaging\/(?:thread|detail)\/[^/]+/i, '/messaging/thread/[id]')
       .slice(0, 180);
   } catch {
@@ -54,6 +55,7 @@ const CODE_MAP: Record<PostEvaluation['code'], DiagnosticCode> = {
   AUTHOR_CONFLICT: 'AUTHOR_UNVERIFIED',
   AUTHOR_MISMATCH: 'AUTHOR_MISMATCH',
   POST_ID_CONFLICT: 'CARD_ID_CONFLICT',
+  RESHARE_CLASSIFICATION_ERROR: 'RESHARE_CLASSIFICATION_ERROR',
   POST_ID_PROVISIONAL: 'CARD_ID_PROVISIONAL',
   POST_AGE_UNVERIFIED: 'POST_AGE_UNVERIFIED',
   POST_TOO_OLD: 'POST_TOO_OLD',

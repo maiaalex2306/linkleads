@@ -8,6 +8,7 @@ import { commentEditorPoint, commentSubmitPoint, commentEvidence, editorText, ex
 import { BlockedError, type PageDriver } from './page-driver.js';
 import { isCanonicalPostUrn, provisionalPostFingerprint } from './post-identity.js';
 import type { DiagnosisContext } from './diagnostics.js';
+import { cardDecision } from './diagnostics-policy.js';
 import { parseSalesSource, profileResolutionRoutes, samePersonCompany, samePersonName, type ProfileRoute } from './profile-resolver.js';
 
 /** LINKLEADS_TEST_BASE_URL aponta para o site falso dos testes e2e; nunca usar em produção. */
@@ -188,7 +189,7 @@ export type PostEvaluationStage = 'POST_FOUND' | 'AUTHOR_CONFIRMED' | 'POST_CLAS
 export type PostEvaluationStatus = 'ELIGIBLE' | 'NOT_ELIGIBLE' | 'REVIEW_REQUIRED';
 export type PostEvaluationCode = 'EMPTY_CONTENT' | 'RESHARE_EXCLUDED' |
   'AUTHOR_UNVERIFIED' | 'AUTHOR_CONFLICT' | 'AUTHOR_MISMATCH' |
-  'POST_ID_CONFLICT' | 'POST_ID_PROVISIONAL' | 'POST_AGE_UNVERIFIED' |
+  'POST_ID_CONFLICT' | 'POST_ID_PROVISIONAL' | 'RESHARE_CLASSIFICATION_ERROR' | 'POST_AGE_UNVERIFIED' |
   'POST_TOO_OLD' | 'REACTION_UNKNOWN' | 'ALREADY_LIKED' | 'ELIGIBLE';
 
 export interface PostEvaluation {
@@ -211,9 +212,12 @@ export function evaluatePost(
   ): PostEvaluation => ({ post, status, stage, passedStages: [...passedStages], code, why });
   const isReshare = post.postKind === 'RESHARE_PLAIN' ||
     post.postKind === 'RESHARE_COMMENTED' || post.isReshare;
-  if (post.cardIdentity?.identityStatus === 'CONFLICT' || post.postKind === 'UNKNOWN')
+  if (post.cardIdentity?.identityStatus === 'CONFLICT')
     return result('REVIEW_REQUIRED', 'POST_FOUND', 'POST_ID_CONFLICT',
       'Conflito na identidade do cartão ou entre identificadores da publicação');
+  if (post.postKind === 'UNKNOWN')
+    return result('REVIEW_REQUIRED', 'POST_FOUND', 'RESHARE_CLASSIFICATION_ERROR',
+      'Classificação da publicação original ou republicação inconclusiva');
   // Repost simples pode apresentar conteúdo somente no cartão citado.
   // Sem texto próprio a IA poderá recusar o comentário, mas o compartilhamento
   // continua sujeito à configuração explícita de incluir republicações.
@@ -282,7 +286,7 @@ export function firstUnlikedCandidate(
       return {
         // Conflitos de autor ou identidade não geram sequer candidato.
         // URN provisória/estado desconhecido podem ser exibidos para diagnóstico.
-        post: ['AUTHOR_CONFLICT', 'POST_ID_CONFLICT', 'AUTHOR_UNVERIFIED'].includes(assessment.code)
+        post: ['AUTHOR_CONFLICT', 'POST_ID_CONFLICT', 'AUTHOR_UNVERIFIED', 'RESHARE_CLASSIFICATION_ERROR'].includes(assessment.code)
           ? undefined : post,
         why: assessment.why, uncertain: true,
       };
@@ -324,6 +328,7 @@ export function choosePost(
       provisionalPosts && provisionalPosts + ' com URN provisória',
       undatedPosts && undatedPosts + ' com data não verificável',
       count('POST_ID_CONFLICT') && count('POST_ID_CONFLICT') + ' com identificadores conflitantes',
+      count('RESHARE_CLASSIFICATION_ERROR') && count('RESHARE_CLASSIFICATION_ERROR') + ' com classificação de republicação incerta',
       count('REACTION_UNKNOWN') && count('REACTION_UNKNOWN') + ' com estado de reação desconhecido',
     ].filter(Boolean).join(', ');
     return { why: 'Identifiquei ' + reviews.length +
@@ -374,7 +379,13 @@ async function discoverUnlikedPost(
     // em cada leitura do mesmo conteúdo.
     for (const p of batch) {
       const key = isCanonicalPostUrn(p.urn) ? p.urn : 'unresolved:' + provisionalPostFingerprint(p);
-      if (!seen.has(key)) seen.set(key, p);
+      if (!seen.has(key)) {
+        seen.set(key, p);
+        // Telemetria de TODA nova decisão em uma campanha, inclusive elegíveis.
+        // Não registra URN, identidade, nome, texto ou URL do cartão.
+        const assessment = evaluatePost(p, publicId, settings);
+        d.driver.recordCardAssessment?.(cardDecision(p, seen.size, assessment));
+      }
     }
     // Regra da conta: identificar primeiro o post nao curtido em ORDEM VISUAL.
     // Autor, estado, URN e data continuam sendo gates separados de interacao.
