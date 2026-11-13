@@ -89,7 +89,7 @@ try {
   check([...seen].some((x) => /curtir|comentar/i.test(x)) && [...seen].some((x) => /convite/.test(x)),
     'painel "Agora" mostrou a ação composta e o convite enquanto aconteciam', [...seen]);
   const L1 = await call('liveStatus', acc.id);
-  check(L1.recent.slice(0, 2).map((r) => r.text.split(':')[0]).reverse().join() === 'Curtir e comentar publicações e artigos,Enviar convite', 'histórico: engajamento unificado → convite', L1.recent);
+  check(L1.recent.slice(0, 2).map((r) => r.text.split(':')[0]).reverse().join() === 'Curtir e comentar publicações,Enviar convite', 'histórico: engajamento unificado → convite', L1.recent);
   check(L1.upcoming.some((u) => /Conferir aceite.*Ana/.test(u.text)) && L1.queues[0].waiting === 1, 'painel mostra a conferência do aceite agendada para amanhã', { up: L1.upcoming, q: L1.queues });
   await ui.reload();
   await ui.locator('.account-list .acc').first().click();
