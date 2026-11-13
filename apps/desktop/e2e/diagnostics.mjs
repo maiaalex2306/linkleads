@@ -18,6 +18,10 @@ const shots = process.env.SHOT_DIR ?? tmp;
 import { mkdirSync, writeFileSync } from 'node:fs';
 const userDataDir = join(tmp, '@linkleads', 'desktop');
 mkdirSync(userDataDir, { recursive: true });
+// Arquivo local deliberadamente inválido: deve aparecer como REJEITADO
+// sem substituir os seletores testados e sem quebrar o diagnóstico.
+writeFileSync(join(userDataDir, 'selectors.json'),
+  JSON.stringify({ version: 'custom-local', likeButton: ['button.unsupported-unsafe'] }));
 const wh = (days, start, end) => ({ timezone: 'America/Sao_Paulo', days, start, end });
 writeFileSync(join(userDataDir, 'accounts.json'), JSON.stringify([
   { id: 'antiga', label: 'Conta antiga', tier: 'basic', dailyLimits: {}, paused: false, onboardedAt: '2026-01-01T00:00:00Z', workingHours: wh([1, 2, 3, 4, 5], '09:00', '18:00') },
@@ -70,11 +74,28 @@ try {
   check(perfil.page === 'perfil' && found(perfil, 'profileName') && found(perfil, 'profileHeadline') && found(perfil, 'profileDegree'), 'perfil: nome, título e grau reconhecidos', perfil.keys);
   check(perfil.labels.find((l) => l.label === 'connect')?.matched && perfil.labels.find((l) => l.label === 'more')?.matched, 'perfil: botões Conectar e Mais reconhecidos pelo rótulo', perfil.labels);
   check(perfil.path === '/in/[id]/', 'relatório não guarda o identificador do perfil', perfil.path);
-  check(!JSON.stringify(perfil).includes('Ana') && perfil.buttons.some((b) => b.includes('[NOME]')), 'nome da pessoa removido dos rótulos dos botões', perfil.buttons);
+  check(!JSON.stringify(perfil).includes('Ana') &&
+    perfil.buttons.every((b) => ['reaction','comment','submit','connect','message','share','other'].includes(b)),
+    'relatório contém somente funções de botões, sem dados pessoais', perfil.buttons);
+  check(perfil.selectorConfiguration.sources.some((s) =>
+    s.name === 'selectors.json' && s.status === 'rejected') &&
+    perfil.selectorConfiguration.issues.some((i) => i.code === 'UNAPPROVED_SELECTOR'),
+    'override local não homologado rejeitado e exposto no diagnóstico');
+  check(/^[a-f0-9]{64}$/.test(perfil.selectorConfiguration.effectiveSha256),
+    'hash SHA-256 do mapa efetivo incluído no diagnóstico');
+  check(/^[a-f0-9]{64}$/.test(perfil.layout.hash) &&
+    ['BASELINE_CREATED', 'BASELINE_UNAVAILABLE', 'MATCH'].includes(perfil.layout.comparison?.status),
+    'fingerprint estrutural e baseline de layout disponíveis', perfil.layout);
 
   await go('/in/ana-silva/recent-activity/all/');
   const ativ = await call('diagnose', acc.id);
   check(ativ.page === 'atividade' && found(ativ, 'postItem') && found(ativ, 'likeButton') && found(ativ, 'postText'), 'atividade: posts, texto e Gostei reconhecidos');
+  check(ativ.posts.decisions.length === ativ.posts.recognized &&
+    ativ.posts.decisions.every((d) => d.code && d.stage && d.evidence &&
+      !JSON.stringify(d).includes('ana-silva') && !JSON.stringify(d).includes('urn:li:')),
+    'decisão por cartão registrada sem URN, autoria ou texto do post');
+  check(!JSON.stringify(ativ.posts.probes).includes('urn:li:'),
+    'sonda estrutural anonimiza URNs de posts e links');
 
   await go('/company/acme/people/');
   const emp = await call('diagnose', acc.id);
@@ -116,6 +137,10 @@ try {
   await ui.getByText('Validar o app na sua conta').waitFor();
   await ui.getByRole('button', { name: 'Diagnosticar página aberta' }).click();
   await ui.getByText(/#1 · empresa_pessoas/).waitFor();
+  await ui.getByText('Integridade e procedência dos seletores').first().waitFor();
+  await ui.getByText('Comparação estrutural por página e idioma').first().waitFor();
+  check((await ui.getByText('Integridade e procedência dos seletores').first().count()) === 1,
+    'interface exibe procedência dos seletores e fingerprint, não somente o JSON');
   await ui.screenshot({ path: join(shots, 'diagnostico.png'), fullPage: true });
 } catch (e) {
   fail(e.stack ?? e);

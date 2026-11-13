@@ -31,7 +31,8 @@ const ALLOWED = new Set([
   'retryAfterMs', 'waitMs', 'scheduledAt', 'attempt', 'scanned', 'newReplies',
   'processed', 'successful', 'failed', 'awaitingApproval', 'retryLater', 'activeCampaigns',
   'level', 'enabled', 'file', 'message', 'stack', 'errorName', 'errorCode',
-  'origin', 'hasDraft', 'hasPost', 'kind', 'at', 'keys', 'x', 'y', 'deltaY'
+  'origin', 'hasDraft', 'hasPost', 'kind', 'at', 'keys', 'x', 'y', 'deltaY',
+  'selectorVersion', 'fingerprint', 'baselineHash', 'configurationStatus', 'diagnosticStatus'
 ]);
 const SENSITIVE = /(pass(word)?|passwd|secret|token|cookie|auth(orization)?|api.?key|credential|prompt|email|phone|text|body|note|comment|bearer|session|value|content|html|input)/i;
 const safeId = (v: string) => v.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 90) || 'system';
@@ -71,6 +72,9 @@ function safeDetails(details: Record<string, unknown>): Record<string, unknown> 
     if (typeof val === 'number' && Number.isFinite(val) || typeof val === 'boolean') {
       out[key] = val;
     } else if (typeof val === 'string') {
+      // Códigos estruturados não carregam texto livre da plataforma.
+      if (key === 'code' && !/^[A-Z][A-Z0-9_]{0,55}$/.test(val)) continue;
+      if ((key === 'fingerprint' || key === 'baselineHash') && !/^[a-f0-9]{64}$/.test(val)) continue;
       out[key] = key === 'route' || key === 'location' ? safeRoute(val) : redactText(val);
     } else if (key === 'keys' && Array.isArray(val)) {
       out[key] = val.filter((v) => typeof v === 'string' && v.length < 40).slice(0, 30);

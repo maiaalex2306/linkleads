@@ -6,6 +6,7 @@ import {
 import type { WebContents } from 'electron';
 import { HumanInput } from '../human-input.js';
 import type { LabelKey, SelectorKey, SelectorMap } from './selectors.js';
+import type { DiagnosticCode } from './diagnostics-policy.js';
 
 /** Mundo JS isolado: lê o DOM sem ser visível aos scripts da página e sem alterá-la. */
 const ISOLATED_WORLD = 1987;
@@ -33,6 +34,31 @@ declare function __llReactionTarget(card: Element, configured: readonly string[]
 
 export class PageDriver {
   readonly input: HumanInput;
+  /** Só bloqueia o TIPO de página cujo contrato obrigatório deixou de existir.
+   * Limpa-se apenas após um novo diagnóstico saudável, não por navegação aleatória.
+   */
+  private readonly blockedPageContracts = new Set<string>();
+
+  setPageContractHealth(page: string, healthy: boolean): void {
+    if (!['atividade', 'post', 'feed'].includes(page)) return;
+    if (healthy) this.blockedPageContracts.delete(page);
+    else this.blockedPageContracts.add(page);
+    this.emit?.('layout_contract_status', {
+      code: healthy ? 'CONTRACT_OK' : 'UI_CHANGED',
+      page, status: healthy ? 'accepted' : 'blocked',
+    });
+  }
+
+  /** Não transforma uma mudança de interface já confirmada em tentativa de clique. */
+  private allowPostInteraction(phase: string): boolean {
+    const url = this.wc.getURL();
+    const page = /\/recent-activity\//.test(url) ? 'atividade'
+      : /\/feed\/update\//.test(url) ? 'post'
+        : /\/feed\//.test(url) ? 'feed' : null;
+    if (!page || !this.blockedPageContracts.has(page)) return true;
+    this.recordDiagnostic('UI_CHANGED', phase, { hasPost: true });
+    return false;
+  }
 
   constructor(
     readonly wc: WebContents,
@@ -40,6 +66,11 @@ export class PageDriver {
     private emit?: (event: string, details: Record<string, unknown>) => void,
   ) {
     this.input = new HumanInput(wc, Math.random, (event, detail) => this.emit?.('input_' + event, detail));
+  }
+
+  /** Telemetria sem conteúdo: diagnósticos são códigos, não HTML ou identidade. */
+  recordDiagnostic(code: DiagnosticCode, phase: string, extra: { hasPost?: boolean; selector?: string } = {}): void {
+    this.emit?.('diagnostic_failure', { code, phase, ...extra });
   }
 
   /** Executa uma função pura no mundo isolado. A função não pode usar closures. */
@@ -262,13 +293,18 @@ export class PageDriver {
    * Não é permitido transformar uma leitura desconhecida em clique.
    */
   async clickVerifiedLike(urn: string): Promise<'CLICKED' | 'NOT_FOUND' | 'REVIEW_REQUIRED'> {
+    if (!this.allowPostInteraction('like_blocked_by_contract')) return 'REVIEW_REQUIRED';
     const scope = { urn, containerKey: 'postItem' as const };
     const point = await this.scrollIntoView('likeButton', scope);
-    if (!point) return 'NOT_FOUND';
+    if (!point) {
+      this.recordDiagnostic('REACTION_UNKNOWN', 'like_button', { hasPost: true, selector: 'likeButton' });
+      return 'NOT_FOUND';
+    }
     const clicked = await this.input.click(point.x, point.y, async (x, y) =>
       this.read(llReactionClickGuard, this.sel as unknown as Record<string, readonly string[]>, urn, x, y));
     if (!clicked) {
-      this.emit?.('like_preflight_rejected', { postUrn: urn, reason: 'identity_or_state_changed' });
+      this.recordDiagnostic('REACTION_UNKNOWN', 'like_preflight', { hasPost: true, selector: 'likeButton' });
+      this.emit?.('like_preflight_rejected', { code: 'REACTION_UNKNOWN', reason: 'identity_or_state_changed' });
       return 'REVIEW_REQUIRED';
     }
     this.emit?.('like_click_sent', { postUrn: urn });
@@ -308,34 +344,55 @@ export class PageDriver {
 
   /** Só abre comentários se o botão continuar pertencendo ao post alvo. */
   async openVerifiedCommentBox(urn: string): Promise<boolean> {
+    if (!this.allowPostInteraction('comment_box_blocked_by_contract')) return false;
     const point = await this.scrollIntoView('commentButton', { urn, containerKey: 'postItem' });
-    if (!point) return false;
+    if (!point) {
+      this.recordDiagnostic('EDITOR_NOT_FOUND', 'comment_open', { hasPost: true, selector: 'commentButton' });
+      return false;
+    }
     const ok = await this.input.click(point.x, point.y, (x, y) =>
       this.read(commentOpenGuard,
         this.sel as unknown as Record<string, readonly string[]>, urn, x, y));
-    if (!ok) this.emit?.('comment_open_preflight_aborted', { postUrn: urn });
+    if (!ok) {
+      this.recordDiagnostic('EDITOR_NOT_FOUND', 'comment_open_preflight', { hasPost: true });
+      this.emit?.('comment_open_preflight_aborted', { code: 'EDITOR_NOT_FOUND' });
+    }
     return ok;
   }
 
   /** Só foca o editor se ele continuar sendo o único editor do URN. */
   async focusVerifiedCommentEditor(urn: string): Promise<boolean> {
+    if (!this.allowPostInteraction('comment_editor_blocked_by_contract')) return false;
     const point = await this.postControlPoint('editor', urn);
-    if (!point) return false;
+    if (!point) {
+      this.recordDiagnostic('EDITOR_NOT_FOUND', 'comment_editor', { hasPost: true, selector: 'commentEditor' });
+      return false;
+    }
     const ok = await this.input.click(point.x, point.y, (x, y) =>
       this.read(commentClickGuard,
         this.sel as unknown as Record<string, readonly string[]>, urn, 'editor', x, y, ''));
-    if (!ok) this.emit?.('comment_editor_focus_aborted', { postUrn: urn });
+    if (!ok) {
+      this.recordDiagnostic('EDITOR_NOT_FOUND', 'comment_editor_preflight', { hasPost: true });
+      this.emit?.('comment_editor_focus_aborted', { code: 'EDITOR_NOT_FOUND' });
+    }
     return ok;
   }
 
   /** O botão de enviar deve pertencer ao formulário do editor e ao URN correto. */
   async clickVerifiedCommentSubmit(urn: string, text: string): Promise<boolean> {
+    if (!this.allowPostInteraction('comment_submit_blocked_by_contract')) return false;
     const point = await this.postControlPoint('submit', urn);
-    if (!point) return false;
+    if (!point) {
+      this.recordDiagnostic('EDITOR_NOT_FOUND', 'comment_submit', { hasPost: true, selector: 'commentSubmit' });
+      return false;
+    }
     const ok = await this.input.click(point.x, point.y, (x, y) =>
       this.read(commentClickGuard,
         this.sel as unknown as Record<string, readonly string[]>, urn, 'submit', x, y, text));
-    if (!ok) this.emit?.('comment_submit_preflight_aborted', { postUrn: urn });
+    if (!ok) {
+      this.recordDiagnostic('UI_CHANGED', 'comment_submit_preflight', { hasPost: true });
+      this.emit?.('comment_submit_preflight_aborted', { code: 'UI_CHANGED' });
+    }
     return ok;
   }
 

@@ -7,6 +7,7 @@ import type { EnrichmentProvider } from '@linkleads/integrations';
 import { commentEditorPoint, commentSubmitPoint, commentEvidence, editorText, extractPosts, extractProfile, likeState, profileReady, type PostExtract } from './dom-scripts.js';
 import { BlockedError, type PageDriver } from './page-driver.js';
 import { isCanonicalPostUrn, provisionalPostFingerprint } from './post-identity.js';
+import type { DiagnosisContext } from './diagnostics.js';
 import { parseSalesSource, profileResolutionRoutes, samePersonCompany, samePersonName, type ProfileRoute } from './profile-resolver.js';
 
 /** LINKLEADS_TEST_BASE_URL aponta para o site falso dos testes e2e; nunca usar em produção. */
@@ -58,7 +59,7 @@ export interface ExecutorDeps {
   /** limites da conta (vagas e quando abrem); ausente = sem controle (testes de unidade) */
   limits?: { left: (key: BudgetKey) => number; freeAt: (key: BudgetKey) => Date | undefined };
   /** página aberta mas não reconhecida: salva um relatório de diagnóstico (sem nomes) e devolve onde */
-  reportUnrecognized?: () => Promise<string | undefined>;
+  reportUnrecognized?: (context?: DiagnosisContext) => Promise<string | undefined>;
 }
 
 /** Converte bloqueio da plataforma em THROTTLED (o motor pausa a conta). */
@@ -437,6 +438,11 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
       d.withBrowser(() =>
         guard(async () => {
           const s = ctx.action.settings as LikeSettings;
+          const diagnosisContext: DiagnosisContext = {
+            expectedPublicId: ctx.person.publicId ?? ctx.person.id,
+            includeReshares: s.includeReshares === true,
+            maxPostAgeDays: s.maxPostAgeDays ?? 365,
+          };
           const previous = d.crm.latestLikeAttempt(ctx.person.id, ctx.campaignId, ctx.action.id);
           if (previous?.status === 'confirmed') {
             d.crm.recordEngagementEffect({
@@ -469,7 +475,7 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
                 return { ok: false, reason: 'NO_POST', message: 'A pessoa não tem publicações visíveis' };
               const unreadable = !found.posts.length;
               const file = (unreadable || found.uncertain) ?
-                await d.reportUnrecognized?.().catch(() => undefined) : undefined;
+                await d.reportUnrecognized?.(diagnosisContext).catch(() => undefined) : undefined;
               if (unreadable || found.uncertain) return { ok: false, reason: 'NO_REAL_EFFECT',
                 message: found.why + (file ? '. Diagnóstico: ' + file : '') };
               return { ok: false, reason: 'NO_POST',
@@ -481,14 +487,14 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
             if (!point) {
               // Não substituir silenciosamente o PRIMEIRO post não curtido
               // por um cartão posterior porque o botão do alvo não apareceu.
-              await d.reportUnrecognized?.().catch(() => undefined);
+              await d.reportUnrecognized?.(diagnosisContext).catch(() => undefined);
               return { ok: false, reason: 'NO_REAL_EFFECT',
                 message: 'Primeira publicação não curtida identificada, mas seu botão de reação não ficou acessível. Nenhum outro post selecionado.' };
             }
             const state = await d.driver.read(likeState, d.driver.sel as unknown as Record<string, readonly string[]>, post.urn);
             if (state === true) { ignored.add(post.urn); continue; }
             if (state !== false) {
-              await d.reportUnrecognized?.().catch(() => undefined);
+              await d.reportUnrecognized?.(diagnosisContext).catch(() => undefined);
               return { ok: false, reason: 'NO_REAL_EFFECT',
                 message: 'Estado de curtida incerto imediatamente antes do clique; nenhuma interação enviada' };
             }
@@ -531,7 +537,7 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
                 campaignId: ctx.campaignId, actionId: ctx.action.id, personId: ctx.person.id,
                 postUrl: post.urn, stage: 'like', status: 'blocked', reason: 'PREFLIGHT_ABORTED',
               });
-              await d.reportUnrecognized?.().catch(() => undefined);
+              await d.reportUnrecognized?.(diagnosisContext).catch(() => undefined);
               return { ok: false, reason: 'NO_REAL_EFFECT',
                 message: click === 'NOT_FOUND'
                   ? 'Botão do mesmo post não está mais acessível; nenhuma curtida enviada'
@@ -557,6 +563,7 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
         async () => (await d.driver.read(likeState, d.driver.sel as unknown as Record<string, readonly string[]>, urn)) === true,
         8_000,
       );
+      if (!ok) d.driver.recordDiagnostic('LIKE_NOT_CONFIRMED', 'like_verify', { hasPost: true });
       d.crm.finishLikeAttempt(urn, ok ? 'confirmed' : 'uncertain');
       d.crm.recordEngagementEffect({
         campaignId: _ctx.campaignId, actionId: _ctx.action.id, personId: _ctx.person.id,
@@ -647,8 +654,11 @@ export async function publishComment(d: ExecutorDeps, urn: string, text: string)
         editor = await d.driver.read(commentEditorPoint, selectorMap, urn);
         return editor !== null;
       }, 8_000);
-      if (!ready || !editor) return { ok: false, reason: 'NO_REAL_EFFECT',
-        message: 'Editor não encontrado univocamente no mesmo post após abrir comentários' };
+      if (!ready || !editor) {
+        d.driver.recordDiagnostic('EDITOR_NOT_FOUND', 'comment_editor_wait', { hasPost: true });
+        return { ok: false, reason: 'NO_REAL_EFFECT',
+          message: 'Editor não encontrado univocamente no mesmo post após abrir comentários' };
+      }
     }
     if (!(await d.driver.focusVerifiedCommentEditor(urn)))
       return { ok: false, reason: 'NO_REAL_EFFECT',
@@ -698,12 +708,14 @@ export async function publishComment(d: ExecutorDeps, urn: string, text: string)
           evidence.editorEmpty;
       }, 12_000);
       d.crm.finishCommentSubmission(urn, published ? 'confirmed' : 'uncertain');
+      if (!published) d.driver.recordDiagnostic('COMMENT_SUBMISSION_UNCERTAIN', 'comment_verify', { hasPost: true });
       return published ? { ok: true, data: { post: urn, commentAttempted: true, commentConfirmed: true } }
         : { ok: false, reason: 'NO_REAL_EFFECT',
           message: 'Envio possivelmente realizado, mas não confirmado. Reconciliação manual obrigatória; não repetir automaticamente.',
           data: { post: urn, commentAttempted: true, commentConfirmed: false } };
     } catch (error) {
       d.crm.finishCommentSubmission(urn, 'uncertain');
+      d.driver.recordDiagnostic('COMMENT_SUBMISSION_UNCERTAIN', 'comment_exception', { hasPost: true });
       return { ok: false, reason: 'NO_REAL_EFFECT',
         message: 'A confirmação foi interrompida após reservar o envio; resultado incerto, não repetir. ' +
           (error instanceof Error ? error.message : String(error)),
@@ -729,7 +741,10 @@ export function commentWithAi(d: ExecutorDeps): ActionExecutor {
         return { ok: true, data: { post: post.url, alreadyCommented: true } };
       }
       const interpreter = d.interpreter();
-      if (!interpreter) return { ok: false, reason: 'ERROR', message: 'IA não configurada (chave da API ausente)' };
+      if (!interpreter) {
+        d.driver.recordDiagnostic('AI_NOT_READY', 'ai_provider');
+        return { ok: false, reason: 'ERROR', message: 'IA não configurada (chave da API ausente)' };
+      }
 
       // O conteúdo utilizado pela IA deve vir da publicação canônica expandida,
       // nunca do resumo parcial capturado no feed antes de curtir.
@@ -751,6 +766,7 @@ export function commentWithAi(d: ExecutorDeps): ActionExecutor {
         interpretation = await interpreter.interpret(postForAi, d.crm.getPerson(ctx.person.id) ?? ctx.person, s);
       } catch (e) {
         effect('ai', 'blocked', 'AI_INTERPRETATION_ERROR');
+        d.driver.recordDiagnostic('AI_NOT_READY', 'ai_interpretation');
         return { ok: false, reason: 'ERROR', message: `IA: ${e instanceof Error ? e.message : String(e)}` };
       }
       if (!interpretation.shouldComment) {

@@ -12,8 +12,9 @@ import { accountSummary, classifyCommittee, mapCompany, type MapCompanyResult } 
 import { registerCampaignExecutors } from './campaign-executors.js';
 import { assertApprovalSafe } from './approval-policy.js';
 import { PageDriver } from './linkedin/page-driver.js';
-import { diagnosePage, type DiagnosisReport } from './linkedin/diagnostics.js';
-import { loadSelectors } from './linkedin/selectors.js';
+import { diagnosePage, type DiagnosisReport, type DiagnosisContext } from './linkedin/diagnostics.js';
+import { compareAndStoreBaseline } from './linkedin/diagnostic-baselines.js';
+import { selectorAudit, loadSelectors } from './linkedin/selectors.js';
 import { now } from './clock.js';
 import { attachContextMenu } from './context-menu.js';
 import { proxyRules } from './proxy-check.js';
@@ -157,6 +158,16 @@ export class AccountInstance {
     attachContextMenu(this.window.webContents);
     this.driver = new PageDriver(this.window.webContents, loadSelectors(), (event, detail) =>
       trace.record('browser', event, detail, { accountId: this.account.id }));
+    const initialSelectorAudit = selectorAudit(this.driver.sel);
+    if (initialSelectorAudit.issues.length) {
+      this.log('Arquivo de seletores inválido ou não homologado. Configuração rejeitada; ' +
+        'o aplicativo preservou apenas os seletores testados. Consulte Diagnóstico.');
+      trace.record('diagnostics', 'selector_configuration_rejected', {
+        code: 'UI_CHANGED', count: initialSelectorAudit.issues.length,
+        source: initialSelectorAudit.sources
+          .filter((item) => item.status === 'rejected').map((item) => item.name).join(','),
+      }, { accountId: this.account.id }, 'warn');
+    }
     this.window.webContents.on('did-navigate', (_event, url) =>
       trace.record('browser', 'did_navigate', { location: url }, { accountId: this.account.id }));
     this.window.webContents.on('did-navigate-in-page', (_event, url) =>
@@ -185,15 +196,17 @@ export class AccountInstance {
         return cfg ? { provider: new ApolloProvider(cfg.key, fetch, cfg.baseUrl), onlyWhenNoEmail: cfg.onlyWhenNoEmail } : null;
       },
       withBrowser: (fn) => this.withBrowser(fn),
-      reportUnrecognized: async () => {
-        // no máximo um relatório por hora POR TIPO de página (sem nomes: só a estrutura)
-        const r = await diagnosePage(this.driver, app.getVersion());
-        const last = this.autoDiag.get(r.page);
+      reportUnrecognized: async (context?: DiagnosisContext) => {
+        const r = await this.collectDiagnosis(context);
+        // Compartilhamentos de conteúdo não identificam lead; não reutilizar
+        // relatório de outro perfil, pois isso ocultaria a decisão específica.
+        const key = [r.page, r.primaryCode, context?.expectedPublicId ?? 'general'].join(':');
+        const last = this.autoDiag.get(key);
         if (last && Date.now() - last.at < 3_600_000) return last.file;
         const file = join(accountDir(this.account.id), `diagnostico-${r.page}-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
-        writeFileSync(file, JSON.stringify(r, null, 2));
-        this.autoDiag.set(r.page, { at: Date.now(), file });
-        this.log(`Página "${r.page}" não reconhecida: relatório salvo em ${file} (envie para ajustar)`);
+        writeFileSync(file, JSON.stringify(r, null, 2), { mode: 0o600 });
+        this.autoDiag.set(key, { at: Date.now(), file });
+        this.log(`Diagnóstico ${r.primaryCode} da página "${r.page}": ${file}`);
         return file;
       },
       limits: {
@@ -635,15 +648,71 @@ export class AccountInstance {
     return r;
   }
 
-  /** Diagnóstico somente leitura da página aberta na janela da conta (não clica, não digita, não navega). */
-  diagnose(): Promise<DiagnosisReport> {
-    this.window.show();
-    return this.withBrowser(() => diagnosePage(this.driver, app.getVersion()));
+  /** Diagnóstico completo; nunca clica, navega ou injeta seletores novos. */
+  private async collectDiagnosis(context: DiagnosisContext = {}): Promise<DiagnosisReport> {
+    const report = await diagnosePage(this.driver, app.getVersion(), context);
+    const healthyKeys = report.keys.filter((key) => !key.conditional).every((key) => key.found);
+    const activity = ['atividade', 'post', 'feed'].includes(report.page);
+    const healthy = healthyKeys && (!activity || Boolean(report.posts?.canonical));
+    const baseline = compareAndStoreBaseline(accountDir(this.account.id), {
+      page: report.page, uiLanguage: report.uiLanguage,
+      selectorVersion: report.selectorsVersion,
+      shape: report.layout.shape, healthy,
+    });
+    report.layout.comparison = baseline;
+    if (baseline.status === 'UI_CHANGED')
+      this.driver.setPageContractHealth(report.page, false);
+    else if (baseline.status === 'MATCH' || baseline.status === 'BASELINE_CREATED')
+      this.driver.setPageContractHealth(report.page, true);
+    // DRIFT_DETECTED não é homologação automática: apenas registra e deixa
+    // os guardas de clique existentes comprovarem a identidade do controle.
+    const selectorIssues = report.selectorConfiguration.issues;
+    if (selectorIssues.length) {
+      this.log('Configuração de seletores rejeitada: ' +
+        selectorIssues.map((item) => `${item.source}/${item.key ?? '-'}: ${item.code}`).slice(0, 8).join(', '));
+      for (const item of selectorIssues.slice(0, 20)) {
+        trace.record('diagnostics', 'selector_configuration_rejected',
+          { code: item.code, source: item.source, selector: item.key ?? '-' },
+          { accountId: this.account.id }, 'warn');
+      }
+    }
+    if (baseline.status === 'UI_CHANGED' || baseline.status === 'DRIFT_DETECTED')
+      trace.record('diagnostics', 'layout_comparison', {
+        code: baseline.status === 'UI_CHANGED' ? 'UI_CHANGED' : 'DRIFT_DETECTED',
+        count: baseline.changedKeys.length, keys: baseline.changedKeys,
+      }, { accountId: this.account.id }, 'warn');
+    if (baseline.status === 'UI_CHANGED') {
+      report.primaryCode = 'UI_CHANGED';
+      this.log('UI_CHANGED: controles obrigatórios desapareceram em ' +
+        report.page + '. A etapa afetada requer revisão; não substituir seletores automaticamente.');
+    }
+    if (selectorIssues.length && report.primaryCode === 'OK') report.primaryCode = 'UI_CHANGED';
+    for (const decision of report.posts?.decisions.slice(0, 24) ?? []) {
+      trace.record('diagnostics', 'card_assessed',
+        { code: decision.code, status: decision.status, step: decision.ordinal,
+          reason: decision.stage, found: decision.evidence.canonical },
+        { accountId: this.account.id },
+        decision.status === 'REVIEW_REQUIRED' ? 'warn' : 'debug');
+    }
+    return report;
   }
 
-  /** Recarrega o mapa de seletores (ex.: a equipe publicou uma versão nova). */
+  /** Inspeção supervisionada da página aberta. */
+  diagnose(): Promise<DiagnosisReport> {
+    this.window.show();
+    return this.withBrowser(() => this.collectDiagnosis());
+  }
+
+  /** Atualização segura: override não homologado é rejeitado e identificado. */
   reloadSelectors(): void {
     this.driver.sel = loadSelectors();
+    const audit = selectorAudit(this.driver.sel);
+    if (audit.issues.length)
+      this.log('Seletores externos inválidos; padrão homologado preservado. Abra Diagnóstico para ver erros e hashes.');
+    trace.record('diagnostics', 'selector_map_loaded', {
+      code: audit.issues.length ? 'UI_CHANGED' : 'OK', count: audit.issues.length,
+      source: audit.sources.map((source) => source.name + ':' + source.status).join(','),
+    }, { accountId: this.account.id }, audit.issues.length ? 'warn' : 'info');
   }
 
   saveCurrentProfile(): Promise<ExecutionResult> {

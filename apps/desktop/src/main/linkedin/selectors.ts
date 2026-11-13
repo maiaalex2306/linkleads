@@ -1,6 +1,8 @@
 import { app } from 'electron';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
+import { applyVerifiedSelectorOverride, type SelectorIssue } from './selector-policy.js';
 
 /**
  * Mapa de seletores versionado. Cada chave aceita vários candidatos (o primeiro que existir vence),
@@ -10,7 +12,7 @@ import { join } from 'node:path';
  * ATENÇÃO: estes seletores precisam ser validados numa conta real antes de uso em produção.
  */
 export const DEFAULT_SELECTORS = {
-  version: '2026.11.13-fase4',
+  version: '2026.11.13-fase6',
   // perfil
   profileName: ['main h1', 'h1.text-heading-xlarge', 'h1'],
   profileHeadline: ['main .pv-text-details__left-panel .text-body-medium', 'main section .text-body-medium.break-words'],
@@ -147,18 +149,84 @@ export type LabelKey = keyof typeof DEFAULT_LABELS;
 export type SelectorKey = Exclude<keyof typeof DEFAULT_SELECTORS, 'version'>;
 export type SelectorMap = Record<SelectorKey, readonly string[]> & { version: string; labels: Record<LabelKey, string> };
 
-/** Mapa efetivo: padrão do app < seletores remotos da equipe < selectors.json local (ajuste manual vence). */
-export function loadSelectors(): SelectorMap {
+/** Proveniência auditável; nenhum caminho pessoal, senha ou texto de página. */
+export interface SelectorAudit {
+  defaultVersion: string;
+  effectiveVersion: string;
+  effectiveSha256: string;
+  sources: Array<{
+    name: string;
+    status: 'accepted' | 'rejected';
+    sha256: string;
+    changedKeys: string[];
+  }>;
+  origins: Record<string, string>;
+  issues: SelectorIssue[];
+}
+const selectorAudits = new WeakMap<SelectorMap, SelectorAudit>();
+const sha256 = (value: string): string => createHash('sha256').update(value).digest('hex');
+
+export function selectorAudit(map: SelectorMap): SelectorAudit {
+  return selectorAudits.get(map) ?? {
+    defaultVersion: DEFAULT_SELECTORS.version,
+    effectiveVersion: map.version,
+    effectiveSha256: sha256(JSON.stringify(map)),
+    sources: [],
+    origins: Object.fromEntries(Object.keys(DEFAULT_SELECTORS).map((key) => [key, 'default'])),
+    issues: [],
+  };
+}
+
+/** Os arquivos são versionados e verificados; apenas seletores JÁ homologados
+ * no código podem ser selecionados pelos overrides. Arquivo inválido é rejeitado
+ * como um todo e declarado no relatório, nunca ignorado silenciosamente.
+ */
+export function loadSelectors(basePath: string = app.getPath('userData')): SelectorMap {
   let map = { ...DEFAULT_SELECTORS, labels: { ...DEFAULT_LABELS } } as unknown as SelectorMap;
+  const origins: Record<string, string> =
+    Object.fromEntries(Object.keys(DEFAULT_SELECTORS).map((key) => [key, 'default']));
+  for (const key of Object.keys(DEFAULT_LABELS)) origins['labels.' + key] = 'default';
+  const sources: SelectorAudit['sources'] = [];
+  const issues: SelectorIssue[] = [];
   for (const name of ['selectors.remote.json', 'selectors.json']) {
-    const file = join(app.getPath('userData'), name);
+    const file = join(basePath, name);
     if (!existsSync(file)) continue;
+    let raw: string;
     try {
-      const override = JSON.parse(readFileSync(file, 'utf8')) as Partial<SelectorMap>;
-      map = { ...map, ...override, labels: { ...map.labels, ...override.labels } };
+      raw = readFileSync(file, 'utf8');
     } catch {
-      /* arquivo inválido: ignora */
+      issues.push({ source: name, code: 'INVALID_DOCUMENT' });
+      sources.push({ name, status: 'rejected', sha256: '', changedKeys: [] });
+      continue;
     }
+    const digest = sha256(raw);
+    let data: unknown;
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      issues.push({ source: name, code: 'INVALID_JSON' });
+      sources.push({ name, status: 'rejected', sha256: digest, changedKeys: [] });
+      continue;
+    }
+    const result = applyVerifiedSelectorOverride(
+      map as unknown as Record<string, unknown>,
+      { ...DEFAULT_SELECTORS, labels: DEFAULT_LABELS },
+      data, name,
+    );
+    issues.push(...result.issues);
+    sources.push({
+      name, status: result.accepted ? 'accepted' : 'rejected',
+      sha256: digest, changedKeys: result.changedKeys,
+    });
+    if (!result.accepted) continue;
+    map = result.selectors as unknown as SelectorMap;
+    for (const key of result.changedKeys) origins[key] = name;
   }
+  selectorAudits.set(map, {
+    defaultVersion: DEFAULT_SELECTORS.version,
+    effectiveVersion: map.version,
+    effectiveSha256: sha256(JSON.stringify(map)),
+    sources, origins, issues,
+  });
   return map;
 }
