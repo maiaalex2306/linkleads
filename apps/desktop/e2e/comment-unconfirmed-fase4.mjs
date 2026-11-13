@@ -55,6 +55,15 @@ try {
   if (!p || p.status !== 'failed' || p.reason !== 'NO_REAL_EFFECT' ||
     !/não confirmado|não repetir|incerto/i.test(p.message || ''))
     throw Error('Envio sem prova não foi registrado como incerto: ' + JSON.stringify(p));
+  const effects = await call('engagementEffects', acc.id, campaignId);
+  if (!effects.some((event) => event.stage === 'like' && event.status === 'confirmed') ||
+      !effects.some((event) => event.stage === 'comment' && event.status === 'uncertain') ||
+      effects.some((event) => event.stage === 'comment' && event.status === 'confirmed'))
+    throw Error('A trilha SQLite não diferenciou curtida confirmada e comentário incerto: ' + JSON.stringify(effects));
+  const stats = await call('accountStats', acc.id);
+  if ((stats.meters.find((m) => m.key === 'likes')?.used ?? 0) !== 1 ||
+      (stats.meters.find((m) => m.key === 'comments')?.used ?? 0) !== 1)
+    throw Error('Orçamento conservador deve registrar as tentativas externas, mesmo com confirmação incerta');
   await call('runNow', acc.id);
   if (site.state.comments.length !== 1)
     throw Error('Envio não confirmado foi repetido após novo ciclo');
