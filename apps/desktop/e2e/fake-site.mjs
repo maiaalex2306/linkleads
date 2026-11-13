@@ -209,6 +209,14 @@ export function startFakeSite(port = 0) {
     }
     const sessionCookieMissing = state.requireSessionCookie && !String(req.headers.cookie || '').includes('ll_fake_session=authenticated');
     if ((state.loggedOut || sessionCookieMissing) && !url.startsWith('/api')) { res.writeHead(302, { location: '/login' }); return res.end(); }
+    // Fixture de conversao manual ensinada: /in/ACw... no LinkedIn Basic
+    // retorna um redirect observavel para a URL publica /in/ana-silva/.
+    // NAO e evidencia de funcionamento na plataforma real.
+    if (url === '/in/ACwAAAAAAG8BAgMEBQYHCAkKCwwNDg8QERITFBU/') {
+      (state.basicHashVisits ||= []).push(url);
+      res.writeHead(302, { location: '/in/ana-silva/' });
+      return res.end();
+    }
     // Fixture: a própria navegação do Sales Navigator informa o /in/ do membro.
     // É um redirecionamento do ambiente FALSO; não afirma que funciona numa conta Basic real.
     const sales = url.match(/^\/sales\/people\/([A-Za-z0-9_-]+)(?:,[A-Za-z0-9_-]+)*\/?$/);
