@@ -81,7 +81,8 @@ export function profileResolutionRoutes(p: Person): ProfileRoute[] {
   if (hash && /^ACw[A-Za-z0-9_-]{30,}$/.test(hash))
     routes.push({ method: 'basic_hash_candidate',
       url: 'https://www.linkedin.com/in/' + encodeURIComponent(hash) + '/',
-      requiresNameConfirmation: true });
+      // Hash de identidade e prova vinculada ao membro; empresa atual pode mudar.
+      requiresNameConfirmation: false });
   if (sales && (!hash || hash === sales.core))
     routes.push({ method: 'sales_source', url: sales.url, requiresNameConfirmation: false });
   const memberFromHash = memberIdFromSalesHash(hash ?? sales?.core);
