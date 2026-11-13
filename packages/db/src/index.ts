@@ -799,7 +799,7 @@ export class LocalCrm extends SqliteCampaignStore {
    */
   recognitionRetryCandidates(campaignId: string): Array<{ actionId: string; personId: string }> {
     const rows = this.db.prepare(
-      \`SELECT cap.action_id, cap.person_id, cap.reason, cap.message
+      `SELECT cap.action_id, cap.person_id, cap.reason, cap.message
        FROM campaign_action_people cap JOIN campaign_actions a ON a.id=cap.action_id
        WHERE cap.campaign_id=? AND cap.status='failed'
          AND a.type IN ('LikeAndComment','LikePosts')
@@ -811,7 +811,7 @@ export class LocalCrm extends SqliteCampaignStore {
            JOIN posts p ON p.url=cl.post_url WHERE p.person_id=cap.person_id)
          AND NOT EXISTS (SELECT 1 FROM comment_drafts d
            WHERE d.person_id=cap.person_id AND d.campaign_id=cap.campaign_id)
-       ORDER BY cap.seq\`,
+       ORDER BY cap.seq`,
     ).all(campaignId) as Row[];
     const preClickParser = /^(?:Achei \d+ post|Primeiro cartão encontrado|Nenhuma publicação elegível|Não foi possível comprovar autoria|Post.*(?:autoria|classifica)|Publicação.*(?:autor|classific)|Estado de curtida incerto imediatamente antes do clique)/i;
     return rows.filter((r) => preClickParser.test(String(r.message ?? ''))).map((r) => ({
