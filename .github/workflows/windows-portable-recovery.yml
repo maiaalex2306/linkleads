@@ -1,4 +1,8 @@
 name: Windows - INSTALADOR OFICIAL D LINKLEADS
+# Descartar instaladores de revisoes ja substituidas no mesmo PR.
+concurrency:
+  group: windows-portable-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 on:
   # Fase 8 P0: releases somente depois de TODOS os jobs CI passarem.
   workflow_run:
