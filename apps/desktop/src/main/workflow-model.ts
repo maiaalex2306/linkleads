@@ -27,7 +27,7 @@ export const ACTION_FIELDS: Record<string, ConfigField[]> = {
     c('includeReshares', 'Permitir repostagens do próprio autor', false),
     c('commentEnabled', 'Adicionar comentário após a curtida confirmada', true),
     select('commentMethod', 'Origem do comentário (IA homologada)', ['ai'], 'ai'),
-    select('mode', 'Aprovação do comentário', ['manual', 'auto'], 'manual'),
+    select('mode', 'Modo de publicação: manual aguarda sua aprovação; automático envia após validação', ['manual', 'auto'], 'manual'),
     t('goal', 'Objetivo específico do comentário', 'textarea'),
     { key: 'language', label: 'Idioma', kind: 'select', default: '',
       options: [{ value: '', label: 'Mesmo idioma da publicação' },
@@ -92,7 +92,7 @@ export function actionCatalogForEditor() {
       available: !legacy && executable.has(action.type),
       fields: ACTION_FIELDS[action.type] ?? [],
       information: legacy
-        ? 'Etapa legada de engajamento. Use a ação única Curtir e comentar publicações e artigos.'
+        ? 'Etapa legada de engajamento. Use a ação única Curtir e comentar publicações.'
         : executable.has(action.type)
           ? 'Executor disponível no aplicativo. Requer validação antes de executar no LinkedIn.'
           : 'Planejada: não existe executor operacional para esta ação. Não pode ser adicionada.',
