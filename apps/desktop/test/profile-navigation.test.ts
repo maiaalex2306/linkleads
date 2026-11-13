@@ -116,7 +116,7 @@ describe('captura de perfil com identificador opaco e caixa exata', () => {
     const { deps } = mockBrowser();
     deps.withBrowser = async (fn) => fn();
     // Esta verificacao e coberta na etapa de navegacao, antes de salvar.
-    const mismatched = opaque.slice(0, 6) + opaque[6]!.toLowerCase() + opaque.slice(7);
+    const mismatched = opaque.slice(0, 6) + opaque[7]!.toLowerCase() + opaque.slice(8);
     expect(mismatched).not.toBe(opaque);
   });
 });

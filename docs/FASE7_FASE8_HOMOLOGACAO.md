@@ -74,3 +74,13 @@ cabeçalho moderno e menções). Não utiliza nomes, textos ou URNs reais de cli
 **Critério de bloqueio:** automação verde não comprova que um layout atual
 do LinkedIn real será reconhecido. Sem a revisão supervisionada,
 a produção operacional permanece **NÃO HOMOLOGADA**.
+
+## Contrato de recuperacao Fases 0-8 (0.5.12)
+- Persistencia: o ledger nao rearma comentario com tentativa iniciada ou incerta.
+- Tentativa comprovadamente cancelada antes de mouseDown pode ser reservada novamente; teste da migracao v14 obrigatorio.
+- Rascunhos que ficaram em `approved` apos interrupcao aparecem em Aprovações, sem reenvio e descarte.
+- Identificadores opacos ACw/ACo sao comparados preservando caixa.
+- Diagnostico de estrutura ocorre antes de curtida e comentario; guardas de URN/autor/reacao continuam obrigatorios.
+- TRACE pseudonimiza identificadores de pessoas; ledger interno preserva reconciliacao.
+- Instalacao: staging, hash de todos os arquivos, backup privado ACL e rollback do codigo; banco nao e restaurado automaticamente.
+- Cinco perfis reais ainda exigem sessao autorizada e verificacao supervisionada.
