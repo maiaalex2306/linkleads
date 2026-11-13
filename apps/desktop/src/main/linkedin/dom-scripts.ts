@@ -255,7 +255,7 @@ export function llPostContainers(
   return out;
 }
 
-declare function __llPostContainers(sel: { postItem: readonly string[]; likeButton: readonly string[] }): Array<{ el: Element; urn: string }>;
+declare function __llPostContainers(sel: { postItem: readonly string[]; likeButton: readonly string[] }): Array<{ el: Element; urn: string; identity: PostCardIdentity }>;
 
 export function extractPosts(sel: Record<string, readonly string[]>, limit: number): PostExtract[] {
   const first = (root: ParentNode, cands: readonly string[]) => {
@@ -269,10 +269,31 @@ export function extractPosts(sel: Record<string, readonly string[]>, limit: numb
   const NOT = /(coment|comment|repost|compart|share|enviar|send|salvar|save)/i;
   const AGE = /(?:^|\s|há\s|ha\s)(\d+\s*(?:min|h|d|sem|w|mo|m|a|y|dias?|semanas?|meses|m[eê]s|anos?|hr?s?|days?|weeks?|months?|years?))\b/i;
   const out: PostExtract[] = [];
-  for (const { el: it, urn } of __llPostContainers({ postItem: sel.postItem!, likeButton: sel.likeButton! })) {
+  for (const { el: it, urn, identity } of __llPostContainers({ postItem: sel.postItem!, likeButton: sel.likeButton! })) {
+    const EMBED = [
+      '.feed-shared-mini-update-v2', '.update-components-mini-update-v2',
+      '.feed-shared-article', '.update-components-article',
+      '.feed-shared-linkedin-video', '.feed-shared-external-video',
+      '[data-testid*="quoted"]', '[data-test-id*="reshared"]',
+    ].join(', ');
+    const inEmbedded = (node: Element): boolean => {
+      let parent: Element | null = node.parentElement;
+      while (parent && parent !== it) {
+        if (parent.matches(EMBED) || parent.matches('[data-urn], [data-activity-urn]')) return true;
+        parent = parent.parentElement;
+      }
+      return false;
+    };
+    const firstOwn = (candidates: readonly string[]): Element | null => {
+      for (const selector of candidates) {
+        const match = Array.from(it.querySelectorAll(selector)).find((element) => !inEmbedded(element));
+        if (match) return match;
+      }
+      return null;
+    };
     // A descrição deve vir da área de conteúdo do próprio cartão.
     // Nunca escolher "maior div": ela pode conter autor, rodapé, botões e comentários.
-    const textEl = first(it, sel.postText!) as HTMLElement | null;
+    const textEl = firstOwn(sel.postText!) as HTMLElement | null;
     const nonContent = [
       '.update-components-actor', '.feed-shared-actor', '.update-components-header',
       '.feed-shared-header', '.comments-comment-entity', '.comments-comment-item',
@@ -281,7 +302,7 @@ export function extractPosts(sel: Record<string, readonly string[]>, limit: numb
       '[contenteditable="true"]', '[role="toolbar"]', 'button', '[role="button"]',
     ].join(', ');
     const validTextNode = (node: Element) => {
-      if (node.closest(nonContent)) return false;
+      if (inEmbedded(node) || node.closest(nonContent)) return false;
       if (node.querySelector('button, [role="button"], time, [contenteditable]')) return false;
       return true;
     };
@@ -315,21 +336,23 @@ export function extractPosts(sel: Record<string, readonly string[]>, limit: numb
       }
     }
     text = text.replace(/\s*…\s*mais$|\s*\.\.\.\s*(more|mais)$/i, '').trim();
-    let like = first(it, sel.likeButton!) as HTMLElement | null;
-    if (!like) like = (Array.from(it.querySelectorAll('button, [role="button"]')) as HTMLElement[]).find((b) => __llIsReact(b)) ?? null;
+    let like = firstOwn(sel.likeButton!) as HTMLElement | null;
+    if (!like) like = (Array.from(it.querySelectorAll('button, [role="button"]')) as HTMLElement[])
+      .find((b) => !inEmbedded(b) && __llIsReact(b)) ?? null;
     const label = like?.getAttribute('aria-label') ?? '';
     const pressed = like?.getAttribute('aria-pressed') ??
       (/situa[cç][aã]o do bot[aã]o de rea[cç][aã]o:\s*nenhuma rea[cç][aã]o|reaction button state:\s*no reaction/i.test(label) ? 'false' :
       (/situa[cç][aã]o do bot[aã]o de rea[cç][aã]o:\s*(?!nenhuma rea[cç][aã]o)\S|reaction button state:\s*(?!no reaction)\S|desfazer|remover|undo|unlike|reagiu|reacted/i.test(label) ? 'true' : null));
     const head = ((it as HTMLElement).innerText || '').slice(0, 400);
-    const ageEl = first(it, sel.postAge!);
+    const ageEl = firstOwn(sel.postAge!);
     const labelled = ageEl?.textContent?.replace(/\s+/g, ' ').trim() || '';
-    const time = it.querySelector('time[datetime]');
+    const time = Array.from(it.querySelectorAll('time[datetime]')).find((el) => !inEmbedded(el)) ?? null;
     // Metadado de publicação é mais confiável do que encontrar números no conteúdo.
     const absolute = time?.getAttribute('datetime') || null;
     // Não inferir a data por números no conteúdo ("365 dias de economia").
     // Usar exclusivamente legenda do autor, <time> ou texto de permalink.
     const permalinkAge = (Array.from(it.querySelectorAll('a[href*="/feed/update/"], a[href*="/posts/"]')) as HTMLAnchorElement[])
+      .filter((a) => !inEmbedded(a))
       .map((a) => (a.innerText || '').replace(/\s+/g, ' ').trim())
       .find((v) => v && v.length < 60 && AGE.test(v)) ?? null;
     const ageTxt = (labelled && /(?:^|\s)(?:h[áa]\s+)?\d+\s*(?:min|h|d|dia|day|sem|w|week|m[oêe]|mes|a|ano|y|year)\b/i.test(labelled)
@@ -347,26 +370,38 @@ export function extractPosts(sel: Record<string, readonly string[]>, limit: numb
       return false;
     };
     const actorLinks = (Array.from(it.querySelectorAll('a[href*="/in/"]')) as HTMLAnchorElement[])
-      .filter((a) => !a.closest('.comments-comment-entity, .comments-comment-item, .comments-comment-box__form, [contenteditable]') && inAuthorHeader(a));
-    const verifiedActor = first(it, sel.postActorLink!) as HTMLAnchorElement | null;
+      .filter((a) => !inEmbedded(a) &&
+        !a.closest('.comments-comment-entity, .comments-comment-item, .comments-comment-box__form, [contenteditable]') &&
+        inAuthorHeader(a));
+    const verifiedActor = firstOwn(sel.postActorLink!) as HTMLAnchorElement | null;
     // A URL da autoria só pode ser inferida quando todos os links de perfil
     // observáveis fora da área de comentários apontam para a mesma pessoa.
     // Referências a outros perfis tornam a autoria incerta, sem fallback por nome.
     const distinctActors = new Set(actorLinks.map((a) => {
-      try { return new URL(a.href).pathname.replace(/\/$/, '').toLowerCase(); }
-      catch { return a.href.toLowerCase(); }
+      try {
+        const url = new URL(a.href);
+        // Slugs opacos ACo/ACw são sensíveis à caixa.
+        return url.hostname.toLowerCase() + url.pathname.replace(/\/$/, '');
+      } catch { return a.href; }
     }));
     const actor = distinctActors.size === 1
       ? (verifiedActor && actorLinks.includes(verifiedActor) ? verifiedActor : actorLinks[0] ?? null)
       : null;
+    const media = !!firstOwn(sel.postMedia!) ||
+      Array.from(it.querySelectorAll('img[src*="media"], video')).some((el) => !inEmbedded(el));
+    const explicitReshareHeader = firstOwn(sel.postResharedHeader!)?.textContent ?? '';
+    const isReshare = /\b(compartilhou|republicou|reposted|repostou|shared)\b/i
+      .test(explicitReshareHeader.slice(0, 200)) ||
+      /\b(compartilhou|republicou|reposted|repostou)\b/i.test(head.slice(0, 160));
     out.push({
+      cardIdentity: identity,
       urn,
       text,
-      actorHref: actor?.href ?? null,
-      actorName: actor?.innerText?.split('\n')[0]?.trim() || null,
+      actorHref: identity.primaryActorUrl ?? actor?.href ?? null,
+      actorName: identity.primaryActorName ?? actor?.innerText?.split('\n')[0]?.trim() ?? null,
       age: ageTxt,
-      hasMedia: !!first(it, sel.postMedia!) || !!it.querySelector('img[src*="media"], video'),
-      isReshare: !!first(it, sel.postResharedHeader!) || /\b(compartilhou|republicou|reposted|repostou)\b/i.test(head.slice(0, 160)),
+      hasMedia: media,
+      isReshare,
       liked: pressed == null ? null : pressed === 'true',
     });
     if (out.length >= limit) break;
