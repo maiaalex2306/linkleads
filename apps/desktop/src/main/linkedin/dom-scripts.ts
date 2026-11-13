@@ -333,11 +333,11 @@ export function extractPosts(sel: Record<string, readonly string[]>, limit: numb
       // Elementos semânticos de conteúdo: pt-BR, en-US e layout moderno.
       // Se não existirem, falhar sem inventar conteúdo da navegação.
       const body = Array.from(it.querySelectorAll(
-        '[dir="ltr"], [data-test-id*="commentary"], [data-testid*="post-text"], blockquote, p',
+        '[dir="ltr"], [data-test-id*="commentary"], [data-testid*="commentary"], [data-testid*="post-text"], blockquote, p',
       )) as HTMLElement[];
       const valid = body.filter(validTextNode);
       const blocks = valid.filter((node) =>
-        node.matches('[dir="ltr"], [data-test-id*="commentary"], [data-testid*="post-text"]'));
+        node.matches('[dir="ltr"], [data-test-id*="commentary"], [data-testid*="commentary"], [data-testid*="post-text"]'));
       if (blocks.length) {
         // Preservar blocos IRMÃOS na ordem de leitura, eliminando apenas
         // descendentes duplicados de outro bloco semântico do mesmo post.
@@ -360,7 +360,6 @@ export function extractPosts(sel: Record<string, readonly string[]>, limit: numb
     const pressed = like?.getAttribute('aria-pressed') ??
       (/situa[cç][aã]o do bot[aã]o de rea[cç][aã]o:\s*nenhuma rea[cç][aã]o|reaction button state:\s*no reaction/i.test(label) ? 'false' :
       (/situa[cç][aã]o do bot[aã]o de rea[cç][aã]o:\s*(?!nenhuma rea[cç][aã]o)\S|reaction button state:\s*(?!no reaction)\S|desfazer|remover|undo|unlike|reagiu|reacted/i.test(label) ? 'true' : null));
-    const head = ((it as HTMLElement).innerText || '').slice(0, 400);
     const ageEl = firstOwn(sel.postAge!);
     const labelled = ageEl?.textContent?.replace(/\s+/g, ' ').trim() || '';
     const time = Array.from(it.querySelectorAll('time[datetime]')).find((el) => !inEmbedded(el)) ?? null;
