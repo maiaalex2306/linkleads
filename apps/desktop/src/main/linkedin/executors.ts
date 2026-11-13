@@ -193,7 +193,6 @@ export function firstUnlikedCandidate(
   const norm = (v: string) => v.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
   const cleanName = personName.replace(/^(?:(?:Atividades|Activity|Publicações|Publications|Posts|Comentários|Comments)\s*[|·–-]\s*)+/i, '');
   const expected = norm(cleanName);
-  const id = normalizeLinkedInPublicId(publicId);
   for (const post of posts) {
     if (post.liked === true) continue; // curtido: ir ao proximo sem outras verificacoes
     if (post.isReshare && !options.includeReshares) continue;
