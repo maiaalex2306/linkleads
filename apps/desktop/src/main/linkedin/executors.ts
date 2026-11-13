@@ -525,11 +525,10 @@ interface CommentActionSettings extends CommentSettings {
  */
 async function hydratePostForComment(
   d: ExecutorDeps, personId: string, post: PostSnapshot,
-): Promise<{ ok: true; text: string } | { ok: false; reason: 'NO_REAL_EFFECT'; message: string }> {
-  const failure = (message: string) => ({ ok: false as const, reason: 'NO_REAL_EFFECT' as const, message });
+): Promise<ExecutionResult> {
+  const failure = (message: string): ExecutionResult => ({ ok: false, reason: 'NO_REAL_EFFECT', message });
   if (!isCanonicalPostUrn(post.url)) return failure('Post sem URN canônica; não gerar comentário');
-  return d.withBrowser(async () => {
-    try {
+  return d.withBrowser(() => guard(async () => {
       await d.driver.goto(postUrl(post.url));
       const selectors = d.driver.sel as unknown as Record<string, readonly string[]>;
       const find = async () => {
@@ -558,13 +557,8 @@ async function hydratePostForComment(
         url: post.url, text: current.text,
         postedAt: current.age ?? post.postedAt, hasMedia: current.hasMedia,
       });
-      return { ok: true as const, text: current.text };
-    } catch (error) {
-      if (error instanceof BlockedError) throw error;
-      return failure('Falha ao confirmar conteúdo integral antes da IA: ' +
-        (error instanceof Error ? error.message : String(error)));
-    }
-  });
+      return { ok: true, data: { text: current.text } };
+  }));
 }
 
 /** Publica um comentário num post e confirma que ele aparece. */
@@ -676,7 +670,7 @@ export function commentWithAi(d: ExecutorDeps): ActionExecutor {
 
       // O conteúdo utilizado pela IA deve vir da publicação canônica expandida,
       // nunca do resumo parcial capturado no feed antes de curtir.
-      const fullPost = await guard(() => hydratePostForComment(d, ctx.person.id, post));
+      const fullPost = await hydratePostForComment(d, ctx.person.id, post);
       if (!fullPost.ok) return fullPost;
       const postForAi = { ...post, text: (fullPost.data?.text as string) || post.text };
       let interpretation;
