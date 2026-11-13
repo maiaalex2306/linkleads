@@ -106,6 +106,7 @@ contextBridge.exposeInMainWorld('linkleads', {
   teamSetLeadsAccount: invoke('team:setLeadsAccount'),
   listDrafts: invoke('drafts:list'),
   approveDraft: invoke('drafts:approve'),
+  confirmVisibleComment: invoke('drafts:confirmVisible'),
   rejectDraft: invoke('drafts:reject'),
   getSettings: invoke('settings:get'),
   setProvider: invoke('settings:setProvider'),

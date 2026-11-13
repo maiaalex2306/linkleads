@@ -1,3 +1,5 @@
+> **Registro histórico:** este documento descreve o antigo fluxo NSIS. O único instalador oficial atual e o ZIP portatil versionado em Releases, com `INSTALAR-LINKLEADS.cmd` na raiz e destino imutavel `D:\LINKLEADS`. A partir de 0.5.12, o instalador cria backup local SHA-256 dos dados conhecidos, verifica manifesto de todos os binarios, faz staging e tenta rollback do APP em falha. Ver `docs/FASE7_FASE8_HOMOLOGACAO.md`.
+
 # LINKLEADS — Passo 1: preservação e linha de base Windows
 
 ## Escopo e identificação

@@ -71,7 +71,9 @@ try {
     $suites = @(
       'run','sequence','withdraw','decision','integrations',
       'team','diagnostics','prospecting','salesnav','login',
-      'limits','launcher-workspace','simple','explain','comment-duplicate','unified-engagement'
+      'limits','launcher-workspace','simple','explain','comment-duplicate','unified-engagement',
+      'post-recognition','comment-editor-fase4','comment-unconfirmed-fase4',
+      'approval-pending-fase7','salesnav-unified-engagement'
     )
     foreach ($suite in $suites) {
       $file = Join-Path $root ("apps\desktop\e2e\" + $suite + '.mjs')

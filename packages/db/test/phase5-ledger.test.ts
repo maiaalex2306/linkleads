@@ -108,6 +108,37 @@ describe('Fase 5 — ledger SQLite de curtidas e efeitos parciais', () => {
     db.close();
   });
 
+  it('cancela antes de mouseDown e rearma uma unica tentativa segura', () => {
+    const { db, store } = create();
+    const post = urn(2001);
+    expect(store.beginCommentSubmission(post, 'sha-original')).toBe(true);
+    store.finishCommentSubmission(post, 'cancelled');
+    expect(store.commentSubmissionStatus(post)).toBe('cancelled');
+    expect(store.beginCommentSubmission(post, 'sha-revisado')).toBe(true);
+    expect(store.beginCommentSubmission(post, 'sha-revisado')).toBe(false);
+    store.finishCommentSubmission(post, 'uncertain');
+    expect(store.beginCommentSubmission(post, 'sha-revisado')).toBe(false);
+    store.finishCommentSubmission(post, 'cancelled');
+    expect(store.commentSubmissionStatus(post)).toBe('uncertain');
+    db.close();
+  });
+
+  it('reapresenta rascunho aprovado apos interrupcao sem habilitar duplo clique', () => {
+    const { db, store } = create();
+    store.upsertPerson({ id: 'p1', publicId: 'ana-silva' });
+    store.saveDraft({ campaignId: 'c1', actionId: 'a1', personId: 'p1',
+      postUrl: urn(2002), comment: 'Texto submetido a aprovacao',
+      interpretation: {} });
+    const draft = store.listDrafts('pending')[0]!;
+    expect(store.claimPendingDraft(draft.id, 'Texto editado')).toBe(true);
+    expect(store.claimPendingDraft(draft.id, 'Outra tentativa')).toBe(false);
+    expect(store.listDrafts('pending')).toHaveLength(0);
+    expect(store.listDrafts('review')[0]).toMatchObject({
+      id: draft.id, comment: 'Texto editado', status: 'approved',
+    });
+    db.close();
+  });
+
   it('mantém reserva de comentário como indeterminada, sem novo envio', () => {
     const { db, store } = create();
     store.upsertPerson({ id: 'p1', publicId: 'ana-silva' });

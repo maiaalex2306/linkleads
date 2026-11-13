@@ -19,6 +19,8 @@ describe('TRACE JSONL', () => {
     const raw = readFileSync(file, 'utf8');
     const obj = JSON.parse(raw.trim());
     expect(obj.campaignId).toBe('C-1');
+    expect(obj.personId).toMatch(/^[a-f0-9]{24}$/);
+    expect(obj.personId).not.toBe('P-1');
     expect(obj.details.reason).toBe('NO_REAL_EFFECT');
     expect(raw).not.toContain('senha123');
     expect(raw).not.toContain('abc123');

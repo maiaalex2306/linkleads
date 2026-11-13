@@ -1,4 +1,8 @@
 name: Windows - INSTALADOR OFICIAL D LINKLEADS
+# Descartar instaladores de revisoes ja substituidas no mesmo PR.
+concurrency:
+  group: windows-portable-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 on:
   # Fase 8 P0: releases somente depois de TODOS os jobs CI passarem.
   workflow_run:
@@ -106,7 +110,9 @@ jobs:
           if (-not (Test-Path $exe) -or -not (Test-Path 'portable-package/LinkLeads/resources/app.asar')) { throw 'Pacote Electron incompleto' }
           $hash=(Get-FileHash $exe -Algorithm SHA256).Hash
           $files=Get-ChildItem 'portable-package/LinkLeads' -Recurse -File
-          [ordered]@{schema='linkleads.installer.fixed.v1';sha=$env:SOURCE_SHA;target='D:\LINKLEADS';exe='D:\LINKLEADS\APP\LinkLeads.exe';exeSha256=$hash;fileCount=$files.Count;totalBytes=($files | Measure-Object Length -Sum).Sum} | ConvertTo-Json | Set-Content 'portable-package/manifesto.json' -Encoding UTF8
+          $base=(Resolve-Path 'portable-package/LinkLeads').Path
+          $hashed=@($files | ForEach-Object { [ordered]@{path=$_.FullName.Substring($base.Length+1).Replace('\\','/');bytes=$_.Length;sha256=(Get-FileHash $_.FullName -Algorithm SHA256).Hash} })
+          [ordered]@{schema='linkleads.installer.fixed.v2';sha=$env:SOURCE_SHA;target='D:\LINKLEADS';exe='D:\LINKLEADS\APP\LinkLeads.exe';exeSha256=$hash;fileCount=$files.Count;totalBytes=($files | Measure-Object Length -Sum).Sum;files=$hashed} | ConvertTo-Json -Depth 6 | Set-Content 'portable-package/manifesto.json' -Encoding UTF8
           @(
             'LINKLEADS — INSTALACAO WINDOWS'
             'DESTINO PERMANENTE E OBRIGATORIO: D:\LINKLEADS'
@@ -116,7 +122,7 @@ jobs:
             '4. Use o atalho LinkLeads da area de trabalho.'
             'Aplicativo: D:\LINKLEADS\APP\LinkLeads.exe'
             'Diagnostico: D:\LINKLEADS\resultado-instalacao-linkleads.txt'
-            'Nao exige backup, nao desinstala, nao exclui pastas e nao desativa antivirus.'
+            'Backup verificado de userData, staging e rollback de codigo; nenhum dado removido.'
             'Esta entrega nao usa o instalador NSIS antigo.'
             'Conta LinkedIn real requer homologacao supervisionada; nao ha garantia de resolucao universal.'
           ) | Set-Content 'portable-package/LEIA-ME.txt' -Encoding UTF8
@@ -156,6 +162,22 @@ jobs:
             $shortcut=(New-Object -ComObject WScript.Shell).CreateShortcut($link)
             if ($shortcut.TargetPath -ine 'D:\LINKLEADS\ABRIR-LINKLEADS.cmd') { throw "Atalho incorreto: $($shortcut.TargetPath)" }
             Write-Host 'APROVADO: D:\LINKLEADS fixo, hash, atalho, dados preexistentes, janela visivel e relatorio'
+            # Falha controlada apos o swap: o antigo APP deve ser restaurado.
+            Get-CimInstance Win32_Process -Filter "Name = 'LinkLeads.exe'" -ErrorAction SilentlyContinue |
+              Where-Object { $_.ExecutablePath -ieq $exe } |
+              ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+            Start-Sleep -Seconds 2
+            $beforeRollback=(Get-FileHash $exe -Algorithm SHA256).Hash
+            $env:LINKLEADS_INJECT_FAILURE='after_switch'
+            try {
+              & $cmd
+              if ($LASTEXITCODE -eq 0) { throw 'Falha injetada nao bloqueou a atualizacao' }
+              $global:LASTEXITCODE=0
+            } finally { Remove-Item Env:LINKLEADS_INJECT_FAILURE -ErrorAction SilentlyContinue }
+            if ((Get-FileHash $exe -Algorithm SHA256).Hash -ne $beforeRollback) { throw 'Rollback nao restaurou executavel original' }
+            if ((Get-Content $report -Raw) -notmatch 'STATUS: ROLLBACK_OK') { throw 'Rollback nao registrado' }
+            if ((Get-Content $marker -Raw).Trim() -ne 'NUNCA APAGAR') { throw 'Rollback alterou dado preexistente' }
+            Write-Host 'APROVADO: falha injetada, rollback de APP e preservacao de dados'
             # Testar novamente o INSTALAR ja instalado em D:\LINKLEADS:
             # deve reparar e reabrir, sem depender do ZIP extraido.
             Get-CimInstance Win32_Process -Filter "Name = 'LinkLeads.exe'" -ErrorAction SilentlyContinue |
@@ -222,7 +244,7 @@ jobs:
             exit 0
           fi
           short="${SOURCE_SHA:0:8}"
-          tag="v0.5.11-windows-${short}"
+          tag="v0.5.12-windows-${short}"
           zipfile="LINKLEADS-INSTALADOR-D-LINKLEADS.zip"
           (
             cd portable-package
@@ -231,5 +253,5 @@ jobs:
           sha256sum "${zipfile}" > "${zipfile}.sha256"
           gh release create "${tag}" "${zipfile}" "${zipfile}.sha256" \
             --target "${SOURCE_SHA}" --latest \
-            --title "LINKLEADS 0.5.11 - Instalador Windows D:\LINKLEADS" \
-            --notes "UNICO PADRAO WINDOWS: extraia o ZIP, execute INSTALAR-LINKLEADS.cmd na raiz; sempre instala em D:\LINKLEADS e cria atalho no desktop. Sem NSIS, sem backup obrigatorio, sem exclusao de campanhas. Build/EXE/instalacao/atalho/janela homologados em Windows isolado. Operacao em conta LinkedIn real depende de homologacao do proprietario. Este pacote nao e assinado digitalmente."
+            --title "LINKLEADS 0.5.12 - Instalador Windows D:\LINKLEADS" \
+            --notes "UNICO PADRAO WINDOWS: extraia o ZIP, execute INSTALAR-LINKLEADS.cmd na raiz; sempre instala em D:\LINKLEADS e cria atalho no desktop. Sem NSIS, backup verificado e rollback do codigo; sem exclusao de campanhas. Build/EXE/instalacao/atalho/janela homologados em Windows isolado. Operacao em conta LinkedIn real depende de homologacao do proprietario. Este pacote nao e assinado digitalmente."

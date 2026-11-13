@@ -199,6 +199,25 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
         ON engagement_effects(campaign_id, person_id, id);
     `,
   },
+  {
+    version: 14,
+    // Nova tabela com CHECK ampliado: somente cancelamento comprovado anterior ao
+    // mouseDown admite nova reserva. Histórico incerto nunca e rearmado.
+    sql: `
+      CREATE TABLE comment_submission_ledger_v14 (
+        post_url TEXT PRIMARY KEY,
+        text_hash TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('started','confirmed','uncertain','cancelled')),
+        started_at TEXT NOT NULL DEFAULT (datetime('now')),
+        finished_at TEXT
+      );
+      INSERT INTO comment_submission_ledger_v14
+        (post_url,text_hash,status,started_at,finished_at)
+        SELECT post_url,text_hash,status,started_at,finished_at FROM comment_submission_ledger;
+      DROP TABLE comment_submission_ledger;
+      ALTER TABLE comment_submission_ledger_v14 RENAME TO comment_submission_ledger;
+    `,
+  },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.version;
@@ -872,21 +891,35 @@ export class LocalCrm extends SqliteCampaignStore {
    * sem conciliação explícita do operador. Não grava o texto do comentário.
    */
   beginCommentSubmission(postUrl: string, textHash: string): boolean {
-    const result = this.db.prepare(
-      "INSERT OR IGNORE INTO comment_submission_ledger (post_url, text_hash, status) VALUES (?, ?, 'started')",
-    ).run(postUrl, textHash);
-    return Number(result.changes) === 1;
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const inserted = this.db.prepare(
+        "INSERT OR IGNORE INTO comment_submission_ledger (post_url, text_hash, status) VALUES (?, ?, 'started')",
+      ).run(postUrl, textHash);
+      // Cancelamento anterior ao mouseDown e uma prova local de nao-envio.
+      // started/uncertain/confirmed NUNCA podem ser reiniciados.
+      const rearmed = Number(inserted.changes) === 0
+        ? this.db.prepare(
+            "UPDATE comment_submission_ledger SET text_hash=?, status='started', started_at=datetime('now'), finished_at=NULL WHERE post_url=? AND status='cancelled'",
+          ).run(textHash, postUrl)
+        : undefined;
+      this.db.exec('COMMIT');
+      return Number(inserted.changes) === 1 || Number(rearmed?.changes ?? 0) === 1;
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
   }
 
   /** Consolida a confirmação e a marcação do post na mesma transação.
    * Se o processo cair depois, o estado não volta a pendente.
    */
-  finishCommentSubmission(postUrl: string, status: 'confirmed' | 'uncertain'): void {
+  finishCommentSubmission(postUrl: string, status: 'confirmed' | 'uncertain' | 'cancelled'): void {
     this.db.exec('BEGIN IMMEDIATE');
     try {
       this.db.prepare(
-        "UPDATE comment_submission_ledger SET status=?, finished_at=datetime('now') WHERE post_url=? AND status IN ('started','uncertain')",
-      ).run(status, postUrl);
+        "UPDATE comment_submission_ledger SET status=?, finished_at=datetime('now') WHERE post_url=? AND (status='started' OR (status='uncertain' AND ?='confirmed'))",
+      ).run(status, postUrl, status);
       if (status === 'confirmed') {
         this.db.prepare(
           "UPDATE posts SET commented_at=COALESCE(commented_at,datetime('now')) WHERE url=?",
@@ -899,9 +932,9 @@ export class LocalCrm extends SqliteCampaignStore {
     }
   }
 
-  commentSubmissionStatus(postUrl: string): 'started' | 'confirmed' | 'uncertain' | undefined {
+  commentSubmissionStatus(postUrl: string): 'started' | 'confirmed' | 'uncertain' | 'cancelled' | undefined {
     const row = this.db.prepare('SELECT status FROM comment_submission_ledger WHERE post_url=?')
-      .get(postUrl) as { status: 'started' | 'confirmed' | 'uncertain' } | undefined;
+      .get(postUrl) as { status: 'started' | 'confirmed' | 'uncertain' | 'cancelled' } | undefined;
     return row?.status;
   }
 
@@ -954,15 +987,16 @@ export class LocalCrm extends SqliteCampaignStore {
     return this.listDrafts('approved').find((d) => d.actionId === actionId && d.personId === personId);
   }
 
-  listDrafts(status: CommentDraft['status'] = 'pending'): CommentDraft[] {
+  listDrafts(status: CommentDraft['status'] | 'review' = 'pending'): CommentDraft[] {
+    const review = status === 'review';
     return (
       this.db
         .prepare(
           `SELECT d.*, p.first_name, p.last_name, p.public_id, po.text AS post_text FROM comment_drafts d
            JOIN people p ON p.id = d.person_id LEFT JOIN posts po ON po.url = d.post_url
-           WHERE d.status = ? ORDER BY d.created_at`,
+           WHERE ${review ? "d.status IN ('pending','approved')" : 'd.status = ?'} ORDER BY d.created_at`,
         )
-        .all(status) as Row[]
+        .all(...(review ? [] : [status])) as Row[]
     ).map((r) => ({
       id: Number(r.id),
       kind: ((r.kind as string) ?? 'comment') as DraftKind,
@@ -983,6 +1017,13 @@ export class LocalCrm extends SqliteCampaignStore {
   getDraft(id: number): CommentDraft | undefined {
     const status = (this.db.prepare('SELECT status FROM comment_drafts WHERE id = ?').get(id) as Row | undefined)?.status;
     return status ? this.listDrafts(status as CommentDraft['status']).find((d) => d.id === id) : undefined;
+  }
+
+  /** O status so pode passar de pending a approved UMA vez: protege cliques duplicados e IPC concorrente. */
+  claimPendingDraft(id: number, text: string): boolean {
+    return Number(this.db.prepare(
+      "UPDATE comment_drafts SET status='approved', comment=?, error=NULL, decided_at=datetime('now') WHERE id=? AND status='pending'",
+    ).run(text, id).changes) === 1;
   }
 
   updateDraft(id: number, patch: { status: CommentDraft['status']; comment?: string; error?: string }): void {

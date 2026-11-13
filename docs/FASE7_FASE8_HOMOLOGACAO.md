@@ -42,8 +42,14 @@ cabeçalho moderno e menções). Não utiliza nomes, textos ou URNs reais de cli
 - Instalador: `INSTALAR-LINKLEADS.cmd` na raiz do ZIP e da instalação.
 - Executável: `D:\LINKLEADS\APP\LinkLeads.exe`
 - Conferir SHA-256 de origem e destino, janela, atalho e reparo.
-- O instalador evita exclusão/espelhamento de dados, mas **não substitui
-  backup verificado do ambiente real** antes da atualização.
+- O instalador v2 faz backup SHA-256 das pastas de userData conhecidas, copia o
+  novo APP em staging, valida hashes de todos os arquivos e troca diretórios
+  com rollback do APP anterior se a ativação falhar.
+- O operador deve verificar o JSON BACKUP_VERIFICADO em
+  D:\LINKLEADS\BACKUPS\snapshot-* e manter uma cópia externa protegida.
+  A restauração de banco nunca deve ser automática sem conciliar WAL e migrações.
+- Casos de falha injetada após o swap devem restaurar o EXE anterior, preservar
+  as campanhas e produzir STATUS: ROLLBACK_OK.
 
 ## Gate supervisionado de cinco perfis autorizados
 **Não liberar os 802 contatos da fila automaticamente.**
@@ -68,3 +74,19 @@ cabeçalho moderno e menções). Não utiliza nomes, textos ou URNs reais de cli
 **Critério de bloqueio:** automação verde não comprova que um layout atual
 do LinkedIn real será reconhecido. Sem a revisão supervisionada,
 a produção operacional permanece **NÃO HOMOLOGADA**.
+
+## Contrato de recuperacao Fases 0-8 (0.5.12)
+- Persistencia: o ledger nao rearma comentario com tentativa iniciada ou incerta.
+- Tentativa comprovadamente cancelada antes de mouseDown pode ser reservada novamente; teste da migracao v14 obrigatorio.
+- Rascunhos que ficaram em `approved` apos interrupcao aparecem em Aprovações, sem reenvio e descarte.
+- Identificadores opacos ACw/ACo sao comparados preservando caixa.
+- Diagnostico de estrutura ocorre antes de curtida e comentario; guardas de URN/autor/reacao continuam obrigatorios.
+- TRACE pseudonimiza identificadores de pessoas; ledger interno preserva reconciliacao.
+- Instalacao: staging, hash de todos os arquivos, backup privado ACL e rollback do codigo; banco nao e restaurado automaticamente.
+- Cinco perfis reais ainda exigem sessao autorizada e verificacao supervisionada.
+
+### Conciliacao apos reinicio (v0.5.12)
+- Se houve aprovacao mas nenhuma reserva de envio externo, a inicializacao da conta restaura o rascunho para `pending`.
+- Se a reserva do comentario esta `started` ou `uncertain`, o rascunho permanece visivel como `approved`, mas nao permite novo despacho automatico.
+- Com observacao humana de comentario publicado no post correto, a opcao 'Conferi: comentario esta publicado' apenas registra a conciliacao; nunca emite novo clique.
+- Um comentario incerto nao recebe `failed` com desaparicao da lista de revisao; a tentativa continua contabilizada e seu ledger continua bloqueado.

@@ -15,6 +15,7 @@ import {
   type BudgetKey,
   type LimitRule,
   engagementCampaign,
+  resolveApproval,
   importPeopleFromCsv,
   outreachSequence,
   prospectingSequence,
@@ -825,7 +826,7 @@ ipcMain.handle('campaigns:inbox', (_e, id: string, campaignId: string) => {
   const members = new Set(people.map((r) => r.person_id));
   return {
     replies: crm.inbox(false).filter((entry) => members.has(entry.personId)),
-    drafts: crm.listDrafts('pending').filter((d) => d.campaignId === campaignId),
+    drafts: crm.listDrafts('review').filter((d) => d.campaignId === campaignId),
     attribution: 'Vínculo por participante, sem prova de que cada mensagem foi enviada por esta campanha.',
   };
 });
@@ -834,15 +835,25 @@ ipcMain.handle('inbox:markHandled', (_e, id: string, personId: string) => crms.g
 ipcMain.handle('instance:checkInbox', (_e, id: string) => instances.require(id).checkInbox(true));
 
 // Aprovação de comentários ---------------------------------------------------
-ipcMain.handle('drafts:list', (_e, id: string, status?: CommentDraft['status']) => crms.get(account(id)).listDrafts(status ?? 'pending'));
+ipcMain.handle('drafts:list', (_e, id: string, status?: CommentDraft['status'] | 'review') => crms.get(account(id)).listDrafts(status ?? 'pending'));
+ipcMain.handle('drafts:confirmVisible', (_e, id: string, draftId: number) =>
+  instances.require(id).confirmVisibleComment(draftId));
 ipcMain.handle('drafts:approve', async (_e, id: string, draftId: number, text?: string) => {
   const r = await instances.require(id).approveDraft(draftId, text);
   return r.ok ? { ok: true } : { ok: false, message: r.message ?? r.reason };
 });
 ipcMain.handle('drafts:reject', (_e, id: string, draftId: number) => {
   const inst = instances.get(id);
-  if (inst) inst.rejectDraft(draftId);
-  else crms.get(account(id)).updateDraft(draftId, { status: 'rejected' });
+  if (inst) return inst.rejectDraft(draftId);
+  const crm = crms.get(account(id));
+  const draft = crm.getDraft(draftId);
+  if (!draft || draft.status !== 'pending') return;
+  crm.updateDraft(draftId, { status: 'rejected' });
+  // Recusar com janela fechada tambem deve reconciliar a campanha.
+  // Antes, apenas o rascunho era atualizado e a pessoa ficava em processed.
+  const campaign = crm.loadCampaign(draft.campaignId, id);
+  if (campaign) resolveApproval(crm, campaign, draft.actionId, draft.personId,
+    { executed: false, reason: 'REJECTED' }, now());
 });
 
 // Configurações --------------------------------------------------------------

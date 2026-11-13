@@ -7,7 +7,7 @@ const REPLY_LABEL = {
 };
 
 async function approvalsView(a) {
-  const drafts = await api.listDrafts(a.id, 'pending');
+  const drafts = await api.listDrafts(a.id, 'review');
   if (!drafts.length) return h('p', { class: 'muted' }, 'Nada aguardando aprovação.');
   return h('div', { class: 'stack' },
     h('p', { class: 'muted' }, 'A IA escreveu estes textos. Edite se quiser e aprove para executar.' + (a.running ? '' : ' Inicie a conta para executar.')),
@@ -27,15 +27,22 @@ async function approvalsView(a) {
               h('div', {}, h('b', {}, 'Trabalho do autor: '), it.authorWork || '—'),
               h('div', {}, h('b', {}, 'Tipo/temas: '), [it.postType, ...(it.topics || [])].filter(Boolean).join(', ') || '—'))
           : it.hook && h('div', { class: 'ai' }, h('b', {}, 'Gancho usado pela IA: '), it.hook),
+        d.status === 'approved' && h('p', { class: 'muted' }, 'CONCILIACAO OBRIGATORIA: o envio foi iniciado ou interrompido. Verifique a propria publicacao na conta do LinkedIn. Nao reenviar nem descartar ate conciliar.'),
         h('label', {}, 'Texto', text), counter,
         h('div', { class: 'row' },
-          h('button', { class: 'primary', disabled: !a.running, onclick: async (e) => {
+          d.status === 'approved' && d.kind === 'comment' &&
+          h('button', { onclick: async () => {
+            if (!window.confirm('Confirma que VIU este comentario publicado pelo perfil ativo no post correto no LinkedIn? Esta operacao NAO envia mensagem; apenas registra sua verificacao manual.')) return;
+            await safe(() => api.confirmVisibleComment(a.id, d.id), 'Publicacao conciliada manualmente');
+            renderView();
+          } }, 'Conferi: comentario esta publicado'),
+          h('button', { class: 'primary', disabled: !a.running || d.status !== 'pending', onclick: async (e) => {
             e.target.disabled = true;
             const r = await safe(() => api.approveDraft(a.id, d.id, text.value));
             toast(r && r.ok ? 'Feito' : `Não executado: ${(r && r.message) || 'erro'}`);
             renderView();
           } }, d.kind === 'comment' ? 'Aprovar e publicar' : 'Aprovar e enviar'),
-          h('button', { onclick: () => safe(() => api.rejectDraft(a.id, d.id), 'Descartado').then(renderView) }, 'Descartar'),
+          h('button', { disabled: d.status !== 'pending', onclick: () => safe(() => api.rejectDraft(a.id, d.id), 'Descartado').then(renderView) }, 'Descartar'),
         ),
       );
     }),
