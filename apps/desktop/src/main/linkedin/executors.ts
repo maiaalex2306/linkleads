@@ -437,7 +437,7 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
       d.withBrowser(() =>
         guard(async () => {
           const s = ctx.action.settings as LikeSettings;
-          const previous = d.crm.latestLikeAttempt(ctx.person.id);
+          const previous = d.crm.latestLikeAttempt(ctx.person.id, ctx.campaignId, ctx.action.id);
           if (previous?.status === 'confirmed') {
             d.crm.recordEngagementEffect({
               campaignId: ctx.campaignId, actionId: ctx.action.id, personId: ctx.person.id,
