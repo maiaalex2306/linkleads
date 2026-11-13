@@ -84,3 +84,9 @@ a produção operacional permanece **NÃO HOMOLOGADA**.
 - TRACE pseudonimiza identificadores de pessoas; ledger interno preserva reconciliacao.
 - Instalacao: staging, hash de todos os arquivos, backup privado ACL e rollback do codigo; banco nao e restaurado automaticamente.
 - Cinco perfis reais ainda exigem sessao autorizada e verificacao supervisionada.
+
+### Conciliacao apos reinicio (v0.5.12)
+- Se houve aprovacao mas nenhuma reserva de envio externo, a inicializacao da conta restaura o rascunho para `pending`.
+- Se a reserva do comentario esta `started` ou `uncertain`, o rascunho permanece visivel como `approved`, mas nao permite novo despacho automatico.
+- Com observacao humana de comentario publicado no post correto, a opcao 'Conferi: comentario esta publicado' apenas registra a conciliacao; nunca emite novo clique.
+- Um comentario incerto nao recebe `failed` com desaparicao da lista de revisao; a tentativa continua contabilizada e seu ledger continua bloqueado.

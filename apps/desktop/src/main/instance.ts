@@ -127,6 +127,7 @@ export class AccountInstance {
   private llmCache?: { key: string; llm: LlmClient };
   private loginAttempts: number[] = [];
   private autoDiag = new Map<string, { at: number; file: string }>();
+  private approvingDrafts = new Set<number>();
   readonly live: LiveState = { state: 'idle', recent: [], upcoming: [] };
   /** login recusado pelo LinkedIn: não tenta de novo com o mesmo e-mail/senha (evita travar a conta) */
   private rejectedLogin?: string;
@@ -140,6 +141,24 @@ export class AccountInstance {
     private events: InstanceEvents,
     private integrations?: { hub: IntegrationHub; settings: IntegrationSettings },
   ) {
+    // Após reiniciar: aprovação que nunca reservou envio externo volta a
+    // pending. Reservas started/uncertain continuam bloqueadas para conciliacao.
+    for (const draft of crm.listDrafts('approved')) {
+      if (draft.kind !== 'comment') continue;
+      const state = crm.commentSubmissionStatus(draft.postUrl);
+      if (!state || state === 'cancelled') {
+        crm.updateDraft(draft.id, { status: 'pending' });
+        trace.record('approval', 'recovered_pre_dispatch', { status: 'pending' },
+          { accountId: account.id, campaignId: draft.campaignId,
+            actionId: draft.actionId, personId: draft.personId });
+      } else if (state === 'confirmed') {
+        // O ledger confirmado é prova persistida pelo proprio executor.
+        crm.markPostCommented(draft.postUrl, draft.comment, draft.interpretation);
+        crm.updateDraft(draft.id, { status: 'posted' });
+        const campaign = crm.loadCampaign(draft.campaignId, account.id);
+        if (campaign) resolveApproval(crm, campaign, draft.actionId, draft.personId, { executed: true }, now());
+      }
+    }
     this.session = session.fromPartition(`persist:linkleads-${account.id}`);
 
     this.window = new BrowserWindow({
@@ -746,6 +765,9 @@ export class AccountInstance {
 
   /** Aprova (opcionalmente editando) e executa um rascunho pendente. */
   async approveDraft(draftId: number, editedText?: string): Promise<ExecutionResult> {
+    if (this.approvingDrafts.has(draftId)) throw new Error('Aprovacao deste rascunho ja esta em andamento.');
+    this.approvingDrafts.add(draftId);
+    try {
     trace.record('approval', 'approve_requested', {}, { accountId: this.account.id });
     const draft = this.crm.getDraft(draftId);
     if (!draft || draft.status !== 'pending') throw new Error('Rascunho não está pendente');
@@ -825,12 +847,48 @@ export class AccountInstance {
       if (campaign) resolveApproval(this.crm, campaign, draft.actionId, draft.personId, { executed: true }, now());
       this.log(`${draft.kind === 'comment' ? 'Comentário publicado' : draft.kind === 'invite_note' ? 'Convite enviado' : 'Mensagem enviada'} para ${draft.personName}`);
     } else {
-      this.crm.updateDraft(draftId, { status: 'failed', error: result.message ?? result.reason });
-      if (campaign) resolveApproval(this.crm, campaign, draft.actionId, draft.personId, { executed: false, reason: result.reason });
+      if (attemptedComment) {
+        // Dispatch incerto: manter acessivel para conciliacao humana. Nao
+        // marcar failed e nao reencaminhar ao motor de campanhas.
+        this.crm.updateDraft(draftId, { status: 'approved', error: result.message ?? result.reason });
+        this.log('Comentario com efeito incerto: verificar no LinkedIn antes de qualquer nova acao.');
+      } else {
+        this.crm.updateDraft(draftId, { status: 'failed', error: result.message ?? result.reason });
+        if (campaign) resolveApproval(this.crm, campaign, draft.actionId, draft.personId, { executed: false, reason: result.reason });
+      }
       this.log(`Falha ao executar rascunho para ${draft.personName}: ${result.message ?? result.reason}`);
       if (result.reason === 'THROTTLED') this.pause('a plataforma sinalizou limite ou verificação.');
     }
     return result;
+    } finally {
+      this.approvingDrafts.delete(draftId);
+    }
+  }
+
+  /** Confirmacao HUMANA, nao um novo click: requer observacao da publicacao na plataforma. */
+  confirmVisibleComment(draftId: number): void {
+    if (this.approvingDrafts.has(draftId))
+      throw new Error('Publicacao ainda em andamento. Aguarde a conclusao.');
+    const draft = this.crm.getDraft(draftId);
+    if (!draft || draft.kind !== 'comment' || draft.status !== 'approved')
+      throw new Error('Nao existe comentario aprovado pendente de conciliacao.');
+    const ledger = this.crm.commentSubmissionStatus(draft.postUrl);
+    if (!ledger || ledger === 'cancelled')
+      throw new Error('Nao houve despacho confirmado. Nao marque como publicado.');
+    const campaign = this.crm.loadCampaign(draft.campaignId, this.account.id);
+    if (!campaign) throw new Error('Campanha do comentario nao encontrada.');
+    this.crm.finishCommentSubmission(draft.postUrl, 'confirmed');
+    this.crm.markPostCommented(draft.postUrl, draft.comment, draft.interpretation);
+    this.crm.updateDraft(draftId, { status: 'posted' });
+    this.crm.recordEngagementEffect({
+      campaignId: draft.campaignId, actionId: draft.actionId, personId: draft.personId,
+      postUrl: draft.postUrl, stage: 'comment', status: 'confirmed',
+      reason: 'MANUAL_PLATFORM_ATTESTATION',
+    });
+    resolveApproval(this.crm, campaign, draft.actionId, draft.personId, { executed: true }, now());
+    trace.record('approval', 'confirmed_visible_manually', { status: 'confirmed' },
+      { accountId: this.account.id, campaignId: draft.campaignId,
+        actionId: draft.actionId, personId: draft.personId });
   }
 
   rejectDraft(draftId: number): void {

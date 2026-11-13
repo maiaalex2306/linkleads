@@ -27,9 +27,15 @@ async function approvalsView(a) {
               h('div', {}, h('b', {}, 'Trabalho do autor: '), it.authorWork || '—'),
               h('div', {}, h('b', {}, 'Tipo/temas: '), [it.postType, ...(it.topics || [])].filter(Boolean).join(', ') || '—'))
           : it.hook && h('div', { class: 'ai' }, h('b', {}, 'Gancho usado pela IA: '), it.hook),
-        d.status === 'approved' && h('p', { class: 'muted' }, 'APROVADO ANTES DE UMA INTERRUPCAO: confira manualmente o estado da interacao no LinkedIn. Nao reenviar nem descartar ate conciliar.'),
+        d.status === 'approved' && h('p', { class: 'muted' }, 'CONCILIACAO OBRIGATORIA: o envio foi iniciado ou interrompido. Verifique a propria publicacao na conta do LinkedIn. Nao reenviar nem descartar ate conciliar.'),
         h('label', {}, 'Texto', text), counter,
         h('div', { class: 'row' },
+          d.status === 'approved' && d.kind === 'comment' &&
+          h('button', { onclick: async () => {
+            if (!window.confirm('Confirma que VIU este comentario publicado pelo perfil ativo no post correto no LinkedIn? Esta operacao NAO envia mensagem; apenas registra sua verificacao manual.')) return;
+            await safe(() => api.confirmVisibleComment(a.id, d.id), 'Publicacao conciliada manualmente');
+            renderView();
+          } }, 'Conferi: comentario esta publicado'),
           h('button', { class: 'primary', disabled: !a.running || d.status !== 'pending', onclick: async (e) => {
             e.target.disabled = true;
             const r = await safe(() => api.approveDraft(a.id, d.id, text.value));
