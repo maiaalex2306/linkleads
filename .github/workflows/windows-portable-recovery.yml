@@ -60,6 +60,11 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw 'Empacotamento dir falhou' }
           } finally { Pop-Location }
           if (-not (Test-Path 'apps/desktop/release/win-unpacked/LinkLeads.exe')) { throw 'LinkLeads.exe ausente' }
+      - name: Preparar Chromium para testes DOM reais em Windows
+        shell: pwsh
+        run: |
+          npx playwright install chromium
+          if ($LASTEXITCODE -ne 0) { throw 'Playwright Chromium ausente — gate P0 reprovado' }
       - name: Testar executavel portatil real (Windows, dados ficticios)
         shell: pwsh
         run: |
