@@ -1,7 +1,7 @@
 // E2E Fase 4: browser isolado; nenhuma chamada à plataforma real.
 import { createRequire } from 'node:module';
 import {
-  llIsReact, llPostContainers, llCommentControls,
+  llIsReact, llPostContainers, llReactionTarget, llCommentControls,
   commentEditorPoint, commentSubmitPoint, commentEvidence, matchingCommentCount,
   editorText, commentClickGuard, commentOpenGuard, postExpandPoint, postExpandGuard, extractPosts,
 } from '../dist/main/linkedin/dom-scripts.js';
@@ -27,6 +27,7 @@ const selectors = {
 };
 const functions = {
   reaction: llIsReact.toString(), containers: llPostContainers.toString(),
+  reactionTarget: llReactionTarget.toString(),
   controls: llCommentControls.toString(), evidence: commentEvidence.toString(),
   expansion: postExpandPoint.toString(),
   editorPoint: commentEditorPoint.toString(), submitPoint: commentSubmitPoint.toString(),
@@ -42,6 +43,7 @@ const run = (fn, args = []) => page.evaluate(({ fns, fn, args, selectors }) => {
   const __llIsReact = eval('(' + fns.reaction + ')');
   const llIsReact = __llIsReact;
   const __llPostContainers = eval('(' + fns.containers + ')');
+  const __llReactionTarget = eval('(' + fns.reactionTarget + ')');
   const __llCommentControls = eval('(' + fns.controls + ')');
   const __llCommentEvidence = eval('(' + fns.evidence + ')');
   const __llPostExpandPoint = eval('(' + fns.expansion + ')');
