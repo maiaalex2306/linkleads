@@ -1,5 +1,5 @@
 import type { Person } from '@linkleads/core';
-import { memberIdFromSalesHash } from '@linkleads/core';
+import { memberIdFromSalesHash, normalizeLinkedInPublicId } from '@linkleads/core';
 
 /**
  * Plano de abertura de perfil. As URLs são rotas documentadas de navegação, NÃO
@@ -17,8 +17,8 @@ const linkedinHost = (host: string) => host === 'linkedin.com' || host.endsWith(
 
 export function safePublicId(raw?: string): string | undefined {
   if (!raw) return undefined;
-  const id = raw.trim().toLowerCase();
-  return /^[a-z0-9][a-z0-9._-]{1,119}$/i.test(id) ? id : undefined;
+  const id = normalizeLinkedInPublicId(raw);
+  return id && /^[a-z0-9][a-z0-9._-]{1,119}$/i.test(id) ? id : undefined;
 }
 
 export function snHashCore(raw?: string): string | undefined {
