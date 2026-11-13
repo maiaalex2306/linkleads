@@ -158,6 +158,16 @@ export class AccountInstance {
     attachContextMenu(this.window.webContents);
     this.driver = new PageDriver(this.window.webContents, loadSelectors(), (event, detail) =>
       trace.record('browser', event, detail, { accountId: this.account.id }));
+    const initialSelectorAudit = selectorAudit(this.driver.sel);
+    if (initialSelectorAudit.issues.length) {
+      this.log('Arquivo de seletores inválido ou não homologado. Configuração rejeitada; ' +
+        'o aplicativo preservou apenas os seletores testados. Consulte Diagnóstico.');
+      trace.record('diagnostics', 'selector_configuration_rejected', {
+        code: 'UI_CHANGED', count: initialSelectorAudit.issues.length,
+        source: initialSelectorAudit.sources
+          .filter((item) => item.status === 'rejected').map((item) => item.name).join(','),
+      }, { accountId: this.account.id }, 'warn');
+    }
     this.window.webContents.on('did-navigate', (_event, url) =>
       trace.record('browser', 'did_navigate', { location: url }, { accountId: this.account.id }));
     this.window.webContents.on('did-navigate-in-page', (_event, url) =>
