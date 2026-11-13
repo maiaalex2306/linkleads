@@ -40,7 +40,20 @@ export function extractProfile(sel: Record<string, readonly string[]>): ProfileE
   };
 }
 
+/** A identidade do cartão principal é independente de posts ou vagas incorporadas. */
+export interface PostCardIdentity {
+  cardId: string;
+  postUrn: string | null;
+  permalink: string | null;
+  primaryActorUrl: string | null;
+  primaryActorName: string | null;
+  embeddedPostUrn: string | null;
+  embeddedActorUrl: string | null;
+  identityStatus: 'CONFIRMED' | 'PROVISIONAL' | 'CONFLICT';
+}
+
 export interface PostExtract {
+  cardIdentity?: PostCardIdentity;
   urn: string;
   text: string;
   actorHref: string | null;
@@ -63,118 +76,180 @@ export function llIsReact(el: Element): boolean {
 }
 
 /**
- * Pura (injetada antes de cada leitura como __llPostContainers): acha os posts da página.
- * 1º seletores clássicos (data-urn). 2º estrutural, para o layout novo do LinkedIn, a partir de três pistas
- * independentes: a DATA do post ("há 1 sem", "2d"), links/atributos com o identificador do post
- * (urn:li:activity…, /posts/…-activity-123…) e o botão de reação. De cada pista, sobe até o maior bloco
- * que ainda tem UMA só data — esse é o post.
+ * Descobre cartões sem confundir publicação principal, repost e conteúdo incorporado.
+ * Autocontida: PageDriver serializa esta função para o mundo isolado do Electron.
+ * Identificadores provisórios servem exclusivamente a diagnóstico, NUNCA a um clique.
  */
-export function llPostContainers(sel: { postItem: readonly string[]; likeButton: readonly string[] }): Array<{ el: Element; urn: string }> {
-  const out: Array<{ el: Element; urn: string }> = [];
-  const seen = new Set<string>();
-  // Identidades dos cartões clássicos serão validadas pela MESMA rotina
-  // que interpreta permalinks no layout moderno. data-urn cru não é prova.
-  // Continuar a descoberta: o feed pode misturar cartões antigos com cartões modernos sem data-urn.
-  const root = document.querySelector('main') || document.body;
-  // As atividades atuais podem mostrar "há 6 d · Editado", "2 semanas" ou "3 days".
-  // Reconhecer o horário do post sem tratar a legenda "Editado" como outro post.
-  const TIME = /^(?:h[áa]\s+)?\d+\s*(?:min(?:utos?)?|h(?:oras?|rs?)?|d(?:ias?|ays?)?|sem(?:anas?)?|w(?:eeks?)?|mo(?:nths?)?|m[eê]s(?:es)?|mes(?:es)?|a(?:nos?)?|y(?:ears?|rs?)?|s(?:egundos?)?)\b(?:\s*[•·]\s*.*)?$/i;
-  const timeEls = (Array.from(root.querySelectorAll('span, time, a, div, p')) as HTMLElement[]).filter((e) => {
-    if (e.children.length > 3) return false;
-    // Publicação com <time datetime="...">: âncora temporal explícita e verificável.
-    if (e.tagName === 'TIME' && /^\d{4}-\d{2}-\d{2}(?:T|$)/.test(e.getAttribute('datetime') || '')) return true;
-    const t = (e.innerText || e.textContent || '').replace(/\s+/g, ' ').trim();
-    return t.length > 0 && t.length < 40 && TIME.test(t) && !(e.parentElement && TIME.test((e.parentElement.innerText || '').replace(/\s+/g, ' ').trim()) && e.parentElement.children.length === 1);
-  });
-  const countTimes = (el: Element) => timeEls.filter((t) => el.contains(t)).length;
-  const urnOf = (el: Element): string | null => {
-    // Identidade deve vir do cartão ou do permalink do PRÓPRIO cartão.
-    // Não recuperar ID do nome da pessoa, da posição no feed nem do texto do post.
-    const normalize = (source: string): string | null => {
-      let value = source;
-      for (let i = 0; i < 3; i++) {
-        const decoded = (() => { try { return decodeURIComponent(value); } catch { return value; } })();
-        if (decoded === value) break;
-        value = decoded;
-      }
-      const m = value.match(/urn:li:(activity|ugcPost|share):(\d{10,25})(?!\d)/i)
-        || value.match(/[-/](activity|ugcPost|share)[-:](\d{15,25})(?!\d)/i);
-      if (!m) return null;
-      const type = m[1]!.toLowerCase() === 'ugcpost' ? 'ugcPost' : m[1]!.toLowerCase();
-      return 'urn:li:' + type + ':' + m[2];
-    };
-    // data-urn exato pode conter IDs curtos nos ambientes de regressão.
-    // A forma completa continua obrigatória; nunca extrair dígitos soltos.
-    const rawDirect = el.getAttribute('data-urn') || '';
-    const direct = /^urn:li:(?:activity|ugcPost|share):\d+$/i.test(rawDirect)
-      ? rawDirect.replace(/^urn:li:ugcpost:/i, 'urn:li:ugcPost:')
-      : normalize(rawDirect);
-    const links = Array.from(el.querySelectorAll(
-      'a[href*="/feed/update/"], a[href*="/posts/"], a[href*="urn:li:"], a[href*="activity-"]',
-    ));
-    const permalinks = new Set(links.map((a) => normalize(a.getAttribute('href') || '')).filter((v): v is string => !!v));
-    // O identificador no elemento e os permalinks precisam ser coerentes.
-    // Uma publicação citada ou um cartão mesclado pode trazer URNs distintas.
-    // Nesse caso a identidade é INCERTA, mesmo que data-urn esteja presente.
-    if (permalinks.size > 1 || (direct && permalinks.size === 1 && !permalinks.has(direct))) return null;
-    const ids = new Set<string>();
-    if (direct) ids.add(direct);
-    for (const permalink of permalinks) ids.add(permalink);
-    const attrs = [el, ...Array.from(el.querySelectorAll('[data-urn], [data-id], [data-activity-urn], [componentkey], [data-view-tracking-scope]'))];
-    for (const node of attrs) {
-      for (const attribute of Array.from(node.attributes)) {
-        const canonical = normalize(attribute.value);
-        if (canonical) ids.add(canonical);
-      }
+export function llPostContainers(
+  sel: { postItem: readonly string[]; likeButton: readonly string[] },
+): Array<{ el: Element; urn: string; identity: PostCardIdentity }> {
+  type Entry = { el: Element; urn: string; identity: PostCardIdentity };
+  const root = document.querySelector('main') ?? document.body;
+  const out: Entry[] = [];
+  const used = new Set<string>();
+  let provisional = 0;
+  const EMBED = [
+    '.feed-shared-mini-update-v2', '.update-components-mini-update-v2',
+    '.feed-shared-article', '.update-components-article',
+    '.feed-shared-linkedin-video', '.feed-shared-external-video',
+    '[data-testid*="quoted"]', '[data-test-id*="reshared"]',
+  ].join(', ');
+  const POST_LINKS = 'a[href*="/feed/update/"], a[href*="/posts/"], a[href*="urn:li:"], a[href*="activity-"]';
+  const AUTHOR_HEADER = '.update-components-actor, .feed-shared-actor, header, [data-testid*="actor"], [data-test-id*="actor"]';
+  const COMMENT = '.comments-comment-entity, .comments-comment-item, .comments-comment-box__form, [contenteditable="true"]';
+
+  const parseUrn = (source: string | null): string | null => {
+    let raw = source ?? '';
+    for (let i = 0; i < 3; i++) {
+      let decoded = raw;
+      try { decoded = decodeURIComponent(raw); } catch { break; }
+      if (raw === decoded) break;
+      raw = decoded;
     }
-    // Subcartões com URNs distintas, mesmo sob um data-urn aparentemente
-    // válido, tornam a identidade ambígua: não misturar publicações.
-    // Ações só podem ser vinculadas à identidade ÚNICA do cartão.
-    return ids.size === 1 ? [...ids][0]! : null;
+    const hit = raw.match(/urn:li:(activity|ugcPost|share):(\d{1,25})(?!\d)/i)
+      ?? raw.match(/[-/](activity|ugcPost|share)[-:](\d{15,25})(?!\d)/i);
+    if (!hit) return null;
+    const kind = hit[1]!.toLowerCase() === 'ugcpost' ? 'ugcPost' : hit[1]!.toLowerCase();
+    return 'urn:li:' + kind + ':' + hit[2];
   };
-  // Descoberta clássica: nunca propagar data-urn arbitrário, incompleto ou
-  // inconsistente com o permalink do próprio cartão para ações externas.
-  for (const selector of sel.postItem) {
-    for (const el of Array.from(document.querySelectorAll(selector))) {
-      const urn = urnOf(el);
-      if (urn && !seen.has(urn)) { seen.add(urn); out.push({ el, urn }); }
+  const embeddedWithin = (node: Element, card: Element): boolean => {
+    let parent: Element | null = node.parentElement;
+    while (parent && parent !== card) {
+      if (parent.matches(EMBED) || parent.matches('[data-urn], [data-activity-urn]')) return true;
+      parent = parent.parentElement;
     }
+    return false;
+  };
+  const identityOf = (card: Element): PostCardIdentity => {
+    const direct = new Set(
+      ['data-urn', 'data-id', 'data-activity-urn', 'componentkey']
+        .map((attr) => parseUrn(card.getAttribute(attr)))
+        .filter((value): value is string => !!value),
+    );
+    const primaryLinks = (Array.from(card.querySelectorAll(POST_LINKS)) as HTMLAnchorElement[])
+      .filter((a) => !embeddedWithin(a, card));
+    const primaryPermalinks = new Set(primaryLinks.map((a) => parseUrn(a.getAttribute('href')))
+      .filter((value): value is string => !!value));
+    const all = new Set([...direct, ...primaryPermalinks]);
+    const conflicting = all.size > 1;
+    const primary = !conflicting && all.size === 1 ? [...all][0]! : null;
+
+    const nestedUrns = new Set<string>();
+    const nested = Array.from(card.querySelectorAll(
+      '[data-urn], [data-activity-urn], ' + EMBED,
+    ));
+    for (const element of nested) {
+      if (element === card) continue;
+      const directNested = parseUrn(element.getAttribute('data-urn'))
+        ?? parseUrn(element.getAttribute('data-activity-urn'));
+      if (directNested && directNested !== primary) nestedUrns.add(directNested);
+      for (const a of Array.from(element.querySelectorAll(POST_LINKS)) as HTMLAnchorElement[]) {
+        const urn = parseUrn(a.getAttribute('href'));
+        if (urn && urn !== primary) nestedUrns.add(urn);
+      }
+    }
+    for (const a of Array.from(card.querySelectorAll(POST_LINKS)) as HTMLAnchorElement[]) {
+      if (!embeddedWithin(a, card)) continue;
+      const urn = parseUrn(a.getAttribute('href'));
+      if (urn && urn !== primary) nestedUrns.add(urn);
+    }
+    const authorLinks = (Array.from(card.querySelectorAll('a[href*="/in/"]')) as HTMLAnchorElement[])
+      .filter((a) => !embeddedWithin(a, card) && !a.closest(COMMENT) &&
+        (a.matches('.update-components-actor__meta-link, .feed-shared-actor__meta-link') ||
+          !!a.closest(AUTHOR_HEADER)));
+    const authors = new Map<string, HTMLAnchorElement>();
+    for (const a of authorLinks) {
+      try {
+        const url = new URL(a.href, location.href);
+        if (url.protocol === 'https:' && /(^|\.)linkedin\.com$/i.test(url.hostname) &&
+          /^\/in\/[^/]+\/?$/i.test(url.pathname))
+          authors.set(url.origin.toLowerCase() + url.pathname.replace(/\/$/, ''), a);
+      } catch { /* link não validável */ }
+    }
+    const author = authors.size === 1 ? [...authors.values()][0]! : null;
+    const embedRoot = nested.find((el) => el.matches(EMBED) || !!parseUrn(el.getAttribute('data-urn')))
+      ?? null;
+    const embedActor = embedRoot?.querySelector('a[href*="/in/"]') as HTMLAnchorElement | null;
+    const permalink = primaryLinks.find((a) => parseUrn(a.getAttribute('href')) === primary)?.href ?? null;
+
+    // Cartões sem URN canônica são identificáveis SOMENTE durante a leitura.
+    // Hash estável por conteúdo/links, sem usar índice de scroll como identidade.
+    const source = [
+      [...direct].sort().join(','), [...primaryPermalinks].sort().join(','),
+      [...nestedUrns].sort().join(','), author?.href ?? '',
+      (card.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 512),
+    ].join('|');
+    let hash = 2166136261;
+    for (let i = 0; i < source.length; i++) {
+      hash ^= source.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    return {
+      cardId: primary ?? 'll-card-' + (hash >>> 0).toString(16).padStart(8, '0'),
+      postUrn: primary,
+      permalink,
+      primaryActorUrl: author?.href ?? null,
+      primaryActorName: author?.textContent?.replace(/\s+/g, ' ').trim() ?? null,
+      embeddedPostUrn: nestedUrns.size === 1 ? [...nestedUrns][0]! : null,
+      embeddedActorUrl: embedActor?.href ?? null,
+      identityStatus: conflicting ? 'CONFLICT' : primary ? 'CONFIRMED' : 'PROVISIONAL',
+    };
+  };
+  const add = (el: Element): void => {
+    const identity = identityOf(el);
+    const key = identity.postUrn ?? identity.cardId;
+    if (used.has(key)) return;
+    used.add(key);
+    out.push({ el, urn: identity.postUrn ?? 'll-idx-' + provisional++, identity });
+  };
+
+  // Primeiro, os contêineres clássicos de nível superior. Um post incorporado
+  // com data-urn não se torna uma segunda publicação independente.
+  const classic = new Set<Element>();
+  for (const selector of sel.postItem) {
+    for (const el of Array.from(root.querySelectorAll(selector))) classic.add(el);
   }
+  const topLevel = [...classic].filter((el) => ![...classic].some(
+    (outer) => outer !== el && outer.contains(el),
+  ));
+  for (const el of topLevel) add(el);
+
+  // Fallback estrutural para cartões sem data-urn (layout moderno).
+  const TIME = /^(?:h[áa]\s+)?\d+\s*(?:min(?:utos?)?|h(?:oras?|rs?)?|d(?:ias?|ays?)?|sem(?:anas?)?|w(?:eeks?)?|mo(?:nths?)?|m[eê]s(?:es)?|mes(?:es)?|a(?:nos?)?|y(?:ears?|rs?)?|s(?:egundos?)?)\b(?:\s*[•·]\s*.*)?$/i;
+  const timeEls = (Array.from(root.querySelectorAll('span, time, a, div, p')) as HTMLElement[])
+    .filter((e) => {
+      if (e.children.length > 3) return false;
+      if (e.tagName === 'TIME' && /^\d{4}-\d{2}-\d{2}(?:T|$)/.test(e.getAttribute('datetime') ?? '')) return true;
+      const v = (e.innerText ?? e.textContent ?? '').replace(/\s+/g, ' ').trim();
+      return v.length > 0 && v.length < 40 && TIME.test(v) &&
+        !(e.parentElement && TIME.test((e.parentElement.textContent ?? '').replace(/\s+/g, ' ').trim()) &&
+          e.parentElement.children.length === 1);
+    });
+  const countTimes = (el: Element) => timeEls.filter((t) => el.contains(t)).length;
   const seeds: Element[] = [
     ...timeEls,
     ...Array.from(root.querySelectorAll('a[href*="activity"], a[href*="urn:li:"], [data-urn*="activity"], [data-id*="activity"]')),
-    ...(Array.from(root.querySelectorAll('button, [role="button"]')) as Element[]).filter((b) => (typeof __llIsReact === 'function' ? __llIsReact : llIsReact)(b)),
+    ...(Array.from(root.querySelectorAll('button, [role="button"]')) as Element[])
+      .filter((b) => (typeof __llIsReact === 'function' ? __llIsReact : llIsReact)(b)),
   ];
-  const containers = new Set<Element>();
+  const candidates = new Set<Element>();
   for (const seed of seeds) {
-    let el: Element | null = seed;
+    let node: Element | null = seed;
     let best: Element | null = null;
-    for (let i = 0; el && el !== root && i < 25; i++, el = el.parentElement) {
-      const n = countTimes(el);
-      if (n > 1) break; // subiu demais: já pegou dois posts
-      // O contêiner de uma publicação deve conter exatamente uma reação.
-      // Sem isso, um ancestral pode englobar dois cartões e misturar autoria, texto e URN.
-      const reactions = (Array.from(el.querySelectorAll('button, [role="button"]')) as Element[])
+    for (let i = 0; node && node !== root && i < 25; i++, node = node.parentElement) {
+      if (countTimes(node) > 1) break;
+      const reactions = (Array.from(node.querySelectorAll('button, [role="button"]')) as Element[])
         .filter((button) => (typeof __llIsReact === 'function' ? __llIsReact : llIsReact)(button)).length;
-      if (n === 1 && reactions === 1 && el.querySelector('a[href*="/in/"]') &&
-          ((el as HTMLElement).innerText || '').length > 40) best = el;
+      if (countTimes(node) === 1 && reactions === 1 &&
+          node.querySelector('a[href*="/in/"]') && (node.textContent ?? '').length > 40) best = node;
     }
-    if (best) containers.add(best);
+    if (best) candidates.add(best);
   }
-  // remove blocos contidos em outros (fica o maior de cada post) e ordena como na página
-  const list = [...containers].filter((c) => ![...containers].some((o) => o !== c && o.contains(c)));
-  list.sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
-  let provisional = 0;
-  for (const el of list) {
-    // Não misturar nem duplicar o mesmo cartão já identificado pelos seletores clássicos.
-    const match = out.find((existing) => existing.el === el || existing.el.contains(el) || el.contains(existing.el));
-    const urn = urnOf(el) ?? (match?.urn || `ll-idx-${provisional++}`);
-    if (match) {
-      // Preferir o cartão maior somente quando mantém a mesma identidade.
-      if (match.urn === urn && el.contains(match.el)) match.el = el;
-      continue;
-    }
-    if (!seen.has(urn)) { seen.add(urn); out.push({ el, urn }); }
+  const structural = [...candidates].filter((c) => ![...candidates].some((o) => o !== c && o.contains(c)));
+  for (const el of structural) {
+    // Evita capturar como novo cartão o envelope de um clássico já descoberto.
+    if (out.some((existing) => existing.el === el || existing.el.contains(el) || el.contains(existing.el))) continue;
+    add(el);
   }
   out.sort((a, b) => (a.el.compareDocumentPosition(b.el) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
   return out;
