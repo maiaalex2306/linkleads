@@ -728,6 +728,10 @@ export async function gotoProfile(d: ExecutorDeps, p: Person, suffix = ''): Prom
       const profile = await d.driver.read(extractProfile,
         d.driver.sel as unknown as Record<string, readonly string[]>)
         .catch(() => ({ name: null, company: null }));
+      if (!profile.name?.trim()) {
+        attempts.push(route.method + ': pagina sem dados de perfil; possivel 404 ou carregamento incompleto');
+        continue;
+      }
       const expectedName = !!p.firstName && !!p.lastName;
       if (expectedName && !exactMemberMatch && !samePersonName(p, profile.name)) {
         attempts.push(route.method + ': nome do perfil não corresponde ao lead');
@@ -765,6 +769,13 @@ export async function gotoProfile(d: ExecutorDeps, p: Person, suffix = ''): Prom
   await d.driver.assertNotBlocked();
   if (profileSlug(d.driver.wc.getURL()) !== slug)
     return { needsReview: 'Redirecionamento para perfil ou domínio diferente da identidade resolvida.' };
+  if (verifiedRoute) {
+    const finalIdentity = await d.driver.read(extractProfile,
+      d.driver.sel as unknown as Record<string, readonly string[]>)
+      .catch(() => ({ name: null }));
+    if (!finalIdentity.name?.trim())
+      return { needsReview: 'Destino /in/ abriu sem dados de perfil: identidade nao foi gravada.' };
+  }
   // Somente gravar a identidade quando a navegação FINAL estiver confirmada.
   // Um candidato ACw nao se transforma automaticamente num /in/ACo.
   if (verifiedRoute) {
