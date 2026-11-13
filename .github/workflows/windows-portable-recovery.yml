@@ -1,7 +1,12 @@
 name: Windows - INSTALADOR OFICIAL D LINKLEADS
 on:
+  # Fase 8 P0: releases somente depois de TODOS os jobs CI passarem.
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
   push:
-    branches: [main, fix/windows-portable-recovery-20261112, feature/phase3-identity-salesnav-20261112]
+    branches: [fix/windows-portable-recovery-20261112, feature/phase3-identity-salesnav-20261112]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -9,12 +14,23 @@ on:
 permissions:
   contents: read
 
+env:
+  SOURCE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+
 jobs:
   portable-windows:
+    if: github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: windows-latest
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+      - name: Confirmar o SHA efetivamente aprovado no CI
+        shell: pwsh
+        run: |
+          $actual = (git rev-parse HEAD).Trim()
+          if ($actual -ne $env:SOURCE_SHA) { throw "CI e instalador divergem: $actual vs $env:SOURCE_SHA" }
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -48,6 +64,14 @@ jobs:
         shell: pwsh
         run: |
           $env:LINKLEADS_E2E_APP = Join-Path $env:GITHUB_WORKSPACE 'apps/desktop/app-dist'
+          node apps/desktop/e2e/post-recognition.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Fase 7: matriz Renato/Douglas reprovada' }
+          node apps/desktop/e2e/comment-editor-fase4.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Fase 7: editor ou submit desabilitado reprovado' }
+          node apps/desktop/e2e/comment-unconfirmed-fase4.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Fase 7: reenvio incerto após reinício reprovado' }
+          node apps/desktop/e2e/approval-pending-fase7.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Fase 7: comentário pendente/reinício reprovado' }
           node apps/desktop/e2e/session-persistence.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Persistencia isolada reprovada' }
           node apps/desktop/e2e/unified-engagement.mjs
@@ -77,7 +101,7 @@ jobs:
           if (-not (Test-Path $exe) -or -not (Test-Path 'portable-package/LinkLeads/resources/app.asar')) { throw 'Pacote Electron incompleto' }
           $hash=(Get-FileHash $exe -Algorithm SHA256).Hash
           $files=Get-ChildItem 'portable-package/LinkLeads' -Recurse -File
-          [ordered]@{schema='linkleads.installer.fixed.v1';sha=$env:GITHUB_SHA;target='D:\LINKLEADS';exe='D:\LINKLEADS\APP\LinkLeads.exe';exeSha256=$hash;fileCount=$files.Count;totalBytes=($files | Measure-Object Length -Sum).Sum} | ConvertTo-Json | Set-Content 'portable-package/manifesto.json' -Encoding UTF8
+          [ordered]@{schema='linkleads.installer.fixed.v1';sha=$env:SOURCE_SHA;target='D:\LINKLEADS';exe='D:\LINKLEADS\APP\LinkLeads.exe';exeSha256=$hash;fileCount=$files.Count;totalBytes=($files | Measure-Object Length -Sum).Sum} | ConvertTo-Json | Set-Content 'portable-package/manifesto.json' -Encoding UTF8
           @(
             'LINKLEADS — INSTALACAO WINDOWS'
             'DESTINO PERMANENTE E OBRIGATORIO: D:\LINKLEADS'
@@ -157,14 +181,14 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: LinkLeads-INSTALADOR-D-LINKLEADS-${{ github.sha }}
+          name: LinkLeads-INSTALADOR-D-LINKLEADS-${{ env.SOURCE_SHA }}
           path: portable-package/
           if-no-files-found: error
           retention-days: 30
 
   publish-owner-candidate:
     name: Publicar pacote Windows acessivel em Releases (main)
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository
     needs: portable-windows
     runs-on: ubuntu-latest
     permissions:
@@ -172,7 +196,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: LinkLeads-INSTALADOR-D-LINKLEADS-${{ github.sha }}
+          name: LinkLeads-INSTALADOR-D-LINKLEADS-${{ env.SOURCE_SHA }}
           path: portable-package
       - name: Gerar ZIP final e publicar release de avaliacao
         env:
@@ -186,7 +210,13 @@ jobs:
           test -f portable-package/ABRIR-LINKLEADS.cmd
           test -f portable-package/CONTRATO_IDENTIDADE_E_POSTS.md
           grep -Fq 'D:\LINKLEADS' portable-package/LEIA-ME.txt
-          short="${GITHUB_SHA:0:8}"
+          # CI verde é necessário. Também impedir publicar commit já ultrapassado.
+          latest="$(gh api "repos/${GH_REPO}/branches/main" --jq '.commit.sha')"
+          if [[ "$latest" != "$SOURCE_SHA" ]]; then
+            echo "Commit substituído; publicação do pacote antigo bloqueada."
+            exit 0
+          fi
+          short="${SOURCE_SHA:0:8}"
           tag="v0.5.11-windows-${short}"
           zipfile="LINKLEADS-INSTALADOR-D-LINKLEADS.zip"
           (
@@ -195,6 +225,6 @@ jobs:
           )
           sha256sum "${zipfile}" > "${zipfile}.sha256"
           gh release create "${tag}" "${zipfile}" "${zipfile}.sha256" \
-            --target "${GITHUB_SHA}" --latest \
+            --target "${SOURCE_SHA}" --latest \
             --title "LINKLEADS 0.5.11 - Instalador Windows D:\LINKLEADS" \
             --notes "UNICO PADRAO WINDOWS: extraia o ZIP, execute INSTALAR-LINKLEADS.cmd na raiz; sempre instala em D:\LINKLEADS e cria atalho no desktop. Sem NSIS, sem backup obrigatorio, sem exclusao de campanhas. Build/EXE/instalacao/atalho/janela homologados em Windows isolado. Operacao em conta LinkedIn real depende de homologacao do proprietario. Este pacote nao e assinado digitalmente."
