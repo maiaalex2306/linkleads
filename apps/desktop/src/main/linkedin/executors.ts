@@ -691,7 +691,8 @@ export async function gotoProfile(d: ExecutorDeps, p: Person, suffix = ''): Prom
         observed === publicIdFromUrl(route.url);
       if ((unresolvedHash || !observed) &&
           (route.method === 'basic_hash_candidate' || route.method === 'sales_source')) {
-        const links = await d.driver.read(salesPagePublicProfileLinks).catch(() => [] as string[]);
+        const candidates = await d.driver.read(salesPagePublicProfileLinks).catch(() => [] as string[]);
+        const links = Array.isArray(candidates) ? candidates.filter((x): x is string => typeof x === 'string') : [];
         const slugs = [...new Set(links.map(profileSlug).filter((s): s is string =>
           !!s && (!unresolvedHash || s !== observed)))];
         if (slugs.length > 1) { attempts.push(route.method + ': múltiplos perfis possíveis'); continue; }
