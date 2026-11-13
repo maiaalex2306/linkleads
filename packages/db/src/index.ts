@@ -738,10 +738,10 @@ export class LocalCrm extends SqliteCampaignStore {
   /** Estado persistente mais recente permite retomar APENAS uma curtida já confirmada.
    * Um registro 'started' após reinício é incerto, nunca um convite a reclicar.
    */
-  latestLikeAttempt(personId: string): { postUrl: string; status: 'started' | 'confirmed' | 'uncertain' | 'cancelled' } | undefined {
+  latestLikeAttempt(personId: string, campaignId: string, actionId: string): { postUrl: string; status: 'started' | 'confirmed' | 'uncertain' | 'cancelled' } | undefined {
     const row = this.db.prepare(
-      "SELECT post_url, status FROM like_attempt_ledger WHERE person_id=? AND status != 'cancelled' ORDER BY started_at DESC, rowid DESC LIMIT 1",
-    ).get(personId) as { post_url: string; status: 'started' | 'confirmed' | 'uncertain' } | undefined;
+      "SELECT post_url, status FROM like_attempt_ledger WHERE person_id=? AND campaign_id=? AND action_id=? AND status != 'cancelled' ORDER BY started_at DESC, rowid DESC LIMIT 1",
+    ).get(personId, campaignId, actionId) as { post_url: string; status: 'started' | 'confirmed' | 'uncertain' } | undefined;
     return row && { postUrl: row.post_url, status: row.status };
   }
 
