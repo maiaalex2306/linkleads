@@ -52,6 +52,21 @@ describe('resolver de identidade — somente leitura/rotas conhecidas', () => {
     } });
     expect(routes).toEqual([]);
   });
+  it('recupera URL Sales embutida em Observacao de base antiga', () => {
+    const original = 'https://www.linkedin.com/sales/lead/' + hash + ',NAME_SEARCH,sSHS/?_ntb=abc';
+    const routes = profileResolutionRoutes({ ...lead, custom: {
+      sn_id: hash, Observacao: 'Perfil importado: ' + original + ' (conferir)',
+    } });
+    expect(routes.map((r) => r.method)).toEqual(['basic_hash_candidate', 'member_legacy', 'sales_source']);
+    expect(routes[2]?.url).toBe(original);
+  });
+  it('aceita /sales/profile numerico e recupera member_id sem tratar numero como hash', () => {
+    const routes = profileResolutionRoutes({ id: 'legacy:251749025', firstName: 'Fulano',
+      custom: { 'profile_url': 'https://www.linkedin.com/sales/profile/251749025,sSHS,name' },
+    });
+    expect(routes.map((r) => r.method)).toEqual(['member_legacy', 'sales_source']);
+    expect(routes[0]?.url).toBe('https://www.linkedin.com/profile/view?id=251749025');
+  });
   it('sem URL original aproveita hash isolado do CSV', () => {
     const routes = profileResolutionRoutes({
       ...lead, memberId: undefined,
