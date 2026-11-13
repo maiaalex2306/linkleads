@@ -368,6 +368,12 @@ try {
   state = await probe(reactionUrn);
   check(state.state === true && !state.guard, 'Fase 3: ícone preenchido indica curtida existente', state);
 
+  // SVG pode permanecer com visual antigo após a mudança de estado.
+  await page.setContent(baseCard('<button aria-pressed="true" aria-label="Like"><svg data-test-icon="thumbs-up-outline-small"></svg></button>'));
+  state = await probe(reactionUrn);
+  check(state.state === true && !state.guard,
+    'Fase 3: aria-pressed curtido prevalece sobre ícone desatualizado', state);
+
   await page.setContent(baseCard('<button aria-pressed="false" aria-label="Unlike">Unlike</button>'));
   state = await probe(reactionUrn);
   check(state.state === null && !state.guard && state.reason === 'CONFLICTING_STATE',
