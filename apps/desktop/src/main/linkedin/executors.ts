@@ -424,7 +424,11 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
             const post = found.post;
             if (!post) {
               const empty = await d.driver.exists('emptyActivity').catch(() => false);
-              const unreadable = !found.posts.length && !empty;
+              // Só declarar ausência de post quando o LinkedIn mostra
+              // estado vazio e o parser não observou nenhuma publicação.
+              if (empty && !found.posts.length)
+                return { ok: false, reason: 'NO_POST', message: 'A pessoa não tem publicações visíveis' };
+              const unreadable = !found.posts.length;
               const file = (unreadable || found.uncertain) ?
                 await d.reportUnrecognized?.().catch(() => undefined) : undefined;
               if (unreadable || found.uncertain) return { ok: false, reason: 'NO_REAL_EFFECT',
