@@ -151,6 +151,16 @@ describe('CSV Sales Navigator somente hash — navegação Basic observada', () 
     expect(upsertPerson).toHaveBeenCalledWith(expect.objectContaining({ id: 'm:33574315' }));
   });
 
+  it('resolve hash ACw com redirect Basic mesmo sem empresa no CSV', async () => {
+    const { deps } = mockBrowser((url) => url.includes('/in/' + hash + '/')
+      ? 'https://www.linkedin.com/in/carlos-pereira/' : url);
+    const upsertPerson = vi.fn();
+    deps.crm = { upsertPerson, findByPublicId: vi.fn() } as unknown as ExecutorDeps['crm'];
+    const p = { ...person(), company: undefined };
+    expect(await gotoProfile(deps, p)).toBe('ok');
+    expect(p.publicId).toBe('carlos-pereira');
+  });
+
   it('nao vincula ACo quando member_id extraido diverge do Sales Navigator', async () => {
     const basic = 'ACoAAA8BYqEBCGLg_vT_ca6mMEqkpp9nVffJ3hc';
     const { deps } = mockBrowser((url) =>
