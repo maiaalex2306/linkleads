@@ -194,6 +194,7 @@ export interface PostEvaluation {
   post: PostExtract;
   status: PostEvaluationStatus;
   stage: PostEvaluationStage;
+  passedStages: readonly PostEvaluationStage[];
   code: PostEvaluationCode;
   why: string;
 }
@@ -202,10 +203,11 @@ export function evaluatePost(
   post: PostExtract, publicId: string,
   settings: Pick<LikeSettings, 'includeReshares' | 'allowAlreadyLiked' | 'maxPostAgeDays'> = {},
 ): PostEvaluation {
+  const passedStages: PostEvaluationStage[] = ['POST_FOUND'];
   const result = (
     status: PostEvaluationStatus, stage: PostEvaluationStage,
     code: PostEvaluationCode, why: string,
-  ): PostEvaluation => ({ post, status, stage, code, why });
+  ): PostEvaluation => ({ post, status, stage, passedStages: [...passedStages], code, why });
   const isReshare = post.postKind === 'RESHARE_PLAIN' ||
     post.postKind === 'RESHARE_COMMENTED' || post.isReshare;
   if (post.cardIdentity?.identityStatus === 'CONFLICT' || post.postKind === 'UNKNOWN')
@@ -216,9 +218,11 @@ export function evaluatePost(
   // continua sujeito à configuração explícita de incluir republicações.
   if (!post.text && !post.hasMedia && !post.cardIdentity?.embeddedPostUrn && !isReshare)
     return result('NOT_ELIGIBLE', 'POST_FOUND', 'EMPTY_CONTENT', 'Publicação sem conteúdo utilizável');
-  if (isReshare && !settings.includeReshares)
+  if (isReshare && !settings.includeReshares) {
+    passedStages.push('POST_CLASSIFIED');
     return result('NOT_ELIGIBLE', 'POST_CLASSIFIED', 'RESHARE_EXCLUDED',
       'Publicação compartilhada de outra pessoa, excluída pela configuração');
+  }
   // Em republicações a identidade do REPOSTADOR é distinta da do autor original.
   // Sem URL comprovada do repostador não atribuir a publicação ao lead.
   const href = isReshare ? post.resharedByHref : post.actorHref;
@@ -235,9 +239,11 @@ export function evaluatePost(
       ? result('REVIEW_REQUIRED', 'POST_FOUND', 'AUTHOR_CONFLICT',
         'Identificador opaco do autor ou compartilhador diferente do perfil confirmado')
       : result('NOT_ELIGIBLE', 'POST_FOUND', 'AUTHOR_MISMATCH', 'Publicação de outro autor');
+  passedStages.push('AUTHOR_CONFIRMED', 'POST_CLASSIFIED');
   if (!isCanonicalPostUrn(post.urn))
     return result('REVIEW_REQUIRED', 'POST_CLASSIFIED', 'POST_ID_PROVISIONAL',
       'Publicação com URN provisória; identidade do alvo não comprovada');
+  passedStages.push('POST_ID_CONFIRMED');
   const days = post.age ? parseRelativeAgeDays(post.age) : undefined;
   if (days === undefined || !Number.isFinite(days) || days < 0)
     return result('REVIEW_REQUIRED', 'POST_ID_CONFIRMED', 'POST_AGE_UNVERIFIED',
@@ -249,9 +255,11 @@ export function evaluatePost(
   if (post.liked === null)
     return result('REVIEW_REQUIRED', 'POST_ID_CONFIRMED', 'REACTION_UNKNOWN',
       'Primeiro possível post não curtido, mas estado de reação desconhecido');
+  passedStages.push('REACTION_STATE_KNOWN');
   if (post.liked === true && !settings.allowAlreadyLiked)
     return result('NOT_ELIGIBLE', 'REACTION_STATE_KNOWN', 'ALREADY_LIKED',
       'Publicação já curtida; não repetir interação');
+  passedStages.push('ELIGIBLE');
   return result('ELIGIBLE', 'ELIGIBLE', 'ELIGIBLE', '');
 }
 
