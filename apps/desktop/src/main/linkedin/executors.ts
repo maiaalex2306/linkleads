@@ -478,10 +478,20 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
               return { ok: false, reason: 'NO_REAL_EFFECT',
                 message: 'Estado de curtida incerto imediatamente antes do clique; nenhuma interação enviada' };
             }
+            await d.driver.input.think(800, 1900);
+            // O feed pode ser virtualizado durante a pausa e o movimento do
+            // mouse. Revalidar a URN, o estado NÃO CURTIDO, o botão e o pixel
+            // imediatamente antes de mouseDown: nunca desfazer uma curtida.
+            const click = await d.driver.clickVerifiedLike(post.urn);
+            if (click !== 'CLICKED') {
+              await d.reportUnrecognized?.().catch(() => undefined);
+              return { ok: false, reason: 'NO_REAL_EFFECT',
+                message: click === 'NOT_FOUND'
+                  ? 'Botão do mesmo post não está mais acessível; nenhuma curtida enviada'
+                  : 'A identidade, a reação ou o pixel de clique mudou antes da interação; ação abortada' };
+            }
             const snapshot: PostSnapshot = { url: post.urn, text: post.text, postedAt: post.age ?? undefined, hasMedia: post.hasMedia };
             d.crm.savePost(ctx.person.id, snapshot);
-            await d.driver.input.think(800, 1900);
-            await d.driver.input.click(point.x, point.y);
             return { ok: true, data: { post: post.urn } };
           }
           return { ok: false, reason: 'NO_REAL_EFFECT',

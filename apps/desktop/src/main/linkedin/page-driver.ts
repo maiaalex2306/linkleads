@@ -1,4 +1,4 @@
-import { llIsReact, llPostContainers } from './dom-scripts.js';
+import { llIsReact, llPostContainers, llReactionTarget, llReactionClickGuard } from './dom-scripts.js';
 import type { WebContents } from 'electron';
 import { HumanInput } from '../human-input.js';
 import type { LabelKey, SelectorKey, SelectorMap } from './selectors.js';
@@ -23,8 +23,9 @@ export interface Box {
  * Dirige uma página: leitura via mundo isolado (somente leitura),
  * ação via eventos de input nativos (mouse/teclado), como um usuário.
  */
-declare function __llPostContainers(sel: { postItem: readonly string[]; likeButton: readonly string[] }): Array<{ el: Element; urn: string }>;
+declare function __llPostContainers(sel: { postItem: readonly string[]; likeButton: readonly string[] }): Array<{ el: Element; urn: string; identity: { identityStatus: 'CONFIRMED' | 'PROVISIONAL' | 'CONFLICT' } }>;
 declare function __llIsReact(el: Element): boolean;
+declare function __llReactionTarget(card: Element, configured: readonly string[]): { element: HTMLElement | null; state: boolean | null; reason: string };
 
 export class PageDriver {
   readonly input: HumanInput;
@@ -40,7 +41,7 @@ export class PageDriver {
   /** Executa uma função pura no mundo isolado. A função não pode usar closures. */
   async read<T, A extends unknown[]>(fn: (...args: A) => T, ...args: A): Promise<T> {
     // cada leitura num escopo próprio (o ajudante de posts não pode ser redeclarado no mesmo mundo isolado)
-    const code = `(() => { const __llIsReact = ${llIsReact.toString()};\nconst llIsReact = __llIsReact;\nconst __llPostContainers = ${llPostContainers.toString()};\nreturn (${fn.toString()})(...${JSON.stringify(args)}); })()`;
+    const code = `(() => { const __llIsReact = ${llIsReact.toString()};\nconst llIsReact = __llIsReact;\nconst __llPostContainers = ${llPostContainers.toString()};\nconst __llReactionTarget = ${llReactionTarget.toString()};\nreturn (${fn.toString()})(...${JSON.stringify(args)}); })()`;
     const started = Date.now();
     try {
       const result = (await this.wc.executeJavaScriptInIsolatedWorld(ISOLATED_WORLD, [{ code }])) as T;
@@ -130,7 +131,7 @@ export class PageDriver {
    */
   box(key: SelectorKey, scope?: { urn: string; containerKey: SelectorKey }, label?: LabelKey): Promise<Box | null> {
     return this.read(
-      (cands: readonly string[], containerCands: readonly string[] | null, urn: string | null, labelRe: string | null, likeCands: readonly string[], fallbackRe: string | null) => {
+      (cands: readonly string[], containerCands: readonly string[] | null, urn: string | null, labelRe: string | null, likeCands: readonly string[], fallbackRe: string | null, reactionOnly: boolean) => {
         const re = labelRe ? new RegExp(labelRe, 'i') : null;
         const matches = (el: Element) => {
           if (!re) return true;
@@ -140,9 +141,17 @@ export class PageDriver {
         };
         let root: ParentNode = document;
         if (urn && containerCands) {
-          const container = __llPostContainers({ postItem: containerCands, likeButton: likeCands }).find((c) => c.urn === urn)?.el;
-          if (!container) return null;
-          root = container;
+          const containers = __llPostContainers({ postItem: containerCands, likeButton: likeCands })
+            .filter((c) => c.urn === urn && c.identity.identityStatus === 'CONFIRMED');
+          if (containers.length !== 1) return null;
+          root = containers[0]!.el;
+        }
+        if (urn && reactionOnly && root instanceof Element) {
+          const target = __llReactionTarget(root, likeCands);
+          if (!target.element) return null;
+          const r = target.element.getBoundingClientRect();
+          return r.width > 0 && r.height > 0
+            ? { x: r.x, y: r.y, width: r.width, height: r.height } : null;
         }
         const embedded = '.feed-shared-mini-update-v2, .update-components-mini-update-v2, .feed-shared-article, .update-components-article, [data-testid*="quoted"], [data-test-id*="reshared"]';
         const onPrimaryCard = (node: Element): boolean => {
@@ -181,6 +190,7 @@ export class PageDriver {
       label ? this.sel.labels[label] : null,
       this.sel.likeButton,
       key === 'likeButton' ? '(gostei|like|reagir|react|curtir)' : key === 'commentButton' ? '(coment|comment)' : null,
+      key === 'likeButton',
     );
   }
 
@@ -240,6 +250,25 @@ export class PageDriver {
     this.emit?.('click_target', { selector: key, hasPost: !!scope });
     await this.input.click(p.x, p.y);
     return true;
+  }
+
+  /**
+   * Resolução atômica antes do mouseDown: após rolar e movimentar o cursor,
+   * o post, o botão, o estado NÃO CURTIDO e o pixel sob o mouse são relidos.
+   * Não é permitido transformar uma leitura desconhecida em clique.
+   */
+  async clickVerifiedLike(urn: string): Promise<'CLICKED' | 'NOT_FOUND' | 'REVIEW_REQUIRED'> {
+    const scope = { urn, containerKey: 'postItem' as const };
+    const point = await this.scrollIntoView('likeButton', scope);
+    if (!point) return 'NOT_FOUND';
+    const clicked = await this.input.click(point.x, point.y, async (x, y) =>
+      this.read(llReactionClickGuard, this.sel as unknown as Record<string, readonly string[]>, urn, x, y));
+    if (!clicked) {
+      this.emit?.('like_preflight_rejected', { postUrn: urn, reason: 'identity_or_state_changed' });
+      return 'REVIEW_REQUIRED';
+    }
+    this.emit?.('like_click_sent', { postUrn: urn });
+    return 'CLICKED';
   }
 
   /**

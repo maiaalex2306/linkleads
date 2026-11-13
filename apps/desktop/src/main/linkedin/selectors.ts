@@ -10,7 +10,7 @@ import { join } from 'node:path';
  * ATENÇÃO: estes seletores precisam ser validados numa conta real antes de uso em produção.
  */
 export const DEFAULT_SELECTORS = {
-  version: '2026.11.2',
+  version: '2026.11.13-fase3',
   // perfil
   profileName: ['main h1', 'h1.text-heading-xlarge', 'h1'],
   profileHeadline: ['main .pv-text-details__left-panel .text-body-medium', 'main section .text-body-medium.break-words'],
@@ -26,7 +26,22 @@ export const DEFAULT_SELECTORS = {
   postAge: ['.update-components-actor__sub-description', '.feed-shared-actor__sub-description'],
   postMedia: ['.update-components-image, .update-components-linkedin-video, .update-components-document__container, .update-components-article'],
   postResharedHeader: ['.update-components-header', '.feed-shared-header'],
-  likeButton: ['button[aria-label^="Situação do botão de reação:"]', 'button[aria-label^="Reaction button state:"]', 'button.react-button__trigger', 'button[aria-label*="Like"][aria-pressed]', 'button[aria-label*="Gostei"][aria-pressed]', 'button[aria-pressed][aria-label*="React"]'],
+  // Preferir controles que exponham estado. O avaliador de DOM confirma
+  // semântica, unicidade e pertencimento ao post; CSS sozinho nunca autoriza clique.
+  likeButton: [
+    'button[aria-label^="Situação do botão de reação:"]',
+    'button[aria-label^="Reaction button state:"]',
+    'button.react-button__trigger',
+    'button[aria-label*="Like"][aria-pressed]',
+    'button[aria-label*="Gostei"][aria-pressed]',
+    'button[aria-pressed][aria-label*="React"]',
+    'button[aria-checked][aria-label*="React"]',
+    'button[aria-label*="Reagir com Gostei"]',
+    'button[aria-label*="Curtir"]',
+    'button[aria-label*="Unlike"]',
+    '[role="button"][aria-pressed]:has([data-test-icon*="thumbs-up"])',
+    '[role="button"][aria-checked]:has([data-test-icon*="thumbs-up"])',
+  ],
   commentButton: ['button[aria-label^="Comentar"]', 'button[aria-label="Comment"]', 'button[aria-label="Comentar"]', 'button.comment-button'],
   commentEditor: ['div.tiptap.ProseMirror[contenteditable="true"]', '.comments-comment-box-comment__text-editor [contenteditable="true"]', '.comments-comment-texteditor [contenteditable="true"]', '.ql-editor[contenteditable="true"]'],
   commentSubmit: ['button.comments-comment-box__submit-button--cr', 'button.comments-comment-box__submit-button', 'form.comments-comment-box__form button[type="submit"]'],
