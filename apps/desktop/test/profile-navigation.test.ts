@@ -95,6 +95,43 @@ describe('navegação por identidade de perfil — etapa 2', () => {
   });
 });
 
+describe('perfil Basic opaco ACo preservado', () => {
+  const basic = 'ACoAAA8BYqEBCGLg_vT_ca6mMEqkpp9nVffJ3hc';
+  it('confere ACo pelo member_id exato mesmo sem nome ou empresa', async () => {
+    const { deps, goto } = mockBrowser();
+    const upsertPerson = vi.fn();
+    deps.crm = { upsertPerson, findByPublicId: vi.fn() } as unknown as ExecutorDeps['crm'];
+    const person: Person = { id: 'm:251749025', memberId: '251749025',
+      custom: { linkleads_import_public_id_unverified: basic } };
+    expect(await gotoProfile(deps, person)).toBe('ok');
+    expect(goto).toHaveBeenCalledWith('https://www.linkedin.com/in/' + basic + '/');
+    expect(person.publicId).toBe(basic);
+    expect(upsertPerson).toHaveBeenCalledWith(expect.objectContaining({ id: 'm:251749025', publicId: basic }));
+  });
+
+  it('recusa ACo importado com member_id de outra pessoa', async () => {
+    const { deps } = mockBrowser();
+    const upsertPerson = vi.fn();
+    deps.crm = { upsertPerson, findByPublicId: vi.fn() } as unknown as ExecutorDeps['crm'];
+    const person: Person = { id: 'm:33574315', memberId: '33574315',
+      custom: { linkleads_import_public_id_unverified: basic } };
+    expect(await gotoProfile(deps, person)).toHaveProperty('needsReview');
+    expect(upsertPerson).not.toHaveBeenCalled();
+  });
+
+  it('permite ACo validado redirecionar para vanity slug quando nome e empresa batem', async () => {
+    const { deps } = mockBrowser((url) => url.includes('/in/' + basic + '/')
+      ? 'https://www.linkedin.com/in/carlos-pereira/' : url);
+    const upsertPerson = vi.fn();
+    deps.crm = { upsertPerson, findByPublicId: vi.fn() } as unknown as ExecutorDeps['crm'];
+    const person: Person = { id: 'm:251749025', memberId: '251749025', firstName: 'Carlos',
+      lastName: 'Pereira', company: 'Toyota',
+      custom: { linkleads_import_public_id_unverified: basic } };
+    expect(await gotoProfile(deps, person)).toBe('ok');
+    expect(person.publicId).toBe('carlos-pereira');
+  });
+});
+
 describe('CSV Sales Navigator somente hash — navegação Basic observada', () => {
   const hash = 'ACwAAAIATasBA_OC0NMUDatWeEBCssGNHCpTT6U';
   const person = (): Person => ({ id: 'm:33574315', memberId: '33574315',
