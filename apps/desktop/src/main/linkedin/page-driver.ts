@@ -23,7 +23,7 @@ export interface Box {
  * Dirige uma página: leitura via mundo isolado (somente leitura),
  * ação via eventos de input nativos (mouse/teclado), como um usuário.
  */
-declare function __llPostContainers(sel: { postItem: readonly string[]; likeButton: readonly string[] }): Array<{ el: Element; urn: string }>;
+declare function __llPostContainers(sel: { postItem: readonly string[]; likeButton: readonly string[] }): Array<{ el: Element; urn: string; identity: { identityStatus: 'CONFIRMED' | 'PROVISIONAL' | 'CONFLICT' } }>;
 declare function __llIsReact(el: Element): boolean;
 declare function __llReactionTarget(card: Element, configured: readonly string[]): { element: HTMLElement | null; state: boolean | null; reason: string };
 
