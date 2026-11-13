@@ -1,7 +1,7 @@
 // E2E: somente hash SN, SEM URL e SEM member_id no CSV.
-// Simula rota Sales Navigator indisponível na conta Basic; usa o member_id
-// NUMERICO decodificado do hash ACwA, passa pela rota pública legada,
-// confere o nome e persiste a identidade no mesmo lead. Não usa LinkedIn real.
+// Simula conta Basic em que /in/ACw... redireciona para /in/ana-silva.
+// A conversao acontece ANTES da rota legada por member_id.
+// Confere o destino, grava no mesmo lead. Nao usa LinkedIn real.
 import { createRequire } from 'node:module';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -59,11 +59,13 @@ try {
     'resolução confirmada por member_id e perfil Ana Silva', people);
   check((site.state.profileLoads ?? []).some((x) => x.slug === 'ana-silva'),
     'navegador realmente abriu o /in/ correspondente', site.state.profileLoads);
-  check((site.state.memberRouteVisits ?? []).includes('/profile/view?id=111'),
-    'identificador 111 decodificado do hash foi usado na navegação', site.state.memberRouteVisits);
+  check((site.state.basicHashVisits ?? []).includes('/in/' + snHash + '/'),
+    'o hash ACw foi usado na rota Basic /in/ACw sem fabricar public_id', site.state.basicHashVisits);
+  check((site.state.memberRouteVisits ?? []).length === 0,
+    'a rota legada member_legacy nao foi necessaria', site.state.memberRouteVisits);
   check((site.state.searches ?? 0) === 0,
     'não adivinhou homônimos por busca global', site.state.searches);
-  console.log('E2E RESOLUCAO HASH SN -> MEMBER ID -> PERFIL BASIC OK');
+  console.log('E2E RESOLUCAO HASH SN -> /in/ACw -> REDIRECT -> PERFIL BASIC OK');
 } catch (error) {
   console.error(error?.stack ?? error);
   process.exitCode = 1;
