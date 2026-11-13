@@ -30,12 +30,12 @@ export function parseCsv(text: string): string[][] {
 }
 
 /** Normaliza slugs legíveis, mas PRESERVA a caixa dos IDs opacos Base64URL ACo.
- * Em IDs ACo a troca de maiúsculas/minúsculas muda a identidade do membro.
+ * Em IDs opacos ACo/ACw/ACr trocar maiúsculas/minúsculas muda a identidade do membro.
  */
 export function normalizeLinkedInPublicId(raw?: string): string | undefined {
   const slug = raw?.trim();
   if (!slug) return undefined;
-  return /^ACo[A-Za-z0-9_-]{30,}$/.test(slug) ? slug : slug.toLowerCase();
+  return /^AC[owr][A-Za-z0-9_-]{30,}$/.test(slug) ? slug : slug.toLowerCase();
 }
 
 /** Extrai o slug público de uma URL de perfil (/in/<slug>). */
