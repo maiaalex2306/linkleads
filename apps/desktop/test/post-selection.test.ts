@@ -113,9 +113,10 @@ describe('escolha de publicação com confirmação do estado', () => {
     expect(selected.why).toMatch(/identidade do autor/);
     expect(firstUnlikedCandidate(posts, 'ana-silva', 'Ana Silva').uncertain).toBe(true);
   });
-  it('estado de curtida desconhecido é identificado como candidato de diagnóstico, nunca sucesso automático', () => {
+  it('estado de curtida desconhecido exige revisão e nunca autoriza clique', () => {
     const p = one('urn:li:activity:333333333333', null);
-    expect(pickPost([p], 'ana-silva', { maxPostAgeDays: 30 }, 'Ana Silva')?.liked).toBeNull();
+    expect(pickPost([p], 'ana-silva', { maxPostAgeDays: 30 }, 'Ana Silva')).toBeUndefined();
+    expect(choosePost([p], 'ana-silva', { maxPostAgeDays: 30 }, 'Ana Silva').uncertain).toBe(true);
   });
   it('365 dias é um limite inclusivo, mas 366 dias não é elegível', () => {
     const within = { ...one('urn:li:activity:777777777777', false), age: '365 d' };
@@ -164,11 +165,13 @@ describe('escolha de publicação com confirmação do estado', () => {
     expect(result.why).toMatch(/1 com data não verificável/);
   });
 
-  it('preserva uma publicação válida mesmo quando outra tem identidade incerta', () => {
+  it('não pula publicação incerta anterior para interagir em outra posterior', () => {
     const broken = { ...one('ll-idx-2', false), age: '2 d' };
     const valid = { ...one('urn:li:activity:999999999998', false), age: '90 d' };
     const result = choosePost([broken, valid], 'ana-silva', { maxPostAgeDays: 365 }, 'Ana Silva');
-    expect(result.post?.urn).toBe(valid.urn);
+    expect(result.post).toBeUndefined();
+    expect(result.uncertain).toBe(true);
+    expect(firstUnlikedCandidate([broken, valid], 'ana-silva', 'Ana Silva').uncertain).toBe(true);
   });
 
   it('prefixo Atividades no título não altera a autoria confirmada por URL', () => {

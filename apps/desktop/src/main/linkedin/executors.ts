@@ -6,7 +6,7 @@ import type { IntegrationCrm } from '@linkleads/db';
 import type { EnrichmentProvider } from '@linkleads/integrations';
 import { commentEditorPoint, commentSubmitPoint, matchingCommentCount, editorText, extractPosts, extractProfile, likeState, profileReady, type PostExtract } from './dom-scripts.js';
 import { BlockedError, type PageDriver } from './page-driver.js';
-import { isCanonicalPostUrn } from './post-identity.js';
+import { isCanonicalPostUrn, provisionalPostFingerprint } from './post-identity.js';
 import { parseSalesSource, profileResolutionRoutes, samePersonCompany, samePersonName, type ProfileRoute } from './profile-resolver.js';
 
 /** LINKLEADS_TEST_BASE_URL aponta para o site falso dos testes e2e; nunca usar em produção. */
@@ -179,105 +179,169 @@ export function pickPost(posts: PostExtract[], publicId: string, s: LikeSettings
 }
 
 /**
- * Regra de negócios: o alvo é o PRIMEIRO post da ordem visual cuja conta ativa
- * ainda não curtiu (liked === false). Não usar idade ou URN para ORDENAR.
- *
- * Não é um comando de clique. A autorização e a identidade do alvo continuam
- * sendo verificadas separadamente antes de qualquer interação externa.
- * Uma curtida com estado desconhecido não equivale a "não curtido".
+ * Avaliação única de segurança e elegibilidade. Usada por seleção visual,
+ * escolha de posts e descoberta durante scroll. Nunca infere identidade por nome.
+ */
+export type PostEvaluationStage = 'POST_FOUND' | 'AUTHOR_CONFIRMED' | 'POST_CLASSIFIED' |
+  'POST_ID_CONFIRMED' | 'REACTION_STATE_KNOWN' | 'ELIGIBLE';
+export type PostEvaluationStatus = 'ELIGIBLE' | 'NOT_ELIGIBLE' | 'REVIEW_REQUIRED';
+export type PostEvaluationCode = 'EMPTY_CONTENT' | 'RESHARE_EXCLUDED' |
+  'AUTHOR_UNVERIFIED' | 'AUTHOR_CONFLICT' | 'AUTHOR_MISMATCH' |
+  'POST_ID_CONFLICT' | 'POST_ID_PROVISIONAL' | 'POST_AGE_UNVERIFIED' |
+  'POST_TOO_OLD' | 'REACTION_UNKNOWN' | 'ALREADY_LIKED' | 'ELIGIBLE';
+
+export interface PostEvaluation {
+  post: PostExtract;
+  status: PostEvaluationStatus;
+  stage: PostEvaluationStage;
+  passedStages: readonly PostEvaluationStage[];
+  code: PostEvaluationCode;
+  why: string;
+}
+
+export function evaluatePost(
+  post: PostExtract, publicId: string,
+  settings: Pick<LikeSettings, 'includeReshares' | 'allowAlreadyLiked' | 'maxPostAgeDays'> = {},
+): PostEvaluation {
+  const passedStages: PostEvaluationStage[] = ['POST_FOUND'];
+  const result = (
+    status: PostEvaluationStatus, stage: PostEvaluationStage,
+    code: PostEvaluationCode, why: string,
+  ): PostEvaluation => ({ post, status, stage, passedStages: [...passedStages], code, why });
+  const isReshare = post.postKind === 'RESHARE_PLAIN' ||
+    post.postKind === 'RESHARE_COMMENTED' || post.isReshare;
+  if (post.cardIdentity?.identityStatus === 'CONFLICT' || post.postKind === 'UNKNOWN')
+    return result('REVIEW_REQUIRED', 'POST_FOUND', 'POST_ID_CONFLICT',
+      'Conflito na identidade do cartão ou entre identificadores da publicação');
+  // Repost simples pode apresentar conteúdo somente no cartão citado.
+  // Sem texto próprio a IA poderá recusar o comentário, mas o compartilhamento
+  // continua sujeito à configuração explícita de incluir republicações.
+  if (!post.text && !post.hasMedia && !post.cardIdentity?.embeddedPostUrn && !isReshare)
+    return result('NOT_ELIGIBLE', 'POST_FOUND', 'EMPTY_CONTENT', 'Publicação sem conteúdo utilizável');
+  if (isReshare && !settings.includeReshares) {
+    passedStages.push('POST_CLASSIFIED');
+    return result('NOT_ELIGIBLE', 'POST_CLASSIFIED', 'RESHARE_EXCLUDED',
+      'Publicação compartilhada de outra pessoa, excluída pela configuração');
+  }
+  // Em republicações a identidade do REPOSTADOR é distinta da do autor original.
+  // Sem URL comprovada do repostador não atribuir a publicação ao lead.
+  const href = isReshare ? post.resharedByHref : post.actorHref;
+  const actor = href ? profileSlug(href) : undefined;
+  if (href && !actor)
+    return result('REVIEW_REQUIRED', 'POST_FOUND', 'AUTHOR_UNVERIFIED',
+      'Link do autor não é um perfil confiável do LinkedIn');
+  if (!actor)
+    return result('REVIEW_REQUIRED', 'POST_FOUND', 'AUTHOR_UNVERIFIED',
+      isReshare ? 'Identidade do compartilhador não comprovada por URL do perfil' :
+        'Identidade do autor não comprovada por URL do perfil');
+  if (!sameConfirmedPublicId(actor, publicId))
+    return /^AC[owr]/i.test(actor) || /^AC[owr]/i.test(publicId)
+      ? result('REVIEW_REQUIRED', 'POST_FOUND', 'AUTHOR_CONFLICT',
+        'Identificador opaco do autor ou compartilhador diferente do perfil confirmado')
+      : result('NOT_ELIGIBLE', 'POST_FOUND', 'AUTHOR_MISMATCH', 'Publicação de outro autor');
+  passedStages.push('AUTHOR_CONFIRMED', 'POST_CLASSIFIED');
+  if (!isCanonicalPostUrn(post.urn))
+    return result('REVIEW_REQUIRED', 'POST_CLASSIFIED', 'POST_ID_PROVISIONAL',
+      'Publicação com URN provisória; identidade do alvo não comprovada');
+  passedStages.push('POST_ID_CONFIRMED');
+  const days = post.age ? parseRelativeAgeDays(post.age) : undefined;
+  if (days === undefined || !Number.isFinite(days) || days < 0)
+    return result('REVIEW_REQUIRED', 'POST_ID_CONFIRMED', 'POST_AGE_UNVERIFIED',
+      'Publicação com data não verificável');
+  const maxAge = Math.max(1, Math.min(365, settings.maxPostAgeDays ?? 365));
+  if (days > maxAge)
+    return result('NOT_ELIGIBLE', 'POST_ID_CONFIRMED', 'POST_TOO_OLD',
+      'Publicação com mais de ' + maxAge + ' dias');
+  if (post.liked === null)
+    return result('REVIEW_REQUIRED', 'POST_ID_CONFIRMED', 'REACTION_UNKNOWN',
+      'Primeiro possível post não curtido, mas estado de reação desconhecido');
+  passedStages.push('REACTION_STATE_KNOWN');
+  if (post.liked === true && !settings.allowAlreadyLiked)
+    return result('NOT_ELIGIBLE', 'REACTION_STATE_KNOWN', 'ALREADY_LIKED',
+      'Publicação já curtida; não repetir interação');
+  passedStages.push('ELIGIBLE');
+  return result('ELIGIBLE', 'ELIGIBLE', 'ELIGIBLE', '');
+}
+
+/**
+ * Avalia o primeiro candidato na ordem visual, sem ordenar pelo URN ou idade.
+ * A mesma avaliação usada por choosePost decide se a interação é permitida.
+ * Cartão com informação incerta pode ser exibido para diagnóstico, nunca clicado.
  */
 export function firstUnlikedCandidate(
   posts: PostExtract[], publicId: string, personName = '',
-  options: Pick<LikeSettings, 'includeReshares'> = {},
+  options: Pick<LikeSettings, 'includeReshares' | 'maxPostAgeDays'> = {},
 ): { post?: PostExtract; why: string; uncertain?: boolean } {
-  const norm = (v: string) => v.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
-  const cleanName = personName.replace(/^(?:(?:Atividades|Activity|Publicações|Publications|Posts|Comentários|Comments)\s*[|·–-]\s*)+/i, '');
-  const expected = norm(cleanName);
+  void personName; // Nome apresentado na UI não é uma prova de autoria.
   for (const post of posts) {
-    if (post.liked === true) continue; // curtido: ir ao proximo sem outras verificacoes
-    if (post.isReshare && !options.includeReshares) continue;
-    const actor = post.actorHref ? profileSlug(post.actorHref) : undefined;
-    // Opaque /in/ACo ou /in/ACw é válido quando coincide EXATAMENTE com
-    // o publicId persistido, incluindo a caixa do código Base64URL.
-    const actorKnown = !!actor;
-    if (post.actorHref && !actor)
-      return { post, why: 'Link do autor não é um perfil confiável do LinkedIn', uncertain: true };
-    if (actorKnown && !sameConfirmedPublicId(actor, publicId)) {
-      // Opaque diferente continua incerto: pode ser outro membro ou alias não
-      // reconciliado. Não autorizar interação por semelhança de nome.
-      if (/^AC[owr]/i.test(actor))
-        return { why: 'Identificador opaco do autor diferente do perfil confirmado', uncertain: true };
-      continue;
-    }
-    // Nome completo, mesmo exato, não identifica unicamente uma pessoa:
-    // existem homônimos. A autoria precisa ser comprovada pelo /in/ do lead.
-    if (!actorKnown)
-      return { post, why: 'Primeiro cartão encontrado, mas autoria não comprovada por URL do perfil', uncertain: true };
-    if (post.liked === null)
-      return { post, why: 'Primeiro possível post não curtido, mas estado de reação desconhecido', uncertain: true };
-    // Primeiro liked === false da página: não exigir data nem URN para selecioná-lo.
+    if (post.liked === true) continue;
+    const assessment = evaluatePost(post, publicId, options);
+    if (assessment.status === 'NOT_ELIGIBLE') continue;
+    if (assessment.status === 'REVIEW_REQUIRED')
+      return {
+        // Conflitos de autor ou identidade não geram sequer candidato.
+        // URN provisória/estado desconhecido podem ser exibidos para diagnóstico.
+        post: ['AUTHOR_CONFLICT', 'POST_ID_CONFLICT', 'AUTHOR_UNVERIFIED'].includes(assessment.code)
+          ? undefined : post,
+        why: assessment.why, uncertain: true,
+      };
     return { post, why: '' };
   }
   return { why: 'Nenhuma publicação do perfil com curtida comprovadamente ausente' };
 }
 
-/** Como pickPost, mas explica por que nenhum post serviu (para a tela). */
-export function choosePost(posts: PostExtract[], publicId: string, s: LikeSettings, personName = ''): { post?: PostExtract; why: string; uncertain?: boolean } {
-  const maxAge = s.maxPostAgeDays ?? 365;
-  const norm = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
-  // Alguns títulos da tela de atividade chegam como "Atividades | Nome | LinkedIn".
-  // A etiqueta de navegação nunca pode se tornar parte da identidade do autor.
-  const cleanPersonName = personName.replace(/^(?:(?:Atividades|Activity|Publicações|Publications|Posts|Comentários|Comments)\s*[|·–-]\s*)+/i, '');
-  const expected = norm(cleanPersonName);
-  const isOwn = (p: PostExtract) =>
-    !!p.actorHref && sameConfirmedPublicId(profileSlug(p.actorHref), publicId);
-  let empty = 0;
-  let reshare = 0;
-  let others = 0;
-  let uncertainActors = 0;
-  let uncertainPosts = 0;
-  let provisionalPosts = 0;
-  let undatedPosts = 0;
-  let old = 0;
-  let newest: number | undefined;
-  const eligible = posts.filter((p) => {
-    if (!p.text && !p.hasMedia) return (empty++, false);
-    if (p.isReshare && !s.includeReshares) return (reshare++, false);
-    const actor = p.actorHref ? profileSlug(p.actorHref) : undefined;
-    if (!actor)
-      return (uncertainActors++, false);
-    if (!isOwn(p)) {
-      if (/^AC[owr]/i.test(actor)) return (uncertainActors++, false);
-      return (others++, false);
-    }
-    // Qualquer consumidor de choosePost deve receber somente conteúdo verificável.
-    // URNs temporárias e datas ilegíveis servem para diagnóstico, não para interação.
-    if (!isCanonicalPostUrn(p.urn)) return (uncertainPosts++, provisionalPosts++, false);
-    const age = p.age ? parseRelativeAgeDays(p.age) : undefined;
-    if (age === undefined || !Number.isFinite(age) || age < 0) return (uncertainPosts++, undatedPosts++, false);
-    newest = newest === undefined ? age : Math.min(newest, age);
-    if (age > maxAge) return (old++, false);
-    return true;
-  });
-  // Nunca clicar em publicação já curtida; estado desconhecido exige confirmação
-  // adicional antes de tocar na plataforma.
-  const post = eligible.find((p) => p.liked === false) ??
-    eligible.find((p) => p.liked == null) ??
-    (s.allowAlreadyLiked ? eligible.find((p) => p.liked === true) : undefined);
-  if (post) return { post, why: '' };
-  if (eligible.length) return { why: 'Todas as publicações elegíveis já foram curtidas; nenhuma ação adicional necessária' };
-  if (uncertainActors) return { why: 'Não foi possível confirmar a identidade do autor de ' + uncertainActors + ' publicação(ões)', uncertain: true };
-  if (uncertainPosts) return { why: 'Identifiquei ' + uncertainPosts + ' publicação(ões), mas não posso confirmar o alvo: '
-    + provisionalPosts + ' com URN provisória e ' + undatedPosts
-    + ' com data não verificável. Nenhuma interação enviada; consulte o diagnóstico da página.', uncertain: true };
-  if (!posts.length) return { why: 'Não reconheci nenhum post na página de atividade (layout diferente ou a página não carregou)' };
+/** Seleção segura: compartilha o avaliador, mas nunca retorna alvo sob revisão. */
+export function choosePost(
+  posts: PostExtract[], publicId: string, settings: LikeSettings, personName = '',
+): { post?: PostExtract; why: string; uncertain?: boolean } {
+  void personName;
+  if (posts.length === 0) return {
+    why: 'Nenhuma publicação reconhecida; carregamento ou layout deve ser verificado',
+    uncertain: true,
+  };
+  const assessments = posts.map((post) => evaluatePost(post, publicId, settings));
+  // Mesmo contrato do firstUnlikedCandidate: não saltar um cartão incerto
+  // potencialmente elegível para comentar/curtir outro posterior.
+  const actionable = assessments.find((item) =>
+    item.post.liked !== true && item.status !== 'NOT_ELIGIBLE');
+  if (actionable?.status === 'ELIGIBLE')
+    return { post: actionable.post, why: '' };
+  const reviews = assessments.filter((item) =>
+    item.status === 'REVIEW_REQUIRED' && item.post.liked !== true);
+  if (!actionable && settings.allowAlreadyLiked) {
+    const alreadyLiked = assessments.find((item) =>
+      item.status === 'ELIGIBLE' && item.post.liked === true);
+    if (alreadyLiked) return { post: alreadyLiked.post, why: '' };
+  }
+  if (reviews.length) {
+    const count = (code: PostEvaluationCode) => reviews.filter((v) => v.code === code).length;
+    const provisionalPosts = count('POST_ID_PROVISIONAL');
+    const undatedPosts = count('POST_AGE_UNVERIFIED');
+    const authorReviews = count('AUTHOR_UNVERIFIED') + count('AUTHOR_CONFLICT');
+    const details = [
+      authorReviews && authorReviews + ' com identidade do autor ou compartilhador não comprovada',
+      provisionalPosts && provisionalPosts + ' com URN provisória',
+      undatedPosts && undatedPosts + ' com data não verificável',
+      count('POST_ID_CONFLICT') && count('POST_ID_CONFLICT') + ' com identificadores conflitantes',
+      count('REACTION_UNKNOWN') && count('REACTION_UNKNOWN') + ' com estado de reação desconhecido',
+    ].filter(Boolean).join(', ');
+    return { why: 'Identifiquei ' + reviews.length +
+      ' publicação(ões) que precisam de revisão: ' + details +
+      '. Nenhuma interação enviada; consulte o diagnóstico da página.',
+      uncertain: true };
+  }
+  const count = (code: PostEvaluationCode) => assessments.filter((v) => v.code === code).length;
+  if (count('ALREADY_LIKED')) return {
+    why: 'Todas as publicações elegíveis já foram curtidas; nenhuma ação adicional necessária',
+  };
+  const maxAge = Math.max(1, Math.min(365, settings.maxPostAgeDays ?? 365));
   const parts = [
-    old && `${old} com mais de ${maxAge} dias${newest !== undefined ? ` (o mais recente há ${newest} dias)` : ''}`,
-    reshare && `${reshare} compartilhado(s) de outras pessoas`,
-    others && `${others} de outro autor`,
-    empty && `${empty} sem texto`,
+    count('POST_TOO_OLD') && count('POST_TOO_OLD') + ' com mais de ' + maxAge + ' dias',
+    count('RESHARE_EXCLUDED') && count('RESHARE_EXCLUDED') + ' compartilhado(s) de outras pessoas',
+    count('AUTHOR_MISMATCH') && count('AUTHOR_MISMATCH') + ' de outro autor',
+    count('EMPTY_CONTENT') && count('EMPTY_CONTENT') + ' sem texto ou mídia',
   ].filter(Boolean);
-  return { why: `Achei ${posts.length} post(s), nenhum serve: ${parts.join(', ')}` };
+  return { why: 'Achei ' + posts.length + ' post(s), nenhum elegível: ' + parts.join(', ') };
 }
 
 /** Progresso só é demonstrável por URNs canônicas novas. Índices ll-idx-* se repetem. */
@@ -304,20 +368,21 @@ async function discoverUnlikedPost(
   for (let step = 0; step <= maxScrolls && Date.now() - start < 120_000; step++) {
     await d.driver.assertNotBlocked();
     const batch = await d.driver.read(extractPosts, d.driver.sel as unknown as Record<string, readonly string[]>, 150);
-    // ll-idx-N representa apenas a posicao de um lote, e pode se repetir ao
-    // rolar a pagina. Nunca usá-lo como chave persistente entre leituras.
-    for (const [index, p] of batch.entries()) {
-      const key = isCanonicalPostUrn(p.urn) ? p.urn : `unresolved:${step}:${index}`;
-      seen.set(key, p);
+    // A posição no lote varia com o scroll. Só URN canônica é alvo executável;
+    // cartão provisório recebe uma chave de observação estável e não vira "novo"
+    // em cada leitura do mesmo conteúdo.
+    for (const p of batch) {
+      const key = isCanonicalPostUrn(p.urn) ? p.urn : 'unresolved:' + provisionalPostFingerprint(p);
+      if (!seen.has(key)) seen.set(key, p);
     }
     // Regra da conta: identificar primeiro o post nao curtido em ORDEM VISUAL.
     // Autor, estado, URN e data continuam sendo gates separados de interacao.
     const ordered = [...seen.values()].filter((p) => !ignoredUrns.has(p.urn));
     const candidate = firstUnlikedCandidate(ordered, publicId, personName, settings);
+    if (candidate.uncertain)
+      return { posts: ordered, why: candidate.why + '. Confirmação humana necessária.', uncertain: true };
     if (candidate.post) {
       const post = candidate.post;
-      if (candidate.uncertain)
-        return { posts: ordered, why: candidate.why + '. Confirmacao humana necessaria.', uncertain: true };
       if (!isCanonicalPostUrn(post.urn))
         return { posts: ordered,
           why: 'Primeira publicacao nao curtida identificada na ordem da tela, mas seu ID e provisório. ' +
@@ -346,10 +411,8 @@ async function discoverUnlikedPost(
       return { offset: el.scrollTop, height: el.scrollHeight, visible: el.clientHeight };
     });
     const next = await d.driver.read(extractPosts, d.driver.sel as unknown as Record<string, readonly string[]>, 150);
-    // ll-idx-* é apenas índice da leitura corrente. Compará-lo ao Map
-    // (unresolved:step:index) indicava progresso falso a cada rolagem.
-    // A detecção de novos cartões usa exclusivamente identidades estáveis;
-    // alterações de altura/posição continuam indicando paginação real.
+    // A detecção de novos cartões usa somente identidades canônicas.
+    // Cartões provisórios repetidos não contam como nova publicação.
     const newPost = hasNewVerifiedPost(seen, next);
     if (after.offset <= before.offset && after.height <= before.height && !newPost) stalled++;
     else stalled = 0;
@@ -386,7 +449,11 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
             const post = found.post;
             if (!post) {
               const empty = await d.driver.exists('emptyActivity').catch(() => false);
-              const unreadable = !found.posts.length && !empty;
+              // Só declarar ausência de post quando o LinkedIn mostra
+              // estado vazio e o parser não observou nenhuma publicação.
+              if (empty && !found.posts.length)
+                return { ok: false, reason: 'NO_POST', message: 'A pessoa não tem publicações visíveis' };
+              const unreadable = !found.posts.length;
               const file = (unreadable || found.uncertain) ?
                 await d.reportUnrecognized?.().catch(() => undefined) : undefined;
               if (unreadable || found.uncertain) return { ok: false, reason: 'NO_REAL_EFFECT',

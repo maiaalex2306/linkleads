@@ -144,9 +144,19 @@ export class PageDriver {
           if (!container) return null;
           root = container;
         }
+        const embedded = '.feed-shared-mini-update-v2, .update-components-mini-update-v2, .feed-shared-article, .update-components-article, [data-testid*="quoted"], [data-test-id*="reshared"]';
+        const onPrimaryCard = (node: Element): boolean => {
+          if (!urn || root === document) return true;
+          let ancestor: Element | null = node.parentElement;
+          while (ancestor && ancestor !== root) {
+            if (ancestor.matches(embedded) || ancestor.matches('[data-urn], [data-activity-urn]')) return false;
+            ancestor = ancestor.parentElement;
+          }
+          return true;
+        };
         for (const c of cands) {
           for (const el of Array.from(root.querySelectorAll(c)) as HTMLElement[]) {
-            if (!matches(el)) continue;
+            if (!onPrimaryCard(el) || !matches(el)) continue;
             const r = el.getBoundingClientRect();
             if (r.width > 0 && r.height > 0) return { x: r.x, y: r.y, width: r.width, height: r.height };
           }
@@ -158,7 +168,7 @@ export class PageDriver {
           const isLike = /gostei/.test(fallbackRe);
           for (const el of Array.from(root.querySelectorAll('button, [role="button"]')) as HTMLElement[]) {
             const l = `${el.getAttribute('aria-label') ?? ''} ${el.innerText ?? ''} ${Array.from(el.querySelectorAll('[aria-label],[data-test-icon]')).map((x) => `${x.getAttribute('aria-label') ?? ''} ${x.getAttribute('data-test-icon') ?? ''}`).join(' ')}`;
-            if (isLike ? !__llIsReact(el) : !re2.test(l) || NOT.test(l)) continue;
+            if (!onPrimaryCard(el) || (isLike ? !__llIsReact(el) : !re2.test(l) || NOT.test(l))) continue;
             const r = el.getBoundingClientRect();
             if (r.width > 0 && r.height > 0) return { x: r.x, y: r.y, width: r.width, height: r.height };
           }
