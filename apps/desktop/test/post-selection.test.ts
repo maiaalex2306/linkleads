@@ -181,6 +181,32 @@ describe('escolha de publicação com confirmação do estado', () => {
 
 });
 
+
+describe('autoria por URL pública opaca sensível a maiúsculas', () => {
+  const opaque = 'ACoAAA8BYqEBCGLg_vT_ca6mMEqkpp9nVffJ3hc';
+  const otherCase = 'ACoAAA8BYqEBCGLg_vT_ca6mMEqkpp9nVffJ3hC';
+  const original = one('urn:li:activity:7777777777001', false);
+  const post = { ...original, actorHref: 'https://www.linkedin.com/in/' + opaque + '/' };
+
+  it('admite autor ACo quando identificador é exatamente o perfil já resolvido', () => {
+    expect(profileSlug(post.actorHref!)).toBe(opaque);
+    expect(firstUnlikedCandidate([post], opaque).post?.urn).toBe(post.urn);
+    expect(choosePost([post], opaque, { maxPostAgeDays: 30 }).post?.urn).toBe(post.urn);
+  });
+
+  it('não troca autor quando somente a caixa de caracteres do identificador difere', () => {
+    expect(firstUnlikedCandidate([post], otherCase).post).toBeUndefined();
+    const chosen = choosePost([post], otherCase, { maxPostAgeDays: 30 });
+    expect(chosen.post).toBeUndefined();
+    expect(chosen.why).toMatch(/outro autor/);
+  });
+
+  it('continua rejeitando homônimo cujo link de autor não é o do lead', () => {
+    const different = { ...post, actorHref: 'https://www.linkedin.com/in/outro-autor/' };
+    expect(choosePost([different], opaque, { maxPostAgeDays: 30 }).post).toBeUndefined();
+  });
+});
+
 describe('fase 3 — origem do autor e rolagem sem falsas identidades', () => {
   it('identificador interno no link de autor não pode ser promovido a identidade pública por coincidência de nome', () => {
     const p = { ...one('urn:li:activity:7381234567890128002', false),
