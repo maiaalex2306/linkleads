@@ -128,6 +128,13 @@ try {
   assert(evidence.count === 2 && evidence.ownedCount === 1 && evidence.editorEmpty && evidence.cardConfirmed,
     'prova requer comentário novo, autoria da conta, mesmo URN e editor limpo');
 
+  // Em outro layout o formulário desaparece após o envio. O evento novo,
+  // confirmado como sendo da conta ativa, continua sendo prova de publicação.
+  await page.locator('[data-urn="' + urn + '"] form').first().evaluate((form) => form.remove());
+  evidence = await run('evidence', [urn, text]);
+  assert(evidence.count === 2 && evidence.ownedCount === 1 && evidence.editorEmpty,
+    'formulário recolhido após publicar não transforma comentário confirmado em incerto');
+
   // O botão "ver mais" do comentário não pode ser confundido com o do post.
   await page.setContent('<main>' + card(urn,
     'Uma publicação realmente longa… <button class="see-more">Ver mais</button>',
