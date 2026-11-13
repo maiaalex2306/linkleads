@@ -34,6 +34,31 @@ declare function __llReactionTarget(card: Element, configured: readonly string[]
 
 export class PageDriver {
   readonly input: HumanInput;
+  /** Só bloqueia o TIPO de página cujo contrato obrigatório deixou de existir.
+   * Limpa-se apenas após um novo diagnóstico saudável, não por navegação aleatória.
+   */
+  private readonly blockedPageContracts = new Set<string>();
+
+  setPageContractHealth(page: string, healthy: boolean): void {
+    if (!['atividade', 'post', 'feed'].includes(page)) return;
+    if (healthy) this.blockedPageContracts.delete(page);
+    else this.blockedPageContracts.add(page);
+    this.emit?.('layout_contract_status', {
+      code: healthy ? 'CONTRACT_OK' : 'UI_CHANGED',
+      page, status: healthy ? 'accepted' : 'blocked',
+    });
+  }
+
+  /** Não transforma uma mudança de interface já confirmada em tentativa de clique. */
+  private allowPostInteraction(phase: string): boolean {
+    const url = this.wc.getURL();
+    const page = /\/recent-activity\//.test(url) ? 'atividade'
+      : /\/feed\/update\//.test(url) ? 'post'
+        : /\/feed\//.test(url) ? 'feed' : null;
+    if (!page || !this.blockedPageContracts.has(page)) return true;
+    this.recordDiagnostic('UI_CHANGED', phase, { hasPost: true });
+    return false;
+  }
 
   constructor(
     readonly wc: WebContents,
@@ -268,6 +293,7 @@ export class PageDriver {
    * Não é permitido transformar uma leitura desconhecida em clique.
    */
   async clickVerifiedLike(urn: string): Promise<'CLICKED' | 'NOT_FOUND' | 'REVIEW_REQUIRED'> {
+    if (!this.allowPostInteraction('like_blocked_by_contract')) return 'REVIEW_REQUIRED';
     const scope = { urn, containerKey: 'postItem' as const };
     const point = await this.scrollIntoView('likeButton', scope);
     if (!point) {
@@ -318,6 +344,7 @@ export class PageDriver {
 
   /** Só abre comentários se o botão continuar pertencendo ao post alvo. */
   async openVerifiedCommentBox(urn: string): Promise<boolean> {
+    if (!this.allowPostInteraction('comment_box_blocked_by_contract')) return false;
     const point = await this.scrollIntoView('commentButton', { urn, containerKey: 'postItem' });
     if (!point) {
       this.recordDiagnostic('EDITOR_NOT_FOUND', 'comment_open', { hasPost: true, selector: 'commentButton' });
@@ -335,6 +362,7 @@ export class PageDriver {
 
   /** Só foca o editor se ele continuar sendo o único editor do URN. */
   async focusVerifiedCommentEditor(urn: string): Promise<boolean> {
+    if (!this.allowPostInteraction('comment_editor_blocked_by_contract')) return false;
     const point = await this.postControlPoint('editor', urn);
     if (!point) {
       this.recordDiagnostic('EDITOR_NOT_FOUND', 'comment_editor', { hasPost: true, selector: 'commentEditor' });
@@ -352,6 +380,7 @@ export class PageDriver {
 
   /** O botão de enviar deve pertencer ao formulário do editor e ao URN correto. */
   async clickVerifiedCommentSubmit(urn: string, text: string): Promise<boolean> {
+    if (!this.allowPostInteraction('comment_submit_blocked_by_contract')) return false;
     const point = await this.postControlPoint('submit', urn);
     if (!point) {
       this.recordDiagnostic('EDITOR_NOT_FOUND', 'comment_submit', { hasPost: true, selector: 'commentSubmit' });
