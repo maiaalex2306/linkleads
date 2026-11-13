@@ -624,6 +624,9 @@ export function llCommentControls(
   // exclusivamente de envio, nunca escolher um botão global do cartão.
   for (let depth = 0; ancestor && (ancestor === root || root.contains(ancestor)) && depth < 8;
     depth++, ancestor = ancestor.parentElement) {
+    // Sem <form> é aceitável um envelope de comentários, nunca o cartão
+    // inteiro (que pode conter botões de publicação de outra funcionalidade).
+    if (!editor.closest('form') && ancestor === root) break;
     const isForm = ancestor.matches('form');
     const submits = new Set<HTMLButtonElement>();
     const selectors = [
