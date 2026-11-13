@@ -742,9 +742,15 @@ export async function gotoProfile(d: ExecutorDeps, p: Person, suffix = ''): Prom
       verifiedRoute = route;
       break;
     }
-    if (!slug || !verifiedRoute)
-      return { needsReview: 'Perfil não resolvido. Tentativas: ' + attempts.join('; ').slice(0, 800) +
-        '. Conta Basic pode não disponibilizar rotas do Sales Navigator; não selecionar homônimos.' };
+    if (!slug || !verifiedRoute) {
+      const hasSalesSource = routes.some((r) => r.method === 'sales_source');
+      const sourceStatus = hasSalesSource
+        ? 'URL original Sales Navigator encontrada, mas a sessao nao retornou identidade publica correspondente.'
+        : 'URL Sales Navigator completa nao preservada neste cadastro; buscar no CSV original e reimportar para o mesmo lead.';
+      return { needsReview: 'Perfil ainda nao identificado. ' + sourceStatus +
+        ' Rotas tentadas: ' + attempts.join('; ').slice(0, 800) +
+        '. Nenhum perfil foi associado e nenhuma interacao foi executada.' };
+    }
   }
 
   const finalUrl = BASE + '/in/' + encodeURIComponent(slug) + '/' + suffix;
