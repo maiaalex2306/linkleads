@@ -729,7 +729,9 @@ export function commentEvidence(
   }
   const editor = __llCommentControls(sel, urn).editor;
   return { count, ownedCount,
-    editorEmpty: !!editor && norm(editor.innerText || editor.textContent || '') === '',
+    // Alguns layouts removem todo o formulário após Publicar. Isso também é
+    // um estado final válido DESDE que haja nova mensagem atribuída à conta.
+    editorEmpty: !editor || norm(editor.innerText || editor.textContent || '') === '',
     cardConfirmed: true };
 }
 
