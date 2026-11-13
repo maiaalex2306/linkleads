@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import type { WebContents } from 'electron';
+import type { SelectorMap } from '../src/main/linkedin/selectors.js';
+import { PageDriver } from '../src/main/linkedin/page-driver.js';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -158,5 +161,21 @@ describe('Fase 6 — comparação de contrato por layout/idioma', () => {
       expect(raw).not.toContain('ana-silva');
       expect(raw).not.toContain('urn:li');
     } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+});
+
+describe('Fase 6 — contrato quebrado interrompe somente a etapa afetada', () => {
+  it('UI_CHANGED bloqueia qualquer tentativa de clique no post antes de procurar botões', async () => {
+    const wc = { getURL: () => 'https://www.linkedin.com/in/ana-silva/recent-activity/all/' };
+    const driver = new PageDriver(wc as unknown as WebContents, selectors as unknown as SelectorMap);
+    const scroll = vi.spyOn(driver, 'scrollIntoView');
+    driver.setPageContractHealth('atividade', false);
+    expect(await driver.clickVerifiedLike('urn:li:activity:7381234567890129999')).toBe('REVIEW_REQUIRED');
+    expect(scroll).not.toHaveBeenCalled();
+    driver.setPageContractHealth('atividade', true);
+    // A liberação depende de nova leitura do alvo, nunca de clicar por suposição.
+    scroll.mockResolvedValue(null);
+    expect(await driver.clickVerifiedLike('urn:li:activity:7381234567890129999')).toBe('NOT_FOUND');
+    expect(scroll).toHaveBeenCalledTimes(1);
   });
 });
