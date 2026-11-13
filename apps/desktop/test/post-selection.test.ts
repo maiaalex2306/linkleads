@@ -165,11 +165,13 @@ describe('escolha de publicação com confirmação do estado', () => {
     expect(result.why).toMatch(/1 com data não verificável/);
   });
 
-  it('preserva uma publicação válida mesmo quando outra tem identidade incerta', () => {
+  it('não pula publicação incerta anterior para interagir em outra posterior', () => {
     const broken = { ...one('ll-idx-2', false), age: '2 d' };
     const valid = { ...one('urn:li:activity:999999999998', false), age: '90 d' };
     const result = choosePost([broken, valid], 'ana-silva', { maxPostAgeDays: 365 }, 'Ana Silva');
-    expect(result.post?.urn).toBe(valid.urn);
+    expect(result.post).toBeUndefined();
+    expect(result.uncertain).toBe(true);
+    expect(firstUnlikedCandidate([broken, valid], 'ana-silva', 'Ana Silva').uncertain).toBe(true);
   });
 
   it('prefixo Atividades no título não altera a autoria confirmada por URL', () => {
