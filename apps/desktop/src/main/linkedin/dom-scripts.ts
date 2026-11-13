@@ -180,7 +180,21 @@ export function llPostContainers(
       !!a.closest('.update-components-actor, .feed-shared-actor, [data-testid*="actor"], [data-test-id*="actor"]'));
     const general = authorLinks.filter((a) => !!a.closest('header') &&
       !a.closest('.update-components-header, .feed-shared-header'));
-    const candidates = specific.length ? specific : general;
+    // Layout moderno: o bloco compacto da autoria pode não ser <header>,
+    // mas contém o link do membro JUNTO do permalink temporal do post.
+    // Nunca subir até o corpo com [dir=ltr], menções ou barra de reações.
+    const adjacentToPostMetadata = authorLinks.filter((a) => {
+      let node: Element | null = a.parentElement;
+      for (let depth = 0; node && node !== card && depth < 4; depth++, node = node.parentElement) {
+        if (node.matches(COMMENT) ||
+          node.querySelector('[dir="ltr"], .update-components-text, [contenteditable="true"]') ||
+          node.querySelector('button, [role="button"]')) return false;
+        if (node.querySelector('a[href*="/posts/"], a[href*="/feed/update/"], time[datetime]'))
+          return true;
+      }
+      return false;
+    });
+    const candidates = specific.length ? specific : general.length ? general : adjacentToPostMetadata;
     const authors = new Map<string, HTMLAnchorElement>();
     for (const a of candidates) {
       const url = validProfile(a);
