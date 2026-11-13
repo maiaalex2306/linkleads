@@ -35,14 +35,24 @@ export class HumanInput {
     this.y = ty;
   }
 
-  async click(x: number, y: number): Promise<void> {
+  async click(
+    x: number, y: number,
+    preflight?: (actualX: number, actualY: number) => Promise<boolean>,
+  ): Promise<boolean> {
     BrowserWindow.fromWebContents(this.wc)?.focus();
     await this.moveTo(x + randInt(this.rng, -3, 3), y + randInt(this.rng, -2, 2));
     await this.sleep(randInt(this.rng, 60, 220));
+    // Proteção de virtualização: só enviar mouseDown se o pixel REAL,
+    // após o movimento, ainda pertence ao controle autorizado.
+    if (preflight && !(await preflight(this.x, this.y))) {
+      this.emit?.('click_preflight_aborted', { reason: 'target_or_state_changed' });
+      return false;
+    }
     this.emit?.('click', { x: this.x, y: this.y });
     this.wc.sendInputEvent({ type: 'mouseDown', x: this.x, y: this.y, button: 'left', clickCount: 1 });
     await this.sleep(randInt(this.rng, 40, 120));
     this.wc.sendInputEvent({ type: 'mouseUp', x: this.x, y: this.y, button: 'left', clickCount: 1 });
+    return true;
   }
 
   /** Digitação com cadência irregular e pausas ocasionais. */
