@@ -20,6 +20,8 @@ describe('CSV', () => {
   it('extrai slug público', () => {
     const opaque = 'ACoAAA8BYqEBCGLg_vT_ca6mMEqkpp9nVffJ3hc';
     expect(publicIdFromUrl('https://www.linkedin.com/in/' + opaque + '/')).toBe(opaque);
+    const salesHash = 'ACwAAAIATasBA_OC0NMUDatWeEBCssGNHCpTT6U';
+    expect(publicIdFromUrl('https://www.linkedin.com/in/' + salesHash + '/')).toBe(salesHash);
     expect(publicIdFromUrl('https://www.linkedin.com/in/Maria-Silva-123/?trk=x')).toBe('maria-silva-123');
     expect(publicIdFromUrl('https://br.linkedin.com/in/jos%C3%A9-souza')).toBe('josé-souza');
     expect(publicIdFromUrl('https://example.com/maria')).toBeUndefined();
