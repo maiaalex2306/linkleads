@@ -47,6 +47,7 @@ export function safeRoute(raw: string): string {
       .replace(/\/(in|pub|company)\/[^/]+/gi, '/$1/[id]')
       .replace(/\/feed\/update\/[^/]+/gi, '/feed/update/[id]')
       .replace(/\/posts\/[^/]+/gi, '/posts/[id]')
+      .replace(/\/sales\/(people|lead|company)\/[^/]+/gi, '/sales/$1/[id]')
       .slice(0, 180);
   } catch {
     return '[unavailable]';
