@@ -15,6 +15,7 @@ import {
   type BudgetKey,
   type LimitRule,
   engagementCampaign,
+  resolveApproval,
   importPeopleFromCsv,
   outreachSequence,
   prospectingSequence,
@@ -843,8 +844,16 @@ ipcMain.handle('drafts:approve', async (_e, id: string, draftId: number, text?: 
 });
 ipcMain.handle('drafts:reject', (_e, id: string, draftId: number) => {
   const inst = instances.get(id);
-  if (inst) inst.rejectDraft(draftId);
-  else crms.get(account(id)).updateDraft(draftId, { status: 'rejected' });
+  if (inst) return inst.rejectDraft(draftId);
+  const crm = crms.get(account(id));
+  const draft = crm.getDraft(draftId);
+  if (!draft || draft.status !== 'pending') return;
+  crm.updateDraft(draftId, { status: 'rejected' });
+  // Recusar com janela fechada tambem deve reconciliar a campanha.
+  // Antes, apenas o rascunho era atualizado e a pessoa ficava em processed.
+  const campaign = crm.loadCampaign(draft.campaignId, id);
+  if (campaign) resolveApproval(crm, campaign, draft.actionId, draft.personId,
+    { executed: false, reason: 'REJECTED' }, now());
 });
 
 // Configurações --------------------------------------------------------------
