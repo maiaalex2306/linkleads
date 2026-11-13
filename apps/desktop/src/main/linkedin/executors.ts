@@ -6,7 +6,7 @@ import type { IntegrationCrm } from '@linkleads/db';
 import type { EnrichmentProvider } from '@linkleads/integrations';
 import { commentEditorPoint, commentSubmitPoint, matchingCommentCount, editorText, extractPosts, extractProfile, likeState, profileReady, type PostExtract } from './dom-scripts.js';
 import { BlockedError, type PageDriver } from './page-driver.js';
-import { isCanonicalPostUrn } from './post-identity.js';
+import { isCanonicalPostUrn, provisionalPostFingerprint } from './post-identity.js';
 import { parseSalesSource, profileResolutionRoutes, samePersonCompany, samePersonName, type ProfileRoute } from './profile-resolver.js';
 
 /** LINKLEADS_TEST_BASE_URL aponta para o site falso dos testes e2e; nunca usar em produção. */
@@ -304,11 +304,12 @@ async function discoverUnlikedPost(
   for (let step = 0; step <= maxScrolls && Date.now() - start < 120_000; step++) {
     await d.driver.assertNotBlocked();
     const batch = await d.driver.read(extractPosts, d.driver.sel as unknown as Record<string, readonly string[]>, 150);
-    // ll-idx-N representa apenas a posicao de um lote, e pode se repetir ao
-    // rolar a pagina. Nunca usá-lo como chave persistente entre leituras.
-    for (const [index, p] of batch.entries()) {
-      const key = isCanonicalPostUrn(p.urn) ? p.urn : `unresolved:${step}:${index}`;
-      seen.set(key, p);
+    // A posição no lote varia com o scroll. Só URN canônica é alvo executável;
+    // cartão provisório recebe uma chave de observação estável e não vira "novo"
+    // em cada leitura do mesmo conteúdo.
+    for (const p of batch) {
+      const key = isCanonicalPostUrn(p.urn) ? p.urn : 'unresolved:' + provisionalPostFingerprint(p);
+      if (!seen.has(key)) seen.set(key, p);
     }
     // Regra da conta: identificar primeiro o post nao curtido em ORDEM VISUAL.
     // Autor, estado, URN e data continuam sendo gates separados de interacao.
@@ -346,10 +347,8 @@ async function discoverUnlikedPost(
       return { offset: el.scrollTop, height: el.scrollHeight, visible: el.clientHeight };
     });
     const next = await d.driver.read(extractPosts, d.driver.sel as unknown as Record<string, readonly string[]>, 150);
-    // ll-idx-* é apenas índice da leitura corrente. Compará-lo ao Map
-    // (unresolved:step:index) indicava progresso falso a cada rolagem.
-    // A detecção de novos cartões usa exclusivamente identidades estáveis;
-    // alterações de altura/posição continuam indicando paginação real.
+    // A detecção de novos cartões usa somente identidades canônicas.
+    // Cartões provisórios repetidos não contam como nova publicação.
     const newPost = hasNewVerifiedPost(seen, next);
     if (after.offset <= before.offset && after.height <= before.height && !newPost) stalled++;
     else stalled = 0;
