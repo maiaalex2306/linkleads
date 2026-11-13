@@ -119,42 +119,46 @@ export function llReactionTarget(
   const element = [...candidates][0]!;
   if ((element as HTMLButtonElement).disabled || element.getAttribute('aria-disabled') === 'true')
     return { element, state: null, reason: 'DISABLED' };
-  const signals = new Set<boolean>();
+  // aria-pressed/checked e rótulo explícito de estado têm precedência.
+  // A cor/forma do SVG ou o rótulo da ação podem permanecer antigos após
+  // a curtida, portanto são sinais fracos usados somente na ausência de estado.
+  const authoritative = new Set<boolean>();
+  const fallback = new Set<boolean>();
   const pressed = element.getAttribute('aria-pressed');
   const checked = element.getAttribute('aria-checked');
-  if (pressed === 'true' || pressed === 'false') signals.add(pressed === 'true');
-  if (checked === 'true' || checked === 'false') signals.add(checked === 'true');
+  if (pressed === 'true' || pressed === 'false') authoritative.add(pressed === 'true');
+  if (checked === 'true' || checked === 'false') authoritative.add(checked === 'true');
   const dataState = (element.getAttribute('data-state') ?? '').trim().toLowerCase();
-  if (['on', 'pressed', 'checked', 'reacted', 'liked'].includes(dataState)) signals.add(true);
-  if (['off', 'unpressed', 'unchecked', 'unreacted', 'unliked'].includes(dataState)) signals.add(false);
+  if (['on', 'pressed', 'checked', 'reacted', 'liked'].includes(dataState)) authoritative.add(true);
+  if (['off', 'unpressed', 'unchecked', 'unreacted', 'unliked'].includes(dataState)) authoritative.add(false);
   const className = typeof element.className === 'string' ? element.className : '';
-  if (/(?:^|\s)(?:react-button--active|react-button--reacted|is-reacted|is-liked)(?:\s|$)/i.test(className)) signals.add(true);
+  if (/(?:^|\s)(?:react-button--active|react-button--reacted|is-reacted|is-liked)(?:\s|$)/i.test(className)) authoritative.add(true);
   const label = [
     element.getAttribute('aria-label') ?? '',
     element.getAttribute('title') ?? '',
     element.getAttribute('data-control-name') ?? '',
   ].join(' ').trim();
   if (/situa[cç][aã]o do bot[aã]o de rea[cç][aã]o:\s*nenhuma rea[cç][aã]o|reaction button state:\s*no reaction/i.test(label))
-    signals.add(false);
+    authoritative.add(false);
   else if (/situa[cç][aã]o do bot[aã]o de rea[cç][aã]o:\s*(?:gostei|amei|apoio|celebro|interessante|like|love|support|celebrate|insightful)|reaction button state:\s*(?:like|love|support|celebrate|insightful)/i.test(label))
-    signals.add(true);
+    authoritative.add(true);
   if (/\b(?:unlike|undo (?:like|reaction)|remove (?:like|reaction)|remover (?:curtida|rea[cç][aã]o)|desfazer (?:curtida|rea[cç][aã]o))\b/i.test(label))
-    signals.add(true);
+    authoritative.add(true);
   else if (/^(?:like|react like|curtir|gostar|reagir com gostei|react with like)$/i.test(label))
-    signals.add(false);
-  const icons = Array.from(element.querySelectorAll('[data-test-icon], use[href], use[xlink\\:href]'));
-  for (const icon of icons) {
+    fallback.add(false);
+  for (const icon of Array.from(element.querySelectorAll('[data-test-icon], use[href], use[xlink\\:href]'))) {
     const name = [
       icon.getAttribute('data-test-icon') ?? '',
       icon.getAttribute('href') ?? '',
       icon.getAttribute('xlink:href') ?? '',
     ].join(' ').toLowerCase();
-    if (/thumbs-up-(?:outline|line|regular)|like-(?:outline|line|regular)/.test(name)) signals.add(false);
-    else if (/thumbs-up-(?:filled|solid)|like-(?:filled|solid)/.test(name)) signals.add(true);
+    if (/thumbs-up-(?:outline|line|regular)|like-(?:outline|line|regular)/.test(name)) fallback.add(false);
+    else if (/thumbs-up-(?:filled|solid)|like-(?:filled|solid)/.test(name)) fallback.add(true);
   }
-  if (signals.size > 1) return { element, state: null, reason: 'CONFLICTING_STATE' };
-  if (signals.size === 0) return { element, state: null, reason: 'STATE_UNKNOWN' };
-  return { element, state: [...signals][0]!, reason: 'CONFIRMED' };
+  const evidence = authoritative.size ? authoritative : fallback;
+  if (evidence.size > 1) return { element, state: null, reason: 'CONFLICTING_STATE' };
+  if (evidence.size === 0) return { element, state: null, reason: 'STATE_UNKNOWN' };
+  return { element, state: [...evidence][0]!, reason: 'CONFIRMED' };
 }
 
 declare function __llReactionTarget(card: Element, configured: readonly string[]): {
