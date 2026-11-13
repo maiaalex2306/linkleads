@@ -27,6 +27,16 @@ export function profileSlug(href: string): string | undefined {
   }
 }
 
+/** IDs Base64URL de membros são sensíveis à caixa, inclusive quando o
+ * restante da aplicação normaliza slugs convencionais de usuário.
+ */
+export function sameConfirmedPublicId(observed: string | undefined, expected: string): boolean {
+  if (!observed) return false;
+  const raw = expected.trim();
+  if (/^AC[owr][A-Za-z0-9_-]{30,}$/.test(raw)) return observed === raw;
+  return observed === normalizeLinkedInPublicId(raw);
+}
+
 export const profileUrl = (p: Person) => `${BASE}/in/${encodeURIComponent(p.publicId ?? p.id)}/`;
 const postUrl = (urn: string) => `${BASE}/feed/update/${urn}/`;
 
@@ -193,7 +203,7 @@ export function firstUnlikedCandidate(
     const actorKnown = !!actor;
     if (post.actorHref && !actor)
       return { post, why: 'Link do autor não é um perfil confiável do LinkedIn', uncertain: true };
-    if (actorKnown && actor !== id) {
+    if (actorKnown && !sameConfirmedPublicId(actor, publicId)) {
       // Opaque diferente continua incerto: pode ser outro membro ou alias não
       // reconciliado. Não autorizar interação por semelhança de nome.
       if (/^AC[owr]/i.test(actor))
@@ -221,7 +231,7 @@ export function choosePost(posts: PostExtract[], publicId: string, s: LikeSettin
   const cleanPersonName = personName.replace(/^(?:(?:Atividades|Activity|Publicações|Publications|Posts|Comentários|Comments)\s*[|·–-]\s*)+/i, '');
   const expected = norm(cleanPersonName);
   const isOwn = (p: PostExtract) =>
-    !!p.actorHref && profileSlug(p.actorHref) === normalizeLinkedInPublicId(publicId);
+    !!p.actorHref && sameConfirmedPublicId(profileSlug(p.actorHref), publicId);
   let empty = 0;
   let reshare = 0;
   let others = 0;
