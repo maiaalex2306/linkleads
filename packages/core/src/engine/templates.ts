@@ -27,7 +27,7 @@ export function engagementCampaign(o: EngagementCampaignOptions): Campaign {
         coolDown: 0, maxResults: -1, settings: {} },
       {
         id: `${o.id}-engage`, type: 'LikeAndComment',
-        name: 'Curtir e comentar publicações e artigos',
+        name: 'Curtir e comentar publicações',
         coolDown: 0, maxResults: -1,
         settings: {
           likesPerProfile: 1, likeArticlesCount: 0, maxPostAgeDays: o.maxPostAgeDays ?? 30,
@@ -160,7 +160,7 @@ export function prospectingSequence(o: ProspectingSequenceOptions): Campaign {
         : []),
       {
         id: `${o.id}-engage`, type: 'LikeAndComment',
-        name: 'Curtir e comentar publicações e artigos',
+        name: 'Curtir e comentar publicações',
         coolDown: 0, maxResults: -1,
         settings: {
           likesPerProfile: 1, likeArticlesCount: 0, maxPostAgeDays: o.maxPostAgeDays ?? 30,
