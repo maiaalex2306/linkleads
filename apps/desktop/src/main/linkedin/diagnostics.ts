@@ -1,4 +1,6 @@
-import { DEFAULT_LABELS, type LabelKey, type SelectorKey } from './selectors.js';
+import { DEFAULT_LABELS, selectorAudit, type SelectorAudit, type LabelKey, type SelectorKey } from './selectors.js';
+import { evaluatePost } from './executors.js';
+import { cardDecision, layoutHash, layoutShape, type CardDecision, type DiagnosticCode, type LayoutShape } from './diagnostics-policy.js';
 import { diagnoseKeys, visibleButtonLabels, extractPosts, type KeyDiagnosis } from './dom-scripts.js';
 import { isCanonicalPostUrn } from './post-identity.js';
 import { parseRelativeAgeDays } from '@linkleads/core';
@@ -47,10 +49,23 @@ export function pageKind(url: string): PageKind {
   return 'outra';
 }
 
+/** Contexto opcional: somente o identificador já verificado do perfil aberto,
+ * nunca é exportado. Sem ele não se pode declarar autoria confirmada.
+ */
+export interface DiagnosisContext {
+  expectedPublicId?: string;
+  includeReshares?: boolean;
+  maxPostAgeDays?: number;
+}
+
 export interface DiagnosisReport {
   at: string;
   appVersion: string;
   selectorsVersion: string;
+  selectorConfiguration: SelectorAudit;
+  /** Contrato estrutural anonimizável, confrontado com baseline por página/idioma. */
+  layout: { shape: LayoutShape; hash: string };
+  primaryCode: DiagnosticCode | 'OK';
   page: PageKind;
   /** caminho sem o identificador da pessoa/empresa */
   path: string;
@@ -63,7 +78,7 @@ export interface DiagnosisReport {
   /** estrutura da página, sem textos: títulos (h1–h3) com classes e onde estão; para ajustar seletores */
   structure?: { hasMain: boolean; titleEndsWithLinkedIn: boolean; headings: Array<{ tag: string; classes: string; inMain: boolean; textLength: number; parents: string }> };
   /** posts: o que o app reconheceu e a estrutura em volta das DATAS dos posts (sem textos nem nomes) */
-  posts?: { recognized: number; probes: unknown[]; canonical: number; provisional: number;
+  posts?: { recognized: number; decisions: CardDecision[]; probes: unknown[]; canonical: number; provisional: number;
     dated: number; undated: number; reactionKnown: number; reactionUnknown: number;
     /** Somente metadados do PRIMEIRO cartão ainda não curtido na ordem da tela. */
     firstUnliked?: { ordinal: number; canonical: boolean; dated: boolean;
@@ -147,7 +162,9 @@ function pageStructure() {
 
 /** Somente leitura: não clica, não digita, não navega. */
 
-export async function diagnosePage(driver: PageDriver, appVersion: string): Promise<DiagnosisReport> {
+export async function diagnosePage(
+  driver: PageDriver, appVersion: string, context: DiagnosisContext = {},
+): Promise<DiagnosisReport> {
   const url = driver.wc.getURL();
   const page = pageKind(url);
   const sel = driver.sel as unknown as Record<string, readonly string[]>;
@@ -183,6 +200,16 @@ export async function diagnosePage(driver: PageDriver, appVersion: string): Prom
     reactionKnown: extracted.filter((p) => p.liked !== null).length,
     reactionUnknown: extracted.filter((p) => p.liked === null).length,
   };
+  // Cada cartão recebe o MESMO parecer que orienta a seleção de curtidas.
+  // Identificadores, nome do ator, URL e texto do post não saem no relatório.
+  const decisions = extracted.slice(0, 100).map((post, index) => cardDecision(
+    post, index + 1,
+    context.expectedPublicId
+      ? evaluatePost(post, context.expectedPublicId, {
+          includeReshares: context.includeReshares === true,
+          maxPostAgeDays: context.maxPostAgeDays ?? 365,
+        }) : undefined,
+  ));
   const firstUnlikedIndex = extracted.findIndex((post) => post.liked === false);
   const firstControls = firstUnlikedIndex >= 0
     ? await driver.read(firstUnlikedControlProbe, sel, firstUnlikedIndex).catch(() => null)
@@ -198,10 +225,20 @@ export async function diagnosePage(driver: PageDriver, appVersion: string): Prom
     sendControls: firstControls?.sendControls ?? 0,
     selectorMatches: firstControls?.selectorMatches ?? { reaction: 0, comment: 0, editor: 0, submit: 0 },
   } : null;
+  const structure = await driver.read(pageStructure).catch(() => undefined);
+  const shape = layoutShape({
+    page, language: uiLanguage, keys, structure,
+  });
+  const priority: DiagnosticCode | 'OK' = isActivity && extracted.length === 0
+    ? 'CARD_NOT_FOUND'
+    : (decisions.find((item) => item.status === 'REVIEW_REQUIRED')?.code ?? 'OK');
   return {
     at: new Date().toISOString(),
     appVersion,
     selectorsVersion: driver.sel.version,
+    selectorConfiguration: selectorAudit(driver.sel),
+    layout: { shape, hash: layoutHash(shape) },
+    primaryCode: priority,
     page,
     path: new URL(url).pathname.replace(/^\/(in|company)\/[^/]+/, '/$1/[id]'),
     uiLanguage,
@@ -209,7 +246,8 @@ export async function diagnosePage(driver: PageDriver, appVersion: string): Prom
     keys,
     labels,
     buttons,
-    structure: await driver.read(pageStructure).catch(() => undefined),
-    posts: isActivity ? { ...postCounts, firstUnliked, probes: await driver.read(postsProbe).catch(() => []) } : undefined,
+    structure,
+    posts: isActivity ? { ...postCounts, decisions, firstUnliked,
+      probes: await driver.read(postsProbe).catch(() => []) } : undefined,
   };
 }
