@@ -402,7 +402,10 @@ export function extractPosts(sel: Record<string, readonly string[]>, limit: numb
     // com evidência de região de comentário do compartilhador.
     const ownCommentary = Array.from(it.querySelectorAll(
       '[data-test-id*="commentary"], [data-testid*="commentary"], .update-components-commentary, .feed-shared-commentary',
-    )).some((node) => !inEmbedded(node) && !!(node.textContent ?? '').trim());
+    )).some((node) => !inEmbedded(node) && !!(node.textContent ?? '').trim()) ||
+      // Texto autoral acima de um post incorporado pode usar o seletor comum.
+      // Sem bloco incorporado, texto do autor original NÃO é tratado como comentário do repost.
+      (!!it.querySelector(EMBED) && !!firstOwn(sel.postText!) && text.length > 0);
     const hasAttachment = identity.embeddedPostUrn !== null || !!it.querySelector(EMBED) || !!firstOwn([
       '.update-components-article', '.feed-shared-article',
       '.update-components-document__container', '.update-components-image',
