@@ -196,7 +196,7 @@ export function firstUnlikedCandidate(
     if (actorKnown && actor !== id) {
       // Opaque diferente continua incerto: pode ser outro membro ou alias não
       // reconciliado. Não autorizar interação por semelhança de nome.
-      if (/^AC[owr]/.test(actor))
+      if (/^AC[owr]/i.test(actor))
         return { post, why: 'Identificador opaco do autor diferente do perfil confirmado', uncertain: true };
       continue;
     }
@@ -238,7 +238,7 @@ export function choosePost(posts: PostExtract[], publicId: string, s: LikeSettin
     if (!actor)
       return (uncertainActors++, false);
     if (!isOwn(p)) {
-      if (/^AC[owr]/.test(actor)) return (uncertainActors++, false);
+      if (/^AC[owr]/i.test(actor)) return (uncertainActors++, false);
       return (others++, false);
     }
     // Qualquer consumidor de choosePost deve receber somente conteúdo verificável.
