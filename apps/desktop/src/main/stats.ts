@@ -28,7 +28,7 @@ export function accountStats(a: Account, crm: IntegrationCrm, now = new Date()) 
       profile_visits: { used: used24('profile_load'), limit: m('profile_load').limit },
       engagement: { used: used24('likes') + used24('comments'), limit: (m('likes').limit ?? 0) + (m('comments').limit ?? 0) },
     },
-    pendingApprovals: crm.listDrafts('pending').length,
+    pendingApprovals: crm.listDrafts('review').length,
     unhandledReplies: crm.inbox(true).length,
     unseenSignals: crm.listSignals({ onlyUnseen: true }).length,
   };

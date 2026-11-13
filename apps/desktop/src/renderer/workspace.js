@@ -337,7 +337,7 @@ async function detailInbox(a, c) {
       })),
     h('div',{class:'card stack'},
       h('div',{class:'row'},
-        h('strong',{style:'flex:1'},'Textos aguardando aprovação'),
+        h('strong',{style:'flex:1'},'Textos aguardando aprovação ou conciliação'),
         h('button',{onclick:()=>{state.tab='approvals';state.campaignId=null;renderView();}},
           'Revisar aprovações')),
       !data.drafts.length && h('p',{class:'muted'},'Nenhum rascunho pendente nesta campanha.'),

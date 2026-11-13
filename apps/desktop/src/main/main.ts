@@ -826,7 +826,7 @@ ipcMain.handle('campaigns:inbox', (_e, id: string, campaignId: string) => {
   const members = new Set(people.map((r) => r.person_id));
   return {
     replies: crm.inbox(false).filter((entry) => members.has(entry.personId)),
-    drafts: crm.listDrafts('pending').filter((d) => d.campaignId === campaignId),
+    drafts: crm.listDrafts('review').filter((d) => d.campaignId === campaignId),
     attribution: 'Vínculo por participante, sem prova de que cada mensagem foi enviada por esta campanha.',
   };
 });
