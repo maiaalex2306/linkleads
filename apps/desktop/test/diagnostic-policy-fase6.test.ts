@@ -6,7 +6,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { applyVerifiedSelectorOverride } from '../src/main/linkedin/selector-policy.js';
-import { cardDecision, layoutShape, compareLayout, layoutHash } from '../src/main/linkedin/diagnostics-policy.js';
+import { cardDecision, diagnosticPath, layoutShape, compareLayout, layoutHash } from '../src/main/linkedin/diagnostics-policy.js';
 import { compareAndStoreBaseline } from '../src/main/linkedin/diagnostic-baselines.js';
 import { evaluatePost } from '../src/main/linkedin/executors.js';
 import type { PostExtract } from '../src/main/linkedin/dom-scripts.js';
@@ -177,5 +177,16 @@ describe('Fase 6 — contrato quebrado interrompe somente a etapa afetada', () =
     scroll.mockResolvedValue(null);
     expect(await driver.clickVerifiedLike('urn:li:activity:7381234567890129999')).toBe('NOT_FOUND');
     expect(scroll).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('Fase 6 — privacidade de links e URNs no diagnóstico', () => {
+  it('remove URN, membros, empresas e identificadores de threads', () => {
+    expect(diagnosticPath('https://www.linkedin.com/feed/update/urn:li:activity:7381234567890129999/?secret=1'))
+      .toBe('/feed/update/[id]/');
+    expect(diagnosticPath('https://www.linkedin.com/in/ana-silva/')).toBe('/in/[id]/');
+    expect(diagnosticPath('https://www.linkedin.com/company/empresa-industrial/')).toBe('/company/[id]/');
+    expect(diagnosticPath('https://www.linkedin.com/messaging/thread/abcdef12345/'))
+      .toBe('/messaging/thread/[id]/');
   });
 });
