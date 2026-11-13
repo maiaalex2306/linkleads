@@ -175,7 +175,8 @@ export class CampaignRunner {
     // Resultado inconclusivo entra conservadoramente no orçamento para evitar
     // repetição excessiva; não representa confirmação de sucesso.
     const alreadyDone = result.ok && (
-      result.data?.alreadyLiked === true || result.data?.already === 'not_pending'
+      result.data?.alreadyLiked === true || result.data?.alreadyCommented === true ||
+      result.data?.already === 'not_pending'
     );
     // Ações compostas precisam prestar contas por efeito (curtida, comentário).
     // Um rascunho aguardando aprovação pode conter curtida já comprovada.
