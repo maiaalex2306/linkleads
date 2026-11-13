@@ -5,7 +5,7 @@ const state = {
   liked: false, comments: [], connection: 'none', inviteNote: null, invites: 0, withdrawals: 0, messages: [], unread: false,
   anaHeadline: 'Diretora de Operações na Águas do Vale', companyVisits: 0,
   // sessão do LinkedIn falso: loggedOut força a página de login; logins guarda as tentativas (e-mail, senha)
-  unrelatedEditor: false,
+  unrelatedEditor: false, longPost: false, moreExpansions: 0, noCommentRender: false,
   loggedOut: false, logins: [], loginEmail: 'ana@empresa.com.br', loginPassword: 'senha-certa',
   activityDeepPosts: false, modernReaction: false, modernTimeLabels: false, mixedPostLayout: false, deepAge: '1 a', deepLiked: false, deepLikes: 0, likes: 0,
   loginHydrationDelayMs: 0, loginSocialButtons: false, requireSessionCookie: false,
@@ -63,7 +63,7 @@ const postHtml = (withEditor, urn = URN) => `
   ${state.modernReaction ? ('<a href="/feed/update/' + urn.replace(/:(\d+)$/, (_, digits) => ':' + digits.padEnd(19, '0')) + '/">Abrir publicação</a>') : ''}
   <div class="update-components-actor"><a class="update-components-actor__meta-link" href="/in/ana-silva/">Ana Silva</a>
     <span class="update-components-actor__sub-description">${state.modernTimeLabels ? (urn === URN ? 'há 2 d · Editado' : 'há 6 dias · Editado') : ((urn === URN ? '2d' : state.deepAge) + ' •')}</span></div>
-  <div class="update-components-text">Concluímos a telemetria de 120 km de rede e reduzimos as perdas de água em 18% no primeiro trimestre.</div>
+  <div class="update-components-text">${state.longPost ? 'Concluímos a telemetria de 120 km… <button class="feed-shared-inline-show-more-text__see-more-less-toggle">Ver mais</button>' : 'Concluímos a telemetria de 120 km de rede e reduzimos as perdas de água em 18% no primeiro trimestre.'}</div>
   <button class="react-button__trigger" aria-label="${state.modernReaction ? ('Situação do botão de reação: ' + ((urn === URN ? state.liked : state.deepLiked) ? 'Gostei' : 'nenhuma reação')) : 'React Like'}" ${state.modernReaction ? '' : ('aria-pressed="' + (urn === URN ? state.liked : state.deepLiked) + '"')}>Like</button>
   <button aria-label="Comment">Comment</button>
   ${withEditor ? `<form class="comments-comment-box__form" onsubmit="return false">
@@ -79,9 +79,15 @@ const commentScript = likeScript + `document.querySelector('.comments-comment-bo
   if (!e.isTrusted) return;
   const text = document.querySelector('.comments-comment-box__form [contenteditable]').innerText.trim();
   await fetch('/api/comment', { method: 'POST', body: text });
-  const a = document.createElement('article'); a.className = 'comments-comment-entity';
+  const a = document.createElement('article'); a.className = 'comments-comment-entity comments-comment-entity--mine'; a.setAttribute('data-author-self', 'true');
   a.innerHTML = '<span class="comments-comment-item__main-content"></span>'; a.firstChild.textContent = text;
-  document.getElementById('comments').append(a); document.querySelector('.comments-comment-box__form [contenteditable]').innerText = ''; });`;
+  if (!${state.noCommentRender}) { document.getElementById('comments').append(a); document.querySelector('.comments-comment-box__form [contenteditable]').innerText = ''; } });
+  const more = document.querySelector('.feed-shared-inline-show-more-text__see-more-less-toggle');
+  if (more) more.addEventListener('click', async (e) => {
+    if (!e.isTrusted) return;
+    await fetch('/api/expand', { method: 'POST' });
+    more.closest('.update-components-text').textContent = 'Concluímos a telemetria de 120 km de rede e reduzimos as perdas de água em 18% no primeiro trimestre. Nossa implantação integrou sensores, alertas e gestão de eficiência para toda a unidade industrial.';
+  });`;
 
 const esc = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;');
 const threadHtml = () => `
@@ -168,6 +174,7 @@ export function startFakeSite(port = 0) {
       req.on('data', (c) => (body += c));
       req.on('end', () => {
         if (url === '/api/like') { state.liked = true; state.likes++; }
+        if (url === '/api/expand') { state.moreExpansions++; }
         if (url === '/api/deep-like') { state.deepLiked = true; state.deepLikes++; }
         if (url === '/api/like2') { state.liked2 = true; state.liked2Post = body; }
         if (url === '/api/invite') { state.connection = 'pending'; state.inviteNote = body || null; state.invites++; }
