@@ -4,7 +4,7 @@ import { detectJobChange, getActionDefinition, memberIdFromBasicOpaquePublicId, 
 import type { CommentSettings, LlmClient, PostInterpreter } from '@linkleads/ai';
 import type { IntegrationCrm } from '@linkleads/db';
 import type { EnrichmentProvider } from '@linkleads/integrations';
-import { commentEditorPoint, commentSubmitPoint, matchingCommentCount, editorText, extractPosts, extractProfile, likeState, profileReady, type PostExtract } from './dom-scripts.js';
+import { commentEditorPoint, commentSubmitPoint, commentEvidence, editorText, extractPosts, extractProfile, likeState, profileReady, type PostExtract } from './dom-scripts.js';
 import { BlockedError, type PageDriver } from './page-driver.js';
 import { isCanonicalPostUrn, provisionalPostFingerprint } from './post-identity.js';
 import { parseSalesSource, profileResolutionRoutes, samePersonCompany, samePersonName, type ProfileRoute } from './profile-resolver.js';
@@ -518,6 +518,55 @@ interface CommentActionSettings extends CommentSettings {
   targetPostUrn?: string;
 }
 
+/**
+ * Releitura obrigatória do conteúdo integral antes de chamar a IA.
+ * O texto guardado quando a curtida aconteceu pode ter sido truncado no feed.
+ * Em qualquer incerteza, não gerar um comentário a partir de conteúdo parcial.
+ */
+async function hydratePostForComment(
+  d: ExecutorDeps, personId: string, post: PostSnapshot,
+): Promise<{ ok: true; text: string } | { ok: false; reason: 'NO_REAL_EFFECT'; message: string }> {
+  const failure = (message: string) => ({ ok: false as const, reason: 'NO_REAL_EFFECT' as const, message });
+  if (!isCanonicalPostUrn(post.url)) return failure('Post sem URN canônica; não gerar comentário');
+  return d.withBrowser(async () => {
+    try {
+      await d.driver.goto(postUrl(post.url));
+      const selectors = d.driver.sel as unknown as Record<string, readonly string[]>;
+      const find = async () => {
+        const batch = await d.driver.read(extractPosts, selectors, 80);
+        return batch.find((p) => p.urn === post.url &&
+          p.cardIdentity?.identityStatus === 'CONFIRMED');
+      };
+      const loaded = await d.driver.waitUntil(async () => !!(await find()), 15_000);
+      if (!loaded) return failure('Não foi possível confirmar a publicação original antes da IA');
+      let current = await find();
+      if (!current) return failure('Post original mudou durante a leitura; IA bloqueada');
+      if (current.truncated) {
+        if (!(await d.driver.clickVerifiedPostMore(post.url)))
+          return failure('Conteúdo longo permanece recolhido; não gerar comentário com texto parcial');
+        const expanded = await d.driver.waitUntil(async () => {
+          current = await find();
+          return !!current && !current.truncated && !!current.text.trim();
+        }, 8_000);
+        if (!expanded)
+          return failure('A expansão do texto não foi confirmada no mesmo post');
+      }
+      if (!current || current.truncated || !current.text.trim())
+        return failure('Texto integral do post indisponível; revisão necessária antes da IA');
+      // Somente após reler uma publicação canônica sem truncamento.
+      d.crm.savePost(personId, {
+        url: post.url, text: current.text,
+        postedAt: current.age ?? post.postedAt, hasMedia: current.hasMedia,
+      });
+      return { ok: true as const, text: current.text };
+    } catch (error) {
+      if (error instanceof BlockedError) throw error;
+      return failure('Falha ao confirmar conteúdo integral antes da IA: ' +
+        (error instanceof Error ? error.message : String(error)));
+    }
+  });
+}
+
 /** Publica um comentário num post e confirma que ele aparece. */
 export async function publishComment(d: ExecutorDeps, urn: string, text: string): Promise<ExecutionResult> {
   if (!isCanonicalPostUrn(urn)) return {
@@ -531,40 +580,43 @@ export async function publishComment(d: ExecutorDeps, urn: string, text: string)
     const selectorMap = d.driver.sel as unknown as Record<string, readonly string[]>;
     const postReady = await d.driver.waitUntil(async () => {
       const posts = await d.driver.read(extractPosts, selectorMap, 80);
-      return posts.some((post) => post.urn === urn);
+      return posts.some((p) => p.urn === urn && p.cardIdentity?.identityStatus === 'CONFIRMED');
     }, 20_000);
     if (!postReady) return { ok: false, reason: 'NO_REAL_EFFECT',
-      message: 'Publicação canônica não localizada no permalink; nenhum comentário preparado' };
+      message: 'Identidade canônica do post não confirmada no permalink; comentário não preparado' };
     let editor = await d.driver.read(commentEditorPoint, selectorMap, urn);
     if (!editor) {
-      if (!(await d.driver.click('commentButton', { urn, containerKey: 'postItem' })))
+      if (!(await d.driver.openVerifiedCommentBox(urn)))
         return { ok: false, reason: 'NO_REAL_EFFECT',
-          message: 'Botão de comentar não encontrado na publicação identificada' };
+          message: 'Controle de abertura de comentários não validado no post identificado' };
       const ready = await d.driver.waitUntil(async () => {
         editor = await d.driver.read(commentEditorPoint, selectorMap, urn);
         return editor !== null;
       }, 8_000);
       if (!ready || !editor) return { ok: false, reason: 'NO_REAL_EFFECT',
-        message: 'Editor da publicação não identificado; nenhuma digitação realizada' };
+        message: 'Editor não encontrado univocamente no mesmo post após abrir comentários' };
     }
-    // Coordenadas derivadas exclusivamente do editor dentro do post canônico.
-    // Evitar o click genérico que pode selecionar o editor de outro post.
-    await d.driver.input.click(editor.x, editor.y);
+    if (!(await d.driver.focusVerifiedCommentEditor(urn)))
+      return { ok: false, reason: 'NO_REAL_EFFECT',
+        message: 'O editor ou seu pixel mudou antes de digitar; comentário não enviado' };
     await d.driver.input.think(600, 1800);
     await d.driver.input.type(text);
-    await d.driver.input.think(1200, 3500); // revisa antes de enviar
-
-    const typed = await d.driver.read(editorText, selectorMap, urn);
+    await d.driver.input.think(1200, 3500);
     const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
-    if (norm(typed) !== norm(text)) return { ok: false, reason: 'NO_REAL_EFFECT', message: 'O texto digitado não confere com o comentário' };
+    const typed = await d.driver.read(editorText, selectorMap, urn);
+    if (norm(typed) !== norm(text))
+      return { ok: false, reason: 'NO_REAL_EFFECT',
+        message: 'Texto do editor não confere com o comentário aprovado' };
 
-    const before = await d.driver.read(matchingCommentCount,
-      d.driver.sel as unknown as Record<string, readonly string[]>, urn, text);
-    if (before > 0) return { ok: false, reason: 'NO_REAL_EFFECT',
-      message: 'Texto idêntico já presente: envio interrompido para evitar duplicidade' };
-    const send = await d.driver.read(commentSubmitPoint, selectorMap, urn);
-    if (!send) return { ok: false, reason: 'NO_REAL_EFFECT',
-      message: 'Botão de publicar não identificado no mesmo editor; comentário preservado sem envio' };
+    const before = await d.driver.read(commentEvidence, selectorMap, urn, text);
+    if (!before.cardConfirmed) return { ok: false, reason: 'NO_REAL_EFFECT',
+      message: 'Post não pode ser identificado antes do envio; nenhuma ação enviada' };
+    if (before.count > 0) return { ok: false, reason: 'NO_REAL_EFFECT',
+      message: 'Comentário idêntico já presente: publicação interrompida para evitar duplicidade' };
+    const submitReady = await d.driver.waitUntil(
+      async () => (await d.driver.read(commentSubmitPoint, selectorMap, urn)) !== null, 4_000);
+    if (!submitReady) return { ok: false, reason: 'NO_REAL_EFFECT',
+      message: 'Envio não vinculado ao formulário do editor correto; texto preservado sem publicar' };
     // A reserva é atômica e persistida antes de qualquer possibilidade de envio.
     // Em reinicialização, 'started' é considerado resultado incerto.
     const textHash = createHash('sha256').update(text).digest('hex');
@@ -575,10 +627,20 @@ export async function publishComment(d: ExecutorDeps, urn: string, text: string)
         '). Concilie manualmente antes de qualquer novo envio.',
     };
     try {
-      await d.driver.input.click(send.x, send.y);
+      const clicked = await d.driver.clickVerifiedCommentSubmit(urn, text);
+      if (!clicked) {
+        d.crm.finishCommentSubmission(urn, 'uncertain');
+        return { ok: false, reason: 'NO_REAL_EFFECT',
+          message: 'A publicação foi cancelada antes de mouseDown; reserva mantida para revisão, sem novo clique automático' };
+      }
       const published = await d.driver.waitUntil(async () => {
-        const after = await d.driver.read(matchingCommentCount, selectorMap, urn, text);
-        return after > before;
+        const evidence = await d.driver.read(commentEvidence, selectorMap, urn, text);
+        // Mesmo URN, texto novo na lista, atribuído à conta ativa e editor limpo.
+        // Uma lista que não atualizou ou autoria indeterminada gera UNCERTAIN.
+        return evidence.cardConfirmed &&
+          evidence.count > before.count &&
+          evidence.ownedCount > before.ownedCount &&
+          evidence.editorEmpty;
       }, 12_000);
       d.crm.finishCommentSubmission(urn, published ? 'confirmed' : 'uncertain');
       return published ? { ok: true, data: { post: urn } }
@@ -612,9 +674,14 @@ export function commentWithAi(d: ExecutorDeps): ActionExecutor {
       const interpreter = d.interpreter();
       if (!interpreter) return { ok: false, reason: 'ERROR', message: 'IA não configurada (chave da API ausente)' };
 
+      // O conteúdo utilizado pela IA deve vir da publicação canônica expandida,
+      // nunca do resumo parcial capturado no feed antes de curtir.
+      const fullPost = await guard(() => hydratePostForComment(d, ctx.person.id, post));
+      if (!fullPost.ok) return fullPost;
+      const postForAi = { ...post, text: (fullPost.data?.text as string) || post.text };
       let interpretation;
       try {
-        interpretation = await interpreter.interpret(post, d.crm.getPerson(ctx.person.id) ?? ctx.person, s);
+        interpretation = await interpreter.interpret(postForAi, d.crm.getPerson(ctx.person.id) ?? ctx.person, s);
       } catch (e) {
         return { ok: false, reason: 'ERROR', message: `IA: ${e instanceof Error ? e.message : String(e)}` };
       }
