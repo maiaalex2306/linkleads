@@ -29,3 +29,13 @@ ações contra LinkedIn real estejam homologadas, que todas as funções do
 Linked Helper existam, ou que os termos da plataforma permitam a automação.
 Antes de liberar interação real, resolver checkpoints manualmente e validar
 somente ações autorizadas individualmente com logs de confirmação.
+
+## Versao 0.5.12 — evidencias adicionais
+
+- O `INSTALAR-LINKLEADS.cmd` precisa estar na raiz do ZIP e tem destino fixo `D:\LINKLEADS`.
+- Antes da troca de versao, verificar `D:\LINKLEADS\BACKUPS\snapshot-*\backup-report.json`, contendo `BACKUP_VERIFICADO`; guardar copia externa privada.
+- Manifesto v2: SHA-256 individual de todos os arquivos, incluindo `resources\app.asar`.
+- A versao anterior fica em `D:\LINKLEADS\APP.previous-*` apos uma atualizacao bem sucedida; falha apos swap restaura APP e registra `ROLLBACK_OK`.
+- Nao apagar manualmente APP.previous, APP.failed, BACKUPS ou os dados no AppData sem auditar.
+- O `homologar-linkleads.ps1` agora inclui os testes E2E de reconhecimento, editor, incerteza e aprovacao; todos sao sinteticos.
+- Aprovacao final em conta LinkedIn verdadeira segue separada e depende da execucao supervisionada de cinco perfis autorizados.
