@@ -577,7 +577,8 @@ export class AccountInstance {
   }
 
   /** Abrir o navegador nunca implica iniciar o executor. */
-  schedulerRunning(): boolean { return Boolean(this.loop); }
+  /** Bloqueia alterações destravadas pela UI também durante um ciclo manual ainda em andamento. */
+  schedulerRunning(): boolean { return Boolean(this.loop || this.currentTick); }
 
   startScheduler(intervalMs = 5 * 60_000): void {
     this.stopScheduler();
