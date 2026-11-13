@@ -86,6 +86,13 @@ try {
   const stats = await call('accountStats', acc.id);
   const used = (key) => stats.meters.find((m) => m.key === key)?.used;
   check(used('likes') === 1 && used('comments') === 1, 'contagem independente: 1 curtida, 1 comentário');
+  const effects = await call('engagementEffects', acc.id, campaignId);
+  for (const [stage, status] of [['selection', 'confirmed'], ['like', 'confirmed'],
+    ['ai', 'confirmed'], ['approval', 'confirmed'], ['comment', 'confirmed']]) {
+    check(effects.some((event) => event.stage === stage && event.status === status),
+      'histórico SQLite confirma efeito independente: ' + stage, effects);
+  }
+
   await call('runNow', acc.id);
   check(site.state.comments.length === 1, 'nenhum comentário duplicado em novo ciclo');
   console.log('E2E CURTIR E COMENTAR — AÇÃO ÚNICA OK');
