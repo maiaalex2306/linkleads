@@ -57,7 +57,11 @@ export function profileResolutionRoutes(p: Person): ProfileRoute[] {
   // headers do CSV eram guardados em custom_json com nomes variados.
   // Nunca substituir a origem Sales Navigator pela rota /profile/view.
   const rawValues = Object.values(p.custom ?? {}).filter((v) => typeof v === 'string');
-  const originals = [...new Set(rawValues)].map(parseSalesSource)
+  const urlPattern = /https:\/\/(?:[a-z]{2,3}\.)?linkedin\.com\/sales\/(?:people|lead|profile)\/[A-Za-z0-9_-]+(?:,[A-Za-z0-9_-]+)*\/?(?:\?[^\s"'<>]*)?/gi;
+  const candidates = rawValues.flatMap((value) => [
+    value, ...[...value.matchAll(urlPattern)].map((match) => match[0]!.replace(/[),;]+$/, '')),
+  ]);
+  const originals = [...new Set(candidates)].map(parseSalesSource)
     .filter((x): x is { url: string; core: string } => !!x);
   if (new Set(originals.map((x) => x.core)).size > 1) return []; // nao escolher entre membros diferentes
   const originalSales = originals[0];
@@ -84,7 +88,10 @@ export function profileResolutionRoutes(p: Person): ProfileRoute[] {
   const suppliedMember = p.memberId?.trim();
   // Nunca misturar identificadores inconsistentes na mesma pessoa.
   if (memberFromHash && suppliedMember && suppliedMember !== memberFromHash) return [];
-  const member = suppliedMember ?? memberFromHash;
+  // Sales Navigator historico /sales/profile/<numero>,... expõe o member_id
+  // como texto numérico e NÃO como ACw/ACo.
+  const memberFromSalesProfile = sales && /^\d{1,20}$/.test(sales.core) ? sales.core : undefined;
+  const member = suppliedMember ?? memberFromHash ?? memberFromSalesProfile;
   if (member && /^\d{1,20}$/.test(member))
     routes.push({ method: 'member_legacy',
       url: 'https://www.linkedin.com/profile/view?id=' + member,
