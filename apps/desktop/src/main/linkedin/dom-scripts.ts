@@ -802,9 +802,17 @@ export function postExpandPoint(
     .filter((c) => c.urn === urn && c.identity.identityStatus === 'CONFIRMED');
   if (cards.length !== 1) return null;
   const root = cards[0]!.el;
-  const candidates = Array.from(root.querySelectorAll(
-    '.update-components-text button, .feed-shared-inline-show-more-text button, .feed-shared-inline-show-more-text__see-more-less-toggle, [data-testid="post-text"] button, [data-test-id="post-text"] button',
-  )) as HTMLElement[];
+  const selectors = [
+    ...(sel.postExpand ?? []),
+    '.update-components-text button',
+    '.feed-shared-inline-show-more-text button',
+    '.feed-shared-inline-show-more-text__see-more-less-toggle',
+    '[data-testid="post-text"] button', '[data-test-id="post-text"] button',
+  ];
+  const candidates = [...new Set(selectors.flatMap((selector) => {
+    try { return Array.from(root.querySelectorAll(selector)); }
+    catch { return [] as Element[]; }
+  }))] as HTMLElement[];
   const controls = candidates.filter((node) => {
     if (node.closest('.comments-comment-entity, .comments-comment-item')) return false;
     let p: Element | null = node.parentElement;
