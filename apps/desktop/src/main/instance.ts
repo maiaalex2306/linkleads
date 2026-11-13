@@ -33,7 +33,7 @@ const stubLlm: LlmClient = {
       post_interpretation: {
         language: 'pt', summary: `Resumo: ${req.user.match(/<post>\n([\s\S]{0,40})/)?.[1] ?? ''}`, mainPoint: 'ponto',
         authorWork: 'trabalho', topics: ['teste'], postType: 'conquista', sentiment: 'positivo', sensitive: false,
-        shouldComment: true, skipReason: '', comment: 'Parabéns pela entrega! Gostaria de conhecer mais sobre esse trabalho.',
+        shouldComment: true, skipReason: '', comment: /reúso|reuso/i.test(req.user) ? 'O trabalho com reúso de água mostra uma aplicação relevante de inovação. Como vocês mediram os resultados?' : 'A solução de telemetria e redução de perdas parece relevante. Como vocês mediram os resultados?',
       },
       outreach_message: {
         text: req.user.includes('nota de convite') ? 'Olá Ana, vi seu trabalho com telemetria e gostaria de me conectar.' : 'Obrigado por aceitar, Ana! Como vocês mediram as perdas?',
