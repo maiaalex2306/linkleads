@@ -654,8 +654,11 @@ export async function publishComment(d: ExecutorDeps, urn: string, text: string)
         editor = await d.driver.read(commentEditorPoint, selectorMap, urn);
         return editor !== null;
       }, 8_000);
-      if (!ready || !editor) return { ok: false, reason: 'NO_REAL_EFFECT',
-        message: 'Editor não encontrado univocamente no mesmo post após abrir comentários' };
+      if (!ready || !editor) {
+        d.driver.recordDiagnostic('EDITOR_NOT_FOUND', 'comment_editor_wait', { hasPost: true });
+        return { ok: false, reason: 'NO_REAL_EFFECT',
+          message: 'Editor não encontrado univocamente no mesmo post após abrir comentários' };
+      }
     }
     if (!(await d.driver.focusVerifiedCommentEditor(urn)))
       return { ok: false, reason: 'NO_REAL_EFFECT',
@@ -705,12 +708,14 @@ export async function publishComment(d: ExecutorDeps, urn: string, text: string)
           evidence.editorEmpty;
       }, 12_000);
       d.crm.finishCommentSubmission(urn, published ? 'confirmed' : 'uncertain');
+      if (!published) d.driver.recordDiagnostic('COMMENT_SUBMISSION_UNCERTAIN', 'comment_verify', { hasPost: true });
       return published ? { ok: true, data: { post: urn, commentAttempted: true, commentConfirmed: true } }
         : { ok: false, reason: 'NO_REAL_EFFECT',
           message: 'Envio possivelmente realizado, mas não confirmado. Reconciliação manual obrigatória; não repetir automaticamente.',
           data: { post: urn, commentAttempted: true, commentConfirmed: false } };
     } catch (error) {
       d.crm.finishCommentSubmission(urn, 'uncertain');
+      d.driver.recordDiagnostic('COMMENT_SUBMISSION_UNCERTAIN', 'comment_exception', { hasPost: true });
       return { ok: false, reason: 'NO_REAL_EFFECT',
         message: 'A confirmação foi interrompida após reservar o envio; resultado incerto, não repetir. ' +
           (error instanceof Error ? error.message : String(error)),
@@ -736,7 +741,10 @@ export function commentWithAi(d: ExecutorDeps): ActionExecutor {
         return { ok: true, data: { post: post.url, alreadyCommented: true } };
       }
       const interpreter = d.interpreter();
-      if (!interpreter) return { ok: false, reason: 'ERROR', message: 'IA não configurada (chave da API ausente)' };
+      if (!interpreter) {
+        d.driver.recordDiagnostic('AI_NOT_READY', 'ai_provider');
+        return { ok: false, reason: 'ERROR', message: 'IA não configurada (chave da API ausente)' };
+      }
 
       // O conteúdo utilizado pela IA deve vir da publicação canônica expandida,
       // nunca do resumo parcial capturado no feed antes de curtir.
@@ -758,6 +766,7 @@ export function commentWithAi(d: ExecutorDeps): ActionExecutor {
         interpretation = await interpreter.interpret(postForAi, d.crm.getPerson(ctx.person.id) ?? ctx.person, s);
       } catch (e) {
         effect('ai', 'blocked', 'AI_INTERPRETATION_ERROR');
+        d.driver.recordDiagnostic('AI_NOT_READY', 'ai_interpretation');
         return { ok: false, reason: 'ERROR', message: `IA: ${e instanceof Error ? e.message : String(e)}` };
       }
       if (!interpretation.shouldComment) {
