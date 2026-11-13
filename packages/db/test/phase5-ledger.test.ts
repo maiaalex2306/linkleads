@@ -2,11 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { openAccountDb, SqliteCampaignStore } from '../src/index.js';
+import { openAccountDb, IntegrationCrm } from '../src/index.js';
 
 const create = () => {
   const db = openAccountDb(':memory:');
-  const store = new SqliteCampaignStore(db, 'America/Sao_Paulo');
+  const store = new IntegrationCrm(db, 'America/Sao_Paulo');
   db.exec("INSERT INTO campaigns(id,name,active) VALUES('c1','Regressão',0)");
   db.exec("INSERT INTO campaign_actions(id,campaign_id,position,type,name) VALUES('a1','c1',0,'LikeAndComment','Curtir e comentar')");
   return { db, store };
@@ -43,13 +43,13 @@ describe('Fase 5 — ledger SQLite de curtidas e efeitos parciais', () => {
     const file = join(root, 'account.db');
     try {
       const db1 = openAccountDb(file);
-      const store1 = new SqliteCampaignStore(db1, 'America/Sao_Paulo');
+      const store1 = new IntegrationCrm(db1, 'America/Sao_Paulo');
       store1.upsertPerson({ id: 'p1', publicId: 'ana-silva' });
       store1.savePost('p1', { url: urn(1002), text: 'Post de teste', hasMedia: false });
       expect(store1.beginLikeAttempt(urn(1002), 'p1', 'c1', 'a1')).toBe(true);
       db1.close();
       const db2 = openAccountDb(file);
-      const store2 = new SqliteCampaignStore(db2, 'America/Sao_Paulo');
+      const store2 = new IntegrationCrm(db2, 'America/Sao_Paulo');
       const version = db2.prepare('SELECT version FROM schema_version').get() as { version: number };
       expect(version.version).toBeGreaterThanOrEqual(13);
       expect(store2.latestLikeAttempt('p1', 'c1', 'a1')?.status).toBe('started');
