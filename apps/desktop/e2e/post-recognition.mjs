@@ -222,6 +222,76 @@ try {
     posts[0].cardIdentity?.embeddedPostUrn === 'urn:li:activity:7381234567890128401',
     'URN exclusivamente incorporada não é promovida à publicação principal', posts);
 
+  // FASE 2 — cabeçalho informativo e verbo no CORPO não significam reshare.
+  await page.setContent(
+    '<main><div class="feed-shared-update-v2" data-urn="urn:li:activity:7381234567890128501">' +
+    '<div class="update-components-header">Atualização profissional recente</div>' +
+    '<div class="update-components-actor">' +
+    '<a class="update-components-actor__meta-link" href="https://www.linkedin.com/in/renato-bonfogo/">Renato Bonfogo</a>' +
+    '<span class="update-components-actor__sub-description">2 d</span></div>' +
+    '<div class="update-components-text">Renato compartilhou uma ideia no texto, mas esta publicação é original.</div>' +
+    '<div class="update-components-article"><a href="/feed/update/urn:li:activity:7381234567890128599/">Vaga anexada</a></div>' +
+    '<button aria-pressed="false" aria-label="Like">Gostei</button></div></main>'
+  );
+  posts = await scan();
+  check(posts.length === 1 && !posts[0].isReshare &&
+    posts[0].postKind === 'ORIGINAL_WITH_ATTACHMENT' &&
+    posts[0].actorHref?.endsWith('/renato-bonfogo/'),
+    'Renato: header genérico e verbo no corpo não transformam post com vaga em compartilhamento', posts);
+
+  // FASE 2 — repost original de terceiro: autor principal não é o repostador.
+  await page.setContent(
+    '<main><div class="feed-shared-update-v2" data-urn="urn:li:activity:7381234567890128601">' +
+    '<div class="feed-shared-header">' +
+    '<a href="https://www.linkedin.com/in/renato-bonfogo/">Renato Bonfogo</a> compartilhou uma publicação</div>' +
+    '<div class="update-components-actor">' +
+    '<a class="update-components-actor__meta-link" href="https://www.linkedin.com/in/tassiana-ribas/">Tassiana Ribas</a>' +
+    '<span class="update-components-actor__sub-description">2 d</span></div>' +
+    '<div class="update-components-text">Texto original de Tassiana.</div>' +
+    '<button aria-pressed="false" aria-label="Like">Gostei</button></div></main>'
+  );
+  posts = await scan();
+  check(posts.length === 1 && posts[0].isReshare &&
+    posts[0].postKind === 'RESHARE_PLAIN' &&
+    posts[0].actorHref?.endsWith('/tassiana-ribas/') &&
+    posts[0].resharedByHref?.endsWith('/renato-bonfogo/'),
+    'Renato e Tassiana: separação de autoria original e republicador confirmado', posts);
+
+  // Republicação comentada: texto próprio na região de comentário externo.
+  await page.setContent(
+    '<main><div class="feed-shared-update-v2" data-urn="urn:li:activity:7381234567890128602">' +
+    '<div class="feed-shared-header">' +
+    '<a href="https://www.linkedin.com/in/renato-bonfogo/">Renato Bonfogo</a> republicou</div>' +
+    '<div class="update-components-actor">' +
+    '<a class="update-components-actor__meta-link" href="https://www.linkedin.com/in/tassiana-ribas/">Tassiana Ribas</a>' +
+    '<span class="update-components-actor__sub-description">2 d</span></div>' +
+    '<div data-testid="post-commentary">Minha reflexão sobre essa publicação.</div>' +
+    '<div class="feed-shared-mini-update-v2">' +
+    '<a href="https://www.linkedin.com/in/terceiro/">Terceiro mencionado</a>' +
+    '<div class="update-components-text">Post original de terceiro.</div></div>' +
+    '<button aria-pressed="false" aria-label="Like">Gostei</button></div></main>'
+  );
+  posts = await scan();
+  check(posts.length === 1 && posts[0].postKind === 'RESHARE_COMMENTED' &&
+    posts[0].resharedByHref?.endsWith('/renato-bonfogo/') &&
+    posts[0].actorHref?.endsWith('/tassiana-ribas/'),
+    'republicação comentada preserva autor original e URL do compartilhador', posts);
+
+  // Moderno: menção a terceiro no conteúdo não altera autoria.
+  await page.setContent(
+    '<main><div class="new-card"><header>' +
+    '<a href="https://www.linkedin.com/in/douglas-rodrigues/">Douglas Rodrigues</a>' +
+    '<a href="/posts/douglas_post-activity-7381234567890128701-X">há 2 d</a></header>' +
+    '<div dir="ltr">Reconhecemos o trabalho de <a href="https://www.linkedin.com/in/outra-pessoa/">outra pessoa</a>.</div>' +
+    '<div role="button" aria-pressed="false"><svg data-test-icon="thumbs-up-outline-small"></svg></div>' +
+    '<button aria-label="Comentar">Comentar</button></div></main>'
+  );
+  posts = await scan();
+  check(posts.length === 1 && posts[0].actorHref?.endsWith('/douglas-rodrigues/') &&
+    posts[0].postKind === 'ORIGINAL' &&
+    posts[0].urn === 'urn:li:activity:7381234567890128701',
+    'Douglas: autoria do header moderno não é contaminada por menção no conteúdo', posts);
+
   console.log('E2E FASE 3 — RECONHECIMENTO DE PUBLICAÇÕES OK');
 } catch (error) {
   console.error(error?.stack ?? error);
