@@ -115,7 +115,7 @@ function diagReportCard(r, i) {
                 d.evidence.kind + ' · URN ' + (d.evidence.canonical ? 'confirmada' : 'provisória') +
                 ' · autor ' + (d.evidence.actorLinkPresent ? 'com link' : 'sem link') +
                 ' · reação ' + d.evidence.reaction))))),
-        )),
+        ),
     r.buttons.length > 0 && h('details', {}, h('summary', { class: 'muted' }, `Botões visíveis (${r.buttons.length})`), h('div', { class: 'muted' }, r.buttons.join(' · '))),
   );
 }
