@@ -27,7 +27,7 @@ describe('resolver de identidade — somente leitura/rotas conhecidas', () => {
     const routes = profileResolutionRoutes(lead);
     expect(routes.map((r) => r.method)).toEqual(['basic_hash_candidate', 'member_legacy', 'sales_source']);
     expect(routes[0]?.url).toBe('https://www.linkedin.com/in/' + hash + '/');
-    expect(routes[0]?.requiresNameConfirmation).toBe(true);
+    expect(routes[0]?.requiresNameConfirmation).toBe(false);
     expect(routes[1]?.url).toBe('https://www.linkedin.com/profile/view?id=33574315');
     expect(routes[2]?.url).toBe(lead.custom?.linkleads_source_url);
   });
@@ -83,7 +83,7 @@ describe('resolver de identidade — somente leitura/rotas conhecidas', () => {
     });
     expect(routes).toEqual([
       { method: 'basic_hash_candidate',
-        url: 'https://www.linkedin.com/in/' + hash + '/', requiresNameConfirmation: true },
+        url: 'https://www.linkedin.com/in/' + hash + '/', requiresNameConfirmation: false },
       { method: 'member_legacy',
         url: 'https://www.linkedin.com/profile/view?id=33574315', requiresNameConfirmation: false },
     ]);
