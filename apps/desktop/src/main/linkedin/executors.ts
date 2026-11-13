@@ -193,7 +193,13 @@ export function firstUnlikedCandidate(
     const actorKnown = !!actor;
     if (post.actorHref && !actor)
       return { post, why: 'Link do autor não é um perfil confiável do LinkedIn', uncertain: true };
-    if (actorKnown && actor !== id) continue; // atividade de terceiro
+    if (actorKnown && actor !== id) {
+      // Opaque diferente continua incerto: pode ser outro membro ou alias não
+      // reconciliado. Não autorizar interação por semelhança de nome.
+      if (/^AC[owr]/.test(actor))
+        return { post, why: 'Identificador opaco do autor diferente do perfil confirmado', uncertain: true };
+      continue;
+    }
     // Nome completo, mesmo exato, não identifica unicamente uma pessoa:
     // existem homônimos. A autoria precisa ser comprovada pelo /in/ do lead.
     if (!actorKnown)
@@ -231,7 +237,10 @@ export function choosePost(posts: PostExtract[], publicId: string, s: LikeSettin
     const actor = p.actorHref ? profileSlug(p.actorHref) : undefined;
     if (!actor)
       return (uncertainActors++, false);
-    if (!isOwn(p)) return (others++, false);
+    if (!isOwn(p)) {
+      if (/^AC[owr]/.test(actor)) return (uncertainActors++, false);
+      return (others++, false);
+    }
     // Qualquer consumidor de choosePost deve receber somente conteúdo verificável.
     // URNs temporárias e datas ilegíveis servem para diagnóstico, não para interação.
     if (!isCanonicalPostUrn(p.urn)) return (uncertainPosts++, provisionalPosts++, false);
