@@ -270,7 +270,13 @@ export function firstUnlikedCandidate(
     const assessment = evaluatePost(post, publicId, options);
     if (assessment.status === 'NOT_ELIGIBLE') continue;
     if (assessment.status === 'REVIEW_REQUIRED')
-      return { post, why: assessment.why, uncertain: true };
+      return {
+        // Conflitos de autor ou identidade não geram sequer candidato.
+        // URN provisória/estado desconhecido podem ser exibidos para diagnóstico.
+        post: ['AUTHOR_CONFLICT', 'POST_ID_CONFLICT', 'AUTHOR_UNVERIFIED'].includes(assessment.code)
+          ? undefined : post,
+        why: assessment.why, uncertain: true,
+      };
     return { post, why: '' };
   }
   return { why: 'Nenhuma publicação do perfil com curtida comprovadamente ausente' };
@@ -357,10 +363,10 @@ async function discoverUnlikedPost(
     // Autor, estado, URN e data continuam sendo gates separados de interacao.
     const ordered = [...seen.values()].filter((p) => !ignoredUrns.has(p.urn));
     const candidate = firstUnlikedCandidate(ordered, publicId, personName, settings);
+    if (candidate.uncertain)
+      return { posts: ordered, why: candidate.why + '. Confirmação humana necessária.', uncertain: true };
     if (candidate.post) {
       const post = candidate.post;
-      if (candidate.uncertain)
-        return { posts: ordered, why: candidate.why + '. Confirmacao humana necessaria.', uncertain: true };
       if (!isCanonicalPostUrn(post.urn))
         return { posts: ordered,
           why: 'Primeira publicacao nao curtida identificada na ordem da tela, mas seu ID e provisório. ' +
