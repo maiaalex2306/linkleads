@@ -23,6 +23,10 @@ describe('Fase 2 — decisão única e autoria segura', () => {
         embeddedActorUrl: 'https://www.linkedin.com/in/empresa/',
         identityStatus: 'CONFIRMED' } });
     expect(valid(p).status).toBe('ELIGIBLE');
+    expect(valid(p).passedStages).toEqual([
+      'POST_FOUND', 'AUTHOR_CONFIRMED', 'POST_CLASSIFIED',
+      'POST_ID_CONFIRMED', 'REACTION_STATE_KNOWN', 'ELIGIBLE',
+    ]);
     expect(choosePost([p], 'renato-bonfogo', { maxPostAgeDays: 365 }).post).toBe(p);
   });
   it('repost simples conhecido é excluído com includeReshares=false', () => {
