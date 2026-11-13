@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { pickPost, choosePost, firstUnlikedCandidate, hasNewVerifiedPost, profileSlug } from '../src/main/linkedin/executors.js';
+import { pickPost, choosePost, firstUnlikedCandidate, hasNewVerifiedPost, profileSlug, sameConfirmedPublicId } from '../src/main/linkedin/executors.js';
 import type { PostExtract } from '../src/main/linkedin/dom-scripts.js';
 
 const one = (urn: string, liked: boolean | null): PostExtract => ({
@@ -195,6 +195,8 @@ describe('autoria por URL pública opaca sensível a maiúsculas', () => {
   });
 
   it('não troca autor quando somente a caixa de caracteres do identificador difere', () => {
+    expect(sameConfirmedPublicId(opaque, otherCase)).toBe(false);
+    expect(sameConfirmedPublicId(opaque, opaque)).toBe(true);
     expect(firstUnlikedCandidate([post], otherCase).post).toBeUndefined();
     const chosen = choosePost([post], otherCase, { maxPostAgeDays: 30 });
     expect(chosen.post).toBeUndefined();
