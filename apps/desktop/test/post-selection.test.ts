@@ -198,7 +198,8 @@ describe('autoria por URL pública opaca sensível a maiúsculas', () => {
     expect(firstUnlikedCandidate([post], otherCase).post).toBeUndefined();
     const chosen = choosePost([post], otherCase, { maxPostAgeDays: 30 });
     expect(chosen.post).toBeUndefined();
-    expect(chosen.why).toMatch(/outro autor/);
+    expect(chosen.uncertain).toBe(true);
+    expect(chosen.why).toMatch(/identidade do autor/);
   });
 
   it('continua rejeitando homônimo cujo link de autor não é o do lead', () => {
