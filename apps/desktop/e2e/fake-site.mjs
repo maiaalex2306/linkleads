@@ -249,6 +249,20 @@ export function startFakeSite(port = 0) {
     }
     if (url.startsWith('/feed/update/')) {
       const urn = url.split('/')[3];
+      // Layout novo: permalink da Marina precisa ter a MESMA autoria e texto
+      // reconhecidos na timeline. Nunca trocar silenciosamente pelo post da Ana.
+      if (urn === 'urn:li:activity:7381234567890128002') {
+        const marinaPost = '<div class="feed-shared-update-v2" data-urn="' + urn + '">' +
+          '<div class="update-components-actor"><a class="update-components-actor__meta-link" href="/in/layout-novo/">Marina Costa</a>' +
+          '<span class="update-components-actor__sub-description">há 1 sem</span></div>' +
+          '<div class="update-components-text">Conquistamos o 4º lugar no ranking das empresas mais inovadoras de 2026, com projetos de reúso de água na planta de Taubaté.</div>' +
+          '<button class="react-button__trigger" aria-label="React Like" aria-pressed="true">Like</button>' +
+          '<button aria-label="Comment">Comment</button>' +
+          '<form class="comments-comment-box__form" onsubmit="return false"><div class="comments-comment-box-comment__text-editor">' +
+          '<div contenteditable="true"></div></div><button type="submit" class="comments-comment-box__submit-button">Post</button></form>' +
+          '<div id="comments"></div></div>';
+        return html(marinaPost, commentScript());
+      }
       // Ao misturar layouts, o permalink e o data-urn da página de destino
       // devem representar a MESMA publicação (identidade canônica).
       const postIdentity = state.mixedPostLayout ? urn : (urn.startsWith(DEEP_URN) ? DEEP_URN : URN);
