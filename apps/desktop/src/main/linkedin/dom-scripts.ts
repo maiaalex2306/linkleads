@@ -82,6 +82,105 @@ export function llIsReact(el: Element): boolean {
 }
 
 /**
+ * Contrato P1: identifica EXCLUSIVAMENTE o controle de reação do cartão
+ * principal. O estado provém de evidências semânticas positivas/negativas:
+ * sinais contraditórios, falta de sinal ou mais de um controle -> UNKNOWN.
+ * Esta função é autocontida para execução no mundo isolado do Electron.
+ */
+export function llReactionTarget(
+  card: Element, configured: readonly string[],
+): { element: HTMLElement | null; state: boolean | null; reason: string } {
+  const embedded = [
+    '.feed-shared-mini-update-v2', '.update-components-mini-update-v2',
+    '.feed-shared-article', '.update-components-article',
+    '[data-testid*="quoted"]', '[data-test-id*="reshared"]',
+  ].join(', ');
+  const own = (node: Element): boolean => {
+    let parent = node.parentElement;
+    while (parent && parent !== card) {
+      if (parent.matches(embedded) || parent.matches('[data-urn], [data-activity-urn]')) return false;
+      parent = parent.parentElement;
+    }
+    return parent === card;
+  };
+  const candidates = new Set<HTMLElement>();
+  const accept = (node: Element): void => {
+    if (!(node instanceof HTMLElement)) return;
+    if (!node.matches('button, [role="button"]') || !own(node) || !__llIsReact(node)) return;
+    candidates.add(node);
+  };
+  for (const selector of configured) {
+    try { for (const node of Array.from(card.querySelectorAll(selector))) accept(node); }
+    catch { /* seletor local inválido: não reduzir segurança */ }
+  }
+  for (const node of Array.from(card.querySelectorAll('button, [role="button"]'))) accept(node);
+  if (!candidates.size) return { element: null, state: null, reason: 'NOT_FOUND' };
+  if (candidates.size !== 1) return { element: null, state: null, reason: 'AMBIGUOUS_BUTTONS' };
+  const element = [...candidates][0]!;
+  if ((element as HTMLButtonElement).disabled || element.getAttribute('aria-disabled') === 'true')
+    return { element, state: null, reason: 'DISABLED' };
+  const signals = new Set<boolean>();
+  const pressed = element.getAttribute('aria-pressed');
+  const checked = element.getAttribute('aria-checked');
+  if (pressed === 'true' || pressed === 'false') signals.add(pressed === 'true');
+  if (checked === 'true' || checked === 'false') signals.add(checked === 'true');
+  const dataState = (element.getAttribute('data-state') ?? '').trim().toLowerCase();
+  if (['on', 'pressed', 'checked', 'reacted', 'liked'].includes(dataState)) signals.add(true);
+  if (['off', 'unpressed', 'unchecked', 'unreacted', 'unliked'].includes(dataState)) signals.add(false);
+  const className = typeof element.className === 'string' ? element.className : '';
+  if (/(?:^|\s)(?:react-button--active|react-button--reacted|is-reacted|is-liked)(?:\s|$)/i.test(className)) signals.add(true);
+  const label = [
+    element.getAttribute('aria-label') ?? '',
+    element.getAttribute('title') ?? '',
+    element.getAttribute('data-control-name') ?? '',
+  ].join(' ').trim();
+  if (/situa[cç][aã]o do bot[aã]o de rea[cç][aã]o:\s*nenhuma rea[cç][aã]o|reaction button state:\s*no reaction/i.test(label))
+    signals.add(false);
+  else if (/situa[cç][aã]o do bot[aã]o de rea[cç][aã]o:\s*(?:gostei|amei|apoio|celebro|interessante|like|love|support|celebrate|insightful)|reaction button state:\s*(?:like|love|support|celebrate|insightful)/i.test(label))
+    signals.add(true);
+  if (/\b(?:unlike|undo (?:like|reaction)|remove (?:like|reaction)|remover (?:curtida|rea[cç][aã]o)|desfazer (?:curtida|rea[cç][aã]o))\b/i.test(label))
+    signals.add(true);
+  else if (/^(?:like|react like|curtir|gostar|reagir com gostei|react with like)$/i.test(label))
+    signals.add(false);
+  const icons = Array.from(element.querySelectorAll('[data-test-icon], use[href], use[xlink\\:href]'));
+  for (const icon of icons) {
+    const name = [
+      icon.getAttribute('data-test-icon') ?? '',
+      icon.getAttribute('href') ?? '',
+      icon.getAttribute('xlink:href') ?? '',
+    ].join(' ').toLowerCase();
+    if (/thumbs-up-(?:outline|line|regular)|like-(?:outline|line|regular)/.test(name)) signals.add(false);
+    else if (/thumbs-up-(?:filled|solid)|like-(?:filled|solid)/.test(name)) signals.add(true);
+  }
+  if (signals.size > 1) return { element, state: null, reason: 'CONFLICTING_STATE' };
+  if (signals.size === 0) return { element, state: null, reason: 'STATE_UNKNOWN' };
+  return { element, state: [...signals][0]!, reason: 'CONFIRMED' };
+}
+
+declare function __llReactionTarget(card: Element, configured: readonly string[]): {
+  element: HTMLElement | null; state: boolean | null; reason: string;
+};
+
+/** Última barreira P1: o pixel de clique deve pertencer ao botão do MESMO post,
+ * que ainda precisa apresentar estado NÃO CURTIDO imediatamente antes do mouseDown.
+ */
+export function llReactionClickGuard(
+  sel: Record<string, readonly string[]>, urn: string, x: number, y: number,
+): boolean {
+  if (!/^urn:li:(?:activity|ugcPost|share):\d{1,25}$/.test(urn)) return false;
+  const matches = __llPostContainers({ postItem: sel.postItem!, likeButton: sel.likeButton! })
+    .filter((entry) => entry.urn === urn && entry.identity.identityStatus === 'CONFIRMED');
+  if (matches.length !== 1) return false;
+  const target = __llReactionTarget(matches[0]!.el, sel.likeButton!);
+  if (!target.element || target.state !== false) return false;
+  const rect = target.element.getBoundingClientRect();
+  if (!(rect.width > 0 && rect.height > 0) ||
+    x < rect.left || x >= rect.right || y < rect.top || y >= rect.bottom) return false;
+  const hit = document.elementFromPoint(x, y);
+  return !!hit && (target.element === hit || target.element.contains(hit));
+}
+
+/**
  * Descobre cartões sem confundir publicação principal, repost e conteúdo incorporado.
  * Autocontida: PageDriver serializa esta função para o mundo isolado do Electron.
  * Identificadores provisórios servem exclusivamente a diagnóstico, NUNCA a um clique.
@@ -371,13 +470,7 @@ export function extractPosts(sel: Record<string, readonly string[]>, limit: numb
       }
     }
     text = text.replace(/\s*…\s*mais$|\s*\.\.\.\s*(more|mais)$/i, '').trim();
-    let like = firstOwn(sel.likeButton!) as HTMLElement | null;
-    if (!like) like = (Array.from(it.querySelectorAll('button, [role="button"]')) as HTMLElement[])
-      .find((b) => !inEmbedded(b) && __llIsReact(b)) ?? null;
-    const label = like?.getAttribute('aria-label') ?? '';
-    const pressed = like?.getAttribute('aria-pressed') ??
-      (/situa[cç][aã]o do bot[aã]o de rea[cç][aã]o:\s*nenhuma rea[cç][aã]o|reaction button state:\s*no reaction/i.test(label) ? 'false' :
-      (/situa[cç][aã]o do bot[aã]o de rea[cç][aã]o:\s*(?!nenhuma rea[cç][aã]o)\S|reaction button state:\s*(?!no reaction)\S|desfazer|remover|undo|unlike|reagiu|reacted/i.test(label) ? 'true' : null));
+    const reaction = __llReactionTarget(it, sel.likeButton!);
     const ageEl = firstOwn(sel.postAge!);
     const labelled = ageEl?.textContent?.replace(/\s+/g, ' ').trim() || '';
     const time = Array.from(it.querySelectorAll('time[datetime]')).find((el) => !inEmbedded(el)) ?? null;
@@ -446,7 +539,7 @@ export function extractPosts(sel: Record<string, readonly string[]>, limit: numb
       age: ageTxt,
       hasMedia: media,
       isReshare,
-      liked: pressed == null ? null : pressed === 'true',
+      liked: reaction.state,
     });
     if (out.length >= limit) break;
   }
@@ -454,30 +547,10 @@ export function extractPosts(sel: Record<string, readonly string[]>, limit: numb
 }
 
 export function likeState(sel: Record<string, readonly string[]>, urn: string): boolean | null {
-  const container = __llPostContainers({ postItem: sel.postItem!, likeButton: sel.likeButton! }).find((c) => c.urn === urn)?.el;
-  if (!container) return null;
-  const embedded = '.feed-shared-mini-update-v2, .update-components-mini-update-v2, .feed-shared-article, .update-components-article, [data-testid*="quoted"], [data-test-id*="reshared"]';
-  const ownButton = (node: Element): boolean => {
-    let ancestor: Element | null = node.parentElement;
-    while (ancestor && ancestor !== container) {
-      if (ancestor.matches(embedded) || ancestor.matches('[data-urn], [data-activity-urn]')) return false;
-      ancestor = ancestor.parentElement;
-    }
-    return true;
-  };
-  let button: HTMLElement | undefined;
-  for (const selector of sel.likeButton!) {
-    const found = (Array.from(container.querySelectorAll(selector)) as HTMLElement[])
-      .find(ownButton);
-    if (found) { button = found; break; }
-  }
-  if (!button) button = (Array.from(container.querySelectorAll('button, [role="button"]')) as HTMLElement[])
-    .find((node) => ownButton(node) && __llIsReact(node));
-  if (button?.hasAttribute('aria-pressed')) return button.getAttribute('aria-pressed') === 'true';
-  const label = button?.getAttribute('aria-label') ?? '';
-  if (/situa[cç][aã]o do bot[aã]o de rea[cç][aã]o:\s*nenhuma rea[cç][aã]o|reaction button state:\s*no reaction/i.test(label)) return false;
-  if (/situa[cç][aã]o do bot[aã]o de rea[cç][aã]o:\s*(?!nenhuma rea[cç][aã]o)\S|reaction button state:\s*(?!no reaction)\S/i.test(label)) return true;
-  return null;
+  const matches = __llPostContainers({ postItem: sel.postItem!, likeButton: sel.likeButton! })
+    .filter((entry) => entry.urn === urn && entry.identity.identityStatus === 'CONFIRMED');
+  if (matches.length !== 1) return null;
+  return __llReactionTarget(matches[0]!.el, sel.likeButton!).state;
 }
 
 /** Encontra um único editor visível dentro da publicação identificada.
