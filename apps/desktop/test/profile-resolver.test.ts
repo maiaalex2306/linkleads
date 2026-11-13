@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { memberIdFromBasicOpaquePublicId, memberIdFromSalesHash } from '@linkleads/core';
 import type { Person } from '@linkleads/core';
-import { parseSalesSource, profileResolutionRoutes, samePersonCompany, samePersonName, snHashCore } from '../src/main/linkedin/profile-resolver.js';
+import { parseSalesSource, profileResolutionRoutes, safePublicId, samePersonCompany, samePersonName, snHashCore } from '../src/main/linkedin/profile-resolver.js';
 
 describe('resolver de identidade — somente leitura/rotas conhecidas', () => {
   const hash = 'ACwAAAIATasBA_OC0NMUDatWeEBCssGNHCpTT6U';
@@ -30,6 +30,15 @@ describe('resolver de identidade — somente leitura/rotas conhecidas', () => {
     expect(routes[0]?.requiresNameConfirmation).toBe(true);
     expect(routes[1]?.url).toBe('https://www.linkedin.com/profile/view?id=33574315');
     expect(routes[2]?.url).toBe(lead.custom?.linkleads_source_url);
+  });
+  it('preserva case de ACo no candidato /in/ e nao modifica slug comum', () => {
+    const basic = 'ACoAAA8BYqEBCGLg_vT_ca6mMEqkpp9nVffJ3hc';
+    expect(safePublicId(basic)).toBe(basic);
+    expect(safePublicId('Nome-Pessoa')).toBe('nome-pessoa');
+    const routes = profileResolutionRoutes({ id: 'opaque', custom: {
+      linkleads_import_public_id_unverified: basic,
+    } });
+    expect(routes[0]?.url).toBe('https://www.linkedin.com/in/' + basic + '/');
   });
   it('hash Basic ACo confirma o MESMO member_id sem supor que ACw gera ACo', () => {
     expect(memberIdFromBasicOpaquePublicId('ACoAAA8BYqEBCGLg_vT_ca6mMEqkpp9nVffJ3hc')).toBe('251749025');
