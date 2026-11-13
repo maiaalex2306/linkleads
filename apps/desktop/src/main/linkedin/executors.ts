@@ -701,36 +701,43 @@ export async function gotoProfile(d: ExecutorDeps, p: Person, suffix = ''): Prom
         attempts.push(route.method + ': sem URL pública verificável');
         continue;
       }
-      if (route.method === 'exported_public_candidate' &&
-        !route.url.includes('/in/' + encodeURIComponent(observed) + '/')) {
-        attempts.push(route.method + ': destino divergente do arquivo');
-        continue;
-      }
       const observedMemberId = memberIdFromBasicOpaquePublicId(observed);
       const expectedMemberId = p.memberId ?? derivedMemberId;
       if (observedMemberId && expectedMemberId && observedMemberId !== expectedMemberId) {
         attempts.push(route.method + ': member_id do /in/ACo nao corresponde ao lead');
         continue;
       }
-      // Mesmo quando a plataforma redireciona, conferir o nome exibido:
-      // previne associação inadvertida a um perfil de terceiro.
+      // URL Basic /in/ACo... pode redirecionar para um slug de nome.
+      // Uma URL /in/nome simples NAO autoriza redirecionamento para outro nome.
+      if (route.method === 'exported_public_candidate') {
+        const originalCandidate = publicIdFromUrl(route.url);
+        const opaqueCandidateId = memberIdFromBasicOpaquePublicId(originalCandidate);
+        if (!opaqueCandidateId && originalCandidate !== observed) {
+          attempts.push(route.method + ': destino divergente do arquivo');
+          continue;
+        }
+        if (opaqueCandidateId && expectedMemberId && opaqueCandidateId !== expectedMemberId) {
+          attempts.push(route.method + ': identificador ACo importado pertence a outro member_id');
+          continue;
+        }
+      }
+      const exactMemberMatch = !!observedMemberId && !!expectedMemberId &&
+        observedMemberId === expectedMemberId;
+      // Prova por member_id e mais forte que nome/empresa, que podem mudar.
+      // Sem prova numerica, exigir nome + empresa para candidatos.
       const profile = await d.driver.read(extractProfile,
         d.driver.sel as unknown as Record<string, readonly string[]>)
         .catch(() => ({ name: null, company: null }));
       const expectedName = !!p.firstName && !!p.lastName;
-      if (expectedName && !samePersonName(p, profile.name)) {
+      if (expectedName && !exactMemberMatch && !samePersonName(p, profile.name)) {
         attempts.push(route.method + ': nome do perfil não corresponde ao lead');
         continue;
       }
-      if (route.requiresNameConfirmation && !expectedName) {
+      if (route.requiresNameConfirmation && !expectedName && !exactMemberMatch) {
         attempts.push(route.method + ': confirmação de nome necessária');
         continue;
       }
-      // Um public_id isolado no CSV não foi comprovado pela fonte. Nome coincidente
-      // pode ser homônimo; exigir também empresa visível e compatível nessa rota.
-      // As rotas vinculadas a member_id/hash mantêm checagem de nome sem depender
-      // de empregador atual, que pode ter mudado desde a coleta.
-      if (route.requiresNameConfirmation && !samePersonCompany(p, profile.company)) {
+      if (route.requiresNameConfirmation && !exactMemberMatch && !samePersonCompany(p, profile.company)) {
         attempts.push(route.method + ': empresa do candidato ausente ou divergente');
         continue;
       }
