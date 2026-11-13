@@ -161,6 +161,17 @@ describe('CSV Sales Navigator somente hash — navegação Basic observada', () 
     expect(p.publicId).toBe('carlos-pereira');
   });
 
+  it('nao confunde URL Basic /in/ACw existente com perfil 404 sem conteudo', async () => {
+    const { deps } = mockBrowser();
+    const upsertPerson = vi.fn();
+    deps.crm = { upsertPerson, findByPublicId: vi.fn() } as unknown as ExecutorDeps['crm'];
+    deps.driver.read = vi.fn(async () => ({ name: null, company: null })) as ExecutorDeps['driver']['read'];
+    const p: Person = { id: 'm:33574315', memberId: '33574315',
+      custom: { sn_id: hash, linkleads_sn_hash_core: hash } };
+    expect(await gotoProfile(deps, p)).toHaveProperty('needsReview');
+    expect(upsertPerson).not.toHaveBeenCalled();
+  });
+
   it('nao vincula ACo quando member_id extraido diverge do Sales Navigator', async () => {
     const basic = 'ACoAAA8BYqEBCGLg_vT_ca6mMEqkpp9nVffJ3hc';
     const { deps } = mockBrowser((url) =>
