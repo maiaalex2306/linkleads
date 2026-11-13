@@ -164,8 +164,12 @@ export function llPostContainers(
     const validProfile = (link: HTMLAnchorElement): string | null => {
       try {
         const u = new URL(link.href, location.href);
-        if (u.protocol !== 'https:' || !/^(?:[a-z0-9-]+\.)?linkedin\.com$/i.test(u.hostname) ||
-          !/^\/in\/[^/?#]+\/?$/i.test(u.pathname) || u.username || u.password || u.port) return null;
+        const isolatedLocalTest = u.origin === location.origin &&
+          u.protocol === 'http:' && (u.hostname === '127.0.0.1' || u.hostname === 'localhost');
+        const linkedin = u.protocol === 'https:' &&
+          /^(?:[a-z0-9-]+\.)?linkedin\.com$/i.test(u.hostname) && !u.port;
+        if ((!linkedin && !isolatedLocalTest) ||
+          !/^\/in\/[^/?#]+\/?$/i.test(u.pathname) || u.username || u.password) return null;
         return u.origin.toLowerCase() + u.pathname.replace(/\/$/, '');
       } catch { return null; }
     };
@@ -391,8 +395,12 @@ export function extractPosts(sel: Record<string, readonly string[]>, limit: numb
     const validSharer = (href: string): string | null => {
       try {
         const u = new URL(href, location.href);
-        if (u.protocol !== 'https:' || !/^(?:[a-z0-9-]+\.)?linkedin\.com$/i.test(u.hostname) ||
-          !/^\/in\/[^/?#]+\/?$/i.test(u.pathname) || u.port || u.username || u.password) return null;
+        const isolatedLocalTest = u.origin === location.origin &&
+          u.protocol === 'http:' && (u.hostname === '127.0.0.1' || u.hostname === 'localhost');
+        const linkedin = u.protocol === 'https:' &&
+          /^(?:[a-z0-9-]+\.)?linkedin\.com$/i.test(u.hostname) && !u.port;
+        if ((!linkedin && !isolatedLocalTest) ||
+          !/^\/in\/[^/?#]+\/?$/i.test(u.pathname) || u.username || u.password) return null;
         return u.href;
       } catch { return null; }
     };
