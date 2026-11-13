@@ -159,6 +159,7 @@ try {
     '<a href="https://www.linkedin.com/in/tassiana-ribas/">Tassiana Ribas</a>' +
     '<a href="/feed/update/urn:li:activity:7381234567890128200/">Post de terceiro</a>' +
     '<div class="update-components-text">Texto de Tassiana, não de Renato.</div>' +
+    '<button aria-pressed="true" aria-label="Like">Like incorporado</button>' +
     '</section>' +
     '<button aria-pressed="false" aria-label="Like">Gostei</button></div></main>'
   );
@@ -178,6 +179,7 @@ try {
   check(posts[0].isReshare === false && posts[1].isReshare === true &&
     posts[1].cardIdentity?.embeddedPostUrn === 'urn:li:activity:7381234567890128200' &&
     posts[1].actorHref?.endsWith('/renato-bonfogo/') &&
+    posts[1].liked === false &&
     !posts[1].text.includes('Texto de Tassiana'),
     'repost separado com autor principal e embedded distinto', posts);
 
