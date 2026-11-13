@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync, renameSync } from 'node:fs';
 import { basename, join } from 'node:path';
 
@@ -142,7 +142,12 @@ export class TraceJournal {
         area: String(area).replace(/[^a-z0-9_.-]/gi, '').slice(0, 48),
         event: String(event).replace(/[^a-z0-9_.-]/gi, '').slice(0, 80),
         level,
-        ...Object.fromEntries(Object.entries(ctx).filter(([, v]) => typeof v === 'string' && v.length <= 128)),
+        // IDs do CRM podem ser slugs publicos de pessoas, nao exportar identidade.
+        ...Object.fromEntries(Object.entries(ctx)
+          .filter(([, v]) => typeof v === 'string' && v.length <= 128)
+          .map(([k, v]) => [k, k === 'personId'
+            ? createHash('sha256').update('linkleads-person:' + String(v)).digest('hex').slice(0, 24)
+            : v])),
         details: safeDetails(details),
       };
       const line = JSON.stringify(record) + '\n';

@@ -834,7 +834,7 @@ ipcMain.handle('inbox:markHandled', (_e, id: string, personId: string) => crms.g
 ipcMain.handle('instance:checkInbox', (_e, id: string) => instances.require(id).checkInbox(true));
 
 // Aprovação de comentários ---------------------------------------------------
-ipcMain.handle('drafts:list', (_e, id: string, status?: CommentDraft['status']) => crms.get(account(id)).listDrafts(status ?? 'pending'));
+ipcMain.handle('drafts:list', (_e, id: string, status?: CommentDraft['status'] | 'review') => crms.get(account(id)).listDrafts(status ?? 'pending'));
 ipcMain.handle('drafts:approve', async (_e, id: string, draftId: number, text?: string) => {
   const r = await instances.require(id).approveDraft(draftId, text);
   return r.ok ? { ok: true } : { ok: false, message: r.message ?? r.reason };

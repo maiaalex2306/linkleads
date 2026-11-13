@@ -196,6 +196,15 @@ export class AccountInstance {
         return cfg ? { provider: new ApolloProvider(cfg.key, fetch, cfg.baseUrl), onlyWhenNoEmail: cfg.onlyWhenNoEmail } : null;
       },
       withBrowser: (fn) => this.withBrowser(fn),
+      preflightPostContract: async (context?: DiagnosisContext) => {
+        // O diagnostico compara a estrutura corrente ANTES do evento nativo.
+        // Em E2E o contrato e exercitado com HTML sintetico e dados isolados.
+        const r = await this.collectDiagnosis(context);
+        const comparison = r.layout.comparison?.status;
+        return !r.blocked.checkpoint && !r.blocked.loggedOut &&
+          comparison !== 'UI_CHANGED' && comparison !== 'BASELINE_UNAVAILABLE' &&
+          r.primaryCode !== 'UI_CHANGED';
+      },
       reportUnrecognized: async (context?: DiagnosisContext) => {
         const r = await this.collectDiagnosis(context);
         // Compartilhamentos de conteúdo não identificam lead; não reutilizar
@@ -660,7 +669,7 @@ export class AccountInstance {
       shape: report.layout.shape, healthy,
     });
     report.layout.comparison = baseline;
-    if (baseline.status === 'UI_CHANGED')
+    if (baseline.status === 'UI_CHANGED' || baseline.status === 'BASELINE_UNAVAILABLE')
       this.driver.setPageContractHealth(report.page, false);
     else if (baseline.status === 'MATCH' || baseline.status === 'BASELINE_CREATED')
       this.driver.setPageContractHealth(report.page, true);
@@ -767,13 +776,23 @@ export class AccountInstance {
       text, postId: draft.postUrl,
     });
     // O status só muda após os controles. Bloqueios preservam o rascunho pendente.
-    this.crm.updateDraft(draftId, { status: 'approved', comment: text });
+    if (!this.crm.claimPendingDraft(draftId, text))
+      throw new Error('Rascunho ja reservado por outra aprovacao ou interrompido; revise o estado persistido.');
     if (draft.kind === 'comment') this.crm.recordEngagementEffect({
       campaignId: draft.campaignId, actionId: draft.actionId, personId: draft.personId,
       postUrl: draft.postUrl, stage: 'approval', status: 'confirmed', reason: 'MANUAL_APPROVED',
     });
 
-    const result = await this.executeDraft(draft, text);
+    let result: ExecutionResult;
+    try {
+      result = await this.executeDraft(draft, text);
+    } catch {
+      // Se ocorreu uma queda entre o despacho e a resposta, NUNCA reenviar.
+      // O ledger de comentario mantem a reserva e a tela exige conciliacao.
+      result = { ok: false, reason: 'NO_REAL_EFFECT',
+        message: 'A execucao foi interrompida apos aprovacao; verifique a plataforma antes de nova tentativa.',
+        data: { commentAttempted: draft.kind === 'comment' } };
+    }
     if (draft.kind === 'comment') this.crm.recordEngagementEffect({
       campaignId: draft.campaignId, actionId: draft.actionId, personId: draft.personId,
       postUrl: draft.postUrl, stage: 'comment',

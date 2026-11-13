@@ -61,6 +61,8 @@ export interface ExecutorDeps {
   limits?: { left: (key: BudgetKey) => number; freeAt: (key: BudgetKey) => Date | undefined };
   /** página aberta mas não reconhecida: salva um relatório de diagnóstico (sem nomes) e devolve onde */
   reportUnrecognized?: (context?: DiagnosisContext) => Promise<string | undefined>;
+  /** Preflight diagnóstico somente-leitura; bloqueia antes de qualquer clique de engajamento. */
+  preflightPostContract?: (context?: DiagnosisContext) => Promise<boolean>;
 }
 
 /** Converte bloqueio da plataforma em THROTTLED (o motor pausa a conta). */
@@ -103,7 +105,7 @@ async function captureOpenProfile(d: ExecutorDeps, base?: Person): Promise<Execu
   if (!data.name) return { ok: false, reason: 'NO_REAL_EFFECT', message: 'Nome do perfil não encontrado na página' };
   const publicId = profileSlug(data.url);
   if (!publicId) return { ok: false, reason: 'IDENTITY_UNVERIFIED', message: 'URL de perfil não verificável; dados não salvos' };
-  if (base?.publicId && publicId !== base.publicId.toLowerCase())
+  if (base?.publicId && !sameConfirmedPublicId(publicId, base.publicId))
     return { ok: false, reason: 'IDENTITY_UNVERIFIED', message: 'Identificador do perfil aberto diverge do lead; dados não salvos' };
   const existing = d.crm.findByPublicId(publicId);
   const person: Person = {
@@ -473,6 +475,9 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
           await d.driver.waitUntil(async () =>
             (await d.driver.read(extractPosts, d.driver.sel as unknown as Record<string, readonly string[]>, 1)).length > 0 ||
             (await d.driver.exists('emptyActivity')), 20_000);
+          if (d.preflightPostContract && !(await d.preflightPostContract(diagnosisContext)))
+            return { ok: false, reason: 'NO_REAL_EFFECT',
+              message: 'Contrato de layout não homologado nesta página: nenhum clique executado' };
           const ignored = new Set<string>();
           for (let attempt = 0; attempt < 4; attempt++) {
             const found = await discoverUnlikedPost(d, ctx.person.publicId ?? ctx.person.id, s,
@@ -610,6 +615,8 @@ async function hydratePostForComment(
         return batch.find((p) => p.urn === post.url &&
           p.cardIdentity?.identityStatus === 'CONFIRMED');
       };
+      if (d.preflightPostContract && !(await d.preflightPostContract()))
+        return failure('Layout do permalink não homologado antes de ler conteúdo para IA');
       const loaded = await d.driver.waitUntil(async () => !!(await find()), 15_000);
       if (!loaded) return failure('Não foi possível confirmar a publicação original antes da IA');
       let current = await find();
@@ -650,6 +657,9 @@ export async function publishComment(d: ExecutorDeps, urn: string, text: string)
     // postItem. A prontidão real exige que o URN canônico esteja visível.
     await d.driver.goto(postUrl(urn));
     const selectorMap = d.driver.sel as unknown as Record<string, readonly string[]>;
+    if (d.preflightPostContract && !(await d.preflightPostContract()))
+      return { ok: false, reason: 'NO_REAL_EFFECT',
+        message: 'Contrato visual do post não homologado; comentário bloqueado antes do editor' };
     const postReady = await d.driver.waitUntil(async () => {
       const posts = await d.driver.read(extractPosts, selectorMap, 80);
       return posts.some((p) => p.urn === urn && p.cardIdentity?.identityStatus === 'CONFIRMED');
@@ -704,7 +714,7 @@ export async function publishComment(d: ExecutorDeps, urn: string, text: string)
     try {
       const clicked = await d.driver.clickVerifiedCommentSubmit(urn, text);
       if (!clicked) {
-        d.crm.finishCommentSubmission(urn, 'uncertain');
+        d.crm.finishCommentSubmission(urn, 'cancelled');
         return { ok: false, reason: 'NO_REAL_EFFECT',
           message: 'A publicação foi cancelada antes de mouseDown; reserva mantida para revisão, sem novo clique automático',
           data: { post: urn, commentAttempted: false, commentConfirmed: false } };
