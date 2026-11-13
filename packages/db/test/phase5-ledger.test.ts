@@ -38,6 +38,23 @@ describe('Fase 5 — ledger SQLite de curtidas e efeitos parciais', () => {
     db.close();
   });
 
+  it('pode rearmar apenas cancelamento pré-mouseDown sem repetir tentativas incertas', () => {
+    const { db, store } = create();
+    store.upsertPerson({ id: 'p1', publicId: 'ana-silva' });
+    store.savePost('p1', { url: urn(1005), text: 'Publicação original', hasMedia: false });
+    expect(store.beginLikeAttempt(urn(1005), 'p1', 'c1', 'a1')).toBe(true);
+    store.finishLikeAttempt(urn(1005), 'cancelled');
+    expect(store.likeAttempt(urn(1005))?.status).toBe('cancelled');
+    expect(store.beginLikeAttempt(urn(1005), 'p1', 'c1', 'a1')).toBe(true);
+    expect(store.beginLikeAttempt(urn(1005), 'p1', 'c1', 'a1')).toBe(false);
+    store.finishLikeAttempt(urn(1005), 'uncertain');
+    expect(store.beginLikeAttempt(urn(1005), 'p1', 'c1', 'a1')).toBe(false);
+    store.finishLikeAttempt(urn(1005), 'confirmed');
+    expect(store.beginLikeAttempt(urn(1005), 'p1', 'c1', 'a1')).toBe(false);
+    expect(store.lastLikedPost('p1', urn(1005))?.url).toBe(urn(1005));
+    db.close();
+  });
+
   it('persiste reserva de curtida em disco mesmo após queda/reabertura do aplicativo', () => {
     const root = mkdtempSync(join(tmpdir(), 'linkleads-phase5-ledger-'));
     const file = join(root, 'account.db');

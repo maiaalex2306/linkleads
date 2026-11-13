@@ -63,8 +63,8 @@ try {
   // ou depois de novos ciclos sem logout. O usuário não pode ver o login em loop.
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()
     .find((w) => w.getTitle().startsWith('LinkLeads —')).webContents.reload());
-  await ui.waitForTimeout(1800);
-  check((await accountUrl()).endsWith('/feed/') && site.state.logins.length === 1,
+  const restoredFeed = await waitFor(async () => (await accountUrl()).endsWith('/feed/'), 15_000);
+  check(restoredFeed && site.state.logins.length === 1,
     'sessão válida não reabre login nem envia credenciais novamente');
 
   // 2b. Com a conta pausada, um login válido não retira a pausa nem aciona o executor.
@@ -90,6 +90,12 @@ try {
   const attemptsBeforeWrongPassword = site.state.logins.length;
   await call('setLogin', acc.id, { email: site.state.loginEmail, password: 'senha-errada' });
   site.state.loggedOut = true;
+  // O servidor só redireciona ao login quando existe uma navegação HTTP.
+  // Rodar campanha sem ações ativas NÃO força o browser a descobrir logout.
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()
+    .find((w) => w.getTitle().startsWith('LinkLeads —')).webContents.reload());
+  const redirected = await waitFor(async () => /\/login(?:\?|$)/.test(await accountUrl()), 15_000);
+  check(redirected, 'logout simulado aparece na janela antes de testar senha incorreta');
   await call('runNow', acc.id);
   const told = await waitFor(async () => logs.some((l) => /recusou o login/.test(l)), 60_000);
   check(told, 'senha errada: avisa para conferir o e-mail e a senha', logs.slice(-5));
