@@ -52,8 +52,14 @@ export interface PostCardIdentity {
   identityStatus: 'CONFIRMED' | 'PROVISIONAL' | 'CONFLICT';
 }
 
+export type PostKind = 'ORIGINAL' | 'ORIGINAL_WITH_ATTACHMENT' |
+  'RESHARE_PLAIN' | 'RESHARE_COMMENTED' | 'UNKNOWN';
+
 export interface PostExtract {
   cardIdentity?: PostCardIdentity;
+  postKind?: PostKind;
+  /** Link do membro que republicou: nunca substitui o autor original. */
+  resharedByHref?: string | null;
   urn: string;
   text: string;
   actorHref: string | null;
@@ -154,17 +160,27 @@ export function llPostContainers(
       if (urn && urn !== primary) nestedUrns.add(urn);
     }
     const authorLinks = (Array.from(card.querySelectorAll('a[href*="/in/"]')) as HTMLAnchorElement[])
-      .filter((a) => !embeddedWithin(a, card) && !a.closest(COMMENT) &&
-        (a.matches('.update-components-actor__meta-link, .feed-shared-actor__meta-link') ||
-          !!a.closest(AUTHOR_HEADER)));
-    const authors = new Map<string, HTMLAnchorElement>();
-    for (const a of authorLinks) {
+      .filter((a) => !embeddedWithin(a, card) && !a.closest(COMMENT));
+    const validProfile = (link: HTMLAnchorElement): string | null => {
       try {
-        const url = new URL(a.href, location.href);
-        if (url.protocol === 'https:' && /(^|\.)linkedin\.com$/i.test(url.hostname) &&
-          /^\/in\/[^/]+\/?$/i.test(url.pathname))
-          authors.set(url.origin.toLowerCase() + url.pathname.replace(/\/$/, ''), a);
-      } catch { /* link não validável */ }
+        const u = new URL(link.href, location.href);
+        if (u.protocol !== 'https:' || !/^(?:[a-z0-9-]+\.)?linkedin\.com$/i.test(u.hostname) ||
+          !/^\/in\/[^/?#]+\/?$/i.test(u.pathname) || u.username || u.password || u.port) return null;
+        return u.origin.toLowerCase() + u.pathname.replace(/\/$/, '');
+      } catch { return null; }
+    };
+    // A área de autoria tem precedência sobre cabeçalhos amplos. Um nome
+    // citado num header, comentário ou anexo nunca substitui o autor principal.
+    const specific = authorLinks.filter((a) =>
+      a.matches('.update-components-actor__meta-link, .feed-shared-actor__meta-link') ||
+      !!a.closest('.update-components-actor, .feed-shared-actor, [data-testid*="actor"], [data-test-id*="actor"]'));
+    const general = authorLinks.filter((a) => !!a.closest('header') &&
+      !a.closest('.update-components-header, .feed-shared-header'));
+    const candidates = specific.length ? specific : general;
+    const authors = new Map<string, HTMLAnchorElement>();
+    for (const a of candidates) {
+      const url = validProfile(a);
+      if (url) authors.set(url, a);
     }
     const author = authors.size === 1 ? [...authors.values()][0]! : null;
     const embedRoot = nested.find((el) => el.matches(EMBED) || !!parseUrn(el.getAttribute('data-urn')))
@@ -358,48 +374,51 @@ export function extractPosts(sel: Record<string, readonly string[]>, limit: numb
       .find((v) => v && v.length < 60 && AGE.test(v)) ?? null;
     const ageTxt = (labelled && /(?:^|\s)(?:h[áa]\s+)?\d+\s*(?:min|h|d|dia|day|sem|w|week|m[oêe]|mes|a|ano|y|year)\b/i.test(labelled)
       ? labelled : null) || absolute || permalinkAge || null;
-    // Perfil citado no corpo do texto NÃO é prova de autoria.
-    // Aceitar apenas links na área do autor/cabeçalho ou junto ao permalink temporal.
-    const inAuthorHeader = (link: HTMLAnchorElement) => {
-      if (link.closest('.update-components-actor, .feed-shared-actor, header')) return true;
-      let parent: Element | null = link.parentElement;
-      for (let depth = 0; parent && depth < 2; depth++, parent = parent.parentElement) {
-        if (parent.querySelector('button, [role="button"], [dir="ltr"], .update-components-text')) break;
-        if (parent.querySelector('a[href*="/posts/"], a[href*="/feed/update/"], time[datetime]'))
-          return true;
-      }
-      return false;
-    };
-    const actorLinks = (Array.from(it.querySelectorAll('a[href*="/in/"]')) as HTMLAnchorElement[])
-      .filter((a) => !inEmbedded(a) &&
-        !a.closest('.comments-comment-entity, .comments-comment-item, .comments-comment-box__form, [contenteditable]') &&
-        inAuthorHeader(a));
-    const verifiedActor = firstOwn(sel.postActorLink!) as HTMLAnchorElement | null;
-    // A URL da autoria só pode ser inferida quando todos os links de perfil
-    // observáveis fora da área de comentários apontam para a mesma pessoa.
-    // Referências a outros perfis tornam a autoria incerta, sem fallback por nome.
-    const distinctActors = new Set(actorLinks.map((a) => {
-      try {
-        const url = new URL(a.href);
-        // Slugs opacos ACo/ACw são sensíveis à caixa.
-        return url.hostname.toLowerCase() + url.pathname.replace(/\/$/, '');
-      } catch { return a.href; }
-    }));
-    const actor = distinctActors.size === 1
-      ? (verifiedActor && actorLinks.includes(verifiedActor) ? verifiedActor : actorLinks[0] ?? null)
-      : null;
+    // A única fonte de autoria é a identidade do contêiner principal.
+    // Fallback por nome, por menção ou por autor incorporado é proibido.
     const media = !!firstOwn(sel.postMedia!) ||
       Array.from(it.querySelectorAll('img[src*="media"], video')).some((el) => !inEmbedded(el));
-    const explicitReshareHeader = firstOwn(sel.postResharedHeader!)?.textContent ?? '';
-    const isReshare = /\b(compartilhou|republicou|reposted|repostou|shared)\b/i
-      .test(explicitReshareHeader.slice(0, 200)) ||
-      /\b(compartilhou|republicou|reposted|repostou)\b/i.test(head.slice(0, 160));
+    // Republicação depende de um cabeçalho explícito DA AÇÃO, não da presença
+    // de .update-components-header nem de um verbo escrito no corpo do post.
+    const headers = (Array.from(it.querySelectorAll(
+      '.update-components-header, .feed-shared-header, [data-test-id*="reshared-header"]',
+    )) as HTMLElement[]).filter((h) => !inEmbedded(h));
+    const actionRegex = /\b(compartilhou|republicou|repostou|reposted|shared)\b/i;
+    const actionHeader = headers.find((h) => actionRegex.test((h.innerText || h.textContent || '').slice(0, 240)));
+    const isReshare = Boolean(actionHeader);
+    const sharers = actionHeader
+      ? (Array.from(actionHeader.querySelectorAll('a[href*="/in/"]')) as HTMLAnchorElement[])
+      : [];
+    const validSharer = (href: string): string | null => {
+      try {
+        const u = new URL(href, location.href);
+        if (u.protocol !== 'https:' || !/^(?:[a-z0-9-]+\.)?linkedin\.com$/i.test(u.hostname) ||
+          !/^\/in\/[^/?#]+\/?$/i.test(u.pathname) || u.port || u.username || u.password) return null;
+        return u.href;
+      } catch { return null; }
+    };
+    const sharerUrls = [...new Set(sharers.map((a) => validSharer(a.href)).filter((v): v is string => !!v))];
+    const resharedByHref = sharerUrls.length === 1 ? sharerUrls[0]! : null;
+    // O texto próprio de uma republicação deve estar FORA do post citado,
+    // com evidência de região de comentário do compartilhador.
+    const ownCommentary = Array.from(it.querySelectorAll(
+      '[data-test-id*="commentary"], [data-testid*="commentary"], .update-components-commentary, .feed-shared-commentary',
+    )).some((node) => !inEmbedded(node) && !!(node.textContent ?? '').trim());
+    const hasAttachment = identity.embeddedPostUrn !== null || !!firstOwn([
+      '.update-components-article', '.feed-shared-article',
+      '.update-components-document__container', '.update-components-image',
+    ]) || media;
+    const postKind: PostKind = identity.identityStatus === 'CONFLICT' ? 'UNKNOWN' :
+      isReshare ? (ownCommentary ? 'RESHARE_COMMENTED' : 'RESHARE_PLAIN') :
+      hasAttachment ? 'ORIGINAL_WITH_ATTACHMENT' : 'ORIGINAL';
     out.push({
       cardIdentity: identity,
+      postKind,
+      resharedByHref,
       urn,
       text,
-      actorHref: identity.primaryActorUrl ?? actor?.href ?? null,
-      actorName: identity.primaryActorName ?? actor?.innerText?.split('\n')[0]?.trim() ?? null,
+      actorHref: identity.primaryActorUrl,
+      actorName: identity.primaryActorName,
       age: ageTxt,
       hasMedia: media,
       isReshare,
