@@ -326,6 +326,43 @@ ipcMain.handle('campaigns:retryFailed', (_e, id: string, campaignId: string) => 
   return n;
 });
 
+/**
+ * Fase 5: leitura da cadeia de efeitos, sem alterar estado.
+ * Conta/campanha validadas; não expõe texto, credenciais ou cookie.
+ */
+ipcMain.handle('campaigns:engagementEffects', (_e, id: string, campaignId: string, personId?: string) => {
+  const a = account(id);
+  const crm = crms.get(a);
+  const campaign = crm.loadCampaign(campaignId, id);
+  if (!campaign) throw new Error('Campanha inexistente nesta conta.');
+  return crm.engagementEffects(campaignId, personId, 250);
+});
+
+ipcMain.handle('campaigns:recognitionRetryCandidates', (_e, id: string, campaignId: string) => {
+  const a = account(id);
+  const crm = crms.get(a);
+  if (!crm.loadCampaign(campaignId, id)) throw new Error('Campanha inexistente nesta conta.');
+  return { count: crm.recognitionRetryCandidates(campaignId).length };
+});
+
+/** Reprocessamento EXPLICITAMENTE solicitado, apenas para falhas de reconhecimento
+ * anteriores ao clique e SEM qualquer efeito persistido. Nunca repetição em massa.
+ */
+ipcMain.handle('campaigns:reprocessRecognitionFailures', (_e, id: string, campaignId: string) => {
+  const a = account(id);
+  if (a.paused) throw new Error('Conta pausada por segurança; revisão necessária antes do reprocessamento.');
+  const crm = crms.get(a);
+  const campaign = crm.loadCampaign(campaignId, id);
+  if (!campaign) throw new Error('Campanha inexistente nesta conta.');
+  if (campaign.archived) throw new Error('Restaure a campanha arquivada antes de reprocessar.');
+  if (campaign.active || instances.get(id)?.schedulerRunning())
+    throw new Error('Pause a campanha e pare o executor antes do reprocessamento controlado.');
+  const count = crm.reprocessRecognitionFailures(campaignId);
+  trace.record('campaign', 'recognition_failures_reprocessed', { count, policy: 'pre_click_no_effects_v1' },
+    { accountId: id, campaignId });
+  return count;
+});
+
 /** Painel "Agora": o que a conta está fazendo, a próxima pausa/ciclo e os próximos passos agendados. */
 ipcMain.handle('instance:live', (_e, id: string) => {
   const inst = instances.get(id);
