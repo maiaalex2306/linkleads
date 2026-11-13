@@ -277,6 +277,7 @@ export function extractPosts(sel: Record<string, readonly string[]>, limit: numb
       '[data-testid*="quoted"]', '[data-test-id*="reshared"]',
     ].join(', ');
     const inEmbedded = (node: Element): boolean => {
+      if (node !== it && node.matches(EMBED)) return true;
       let parent: Element | null = node.parentElement;
       while (parent && parent !== it) {
         if (parent.matches(EMBED) || parent.matches('[data-urn], [data-activity-urn]')) return true;
