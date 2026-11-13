@@ -61,11 +61,22 @@ try {
   check(await waitFor(async () => logs.some((l) => /Login no LinkedIn feito automaticamente/.test(l)), 30_000), 'log em português do login', logs);
   // Nenhuma tentativa adicional depois do sucesso, mesmo ao atualizar a tela
   // ou depois de novos ciclos sem logout. O usuário não pode ver o login em loop.
+  const cookies = await app.evaluate(async ({ BrowserWindow }) => {
+    const w = BrowserWindow.getAllWindows().find((win) => win.getTitle().startsWith('LinkLeads —'));
+    return w ? w.webContents.session.cookies.get({ name: 'll_fake_session' }) : [];
+  });
+  check(cookies.some((cookie) => cookie.value === 'authenticated'),
+    'cookie autenticado foi persistido antes do reload da sessão');
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()
     .find((w) => w.getTitle().startsWith('LinkLeads —')).webContents.reload());
-  await ui.waitForTimeout(1800);
-  check((await accountUrl()).endsWith('/feed/') && site.state.logins.length === 1,
-    'sessão válida não reabre login nem envia credenciais novamente');
+  // No Windows, a navegação e a hidratação do formulário são assíncronas.
+  // Nunca concluir "login repetido" observando um frame intermediário após
+  // exatamente 1800 ms: aguardar a navegação estabilizar e verificar o delta.
+  const sessionStable = await waitFor(async () => (await accountUrl()).endsWith('/feed/'), 30_000);
+  await ui.waitForTimeout(2000);
+  check(sessionStable && (await accountUrl()).endsWith('/feed/') && site.state.logins.length === 1,
+    'sessão válida não reabre login nem envia credenciais novamente',
+    { url: await accountUrl(), logins: site.state.logins.length });
 
   // 2b. Com a conta pausada, um login válido não retira a pausa nem aciona o executor.
   await call('setPaused', acc.id, true);
@@ -90,8 +101,15 @@ try {
   const attemptsBeforeWrongPassword = site.state.logins.length;
   await call('setLogin', acc.id, { email: site.state.loginEmail, password: 'senha-errada' });
   site.state.loggedOut = true;
-  await call('runNow', acc.id);
-  const told = await waitFor(async () => logs.some((l) => /recusou o login/.test(l)), 60_000);
+  // O servidor falso invalida a sessão, mas a página já aberta em /feed/
+  // não percebe isso até fazer uma requisição. Um runNow sem campanha ativa
+  // não navega para /login. Forçar somente o reload da página simulada.
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()
+    .find((w) => w.getTitle().startsWith('LinkLeads —')).webContents.reload());
+  const attemptedWrong = await waitFor(async () =>
+    site.state.logins.slice(attemptsBeforeWrongPassword).some((login) => login.password === 'senha-errada'), 35_000);
+  const told = attemptedWrong && await waitFor(async () =>
+    logs.some((l) => /recusou o login/.test(l)), 60_000);
   check(told, 'senha errada: avisa para conferir o e-mail e a senha', logs.slice(-5));
   const wrongPasswordAttempts = site.state.logins.slice(attemptsBeforeWrongPassword)
     .filter((attempt) => attempt.password === 'senha-errada');
