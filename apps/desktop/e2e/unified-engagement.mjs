@@ -17,6 +17,7 @@ const site = await startFakeSite();
 site.state.unrelatedEditor = true; // outro editor visível não pode ser selecionado
 site.state.modernReaction = true; // permalink do layout moderno sem data-urn
 site.state.modernTimeLabels = true; // atividade moderna: 'há 2 d · Editado' em vez de '2d •'
+site.state.longPost = true; // exige ver mais e releitura antes de interpretar
 const app = await electron.launch({
   executablePath: require(join(appDir, '../../node_modules/electron')),
   args: [process.env.LINKLEADS_E2E_APP ?? appDir],
@@ -79,6 +80,7 @@ try {
   await call('runNow', acc.id);
   check(site.state.liked === true, 'a curtida foi executada');
   check(site.state.comments.length === 1, 'o comentário foi publicado uma única vez', site.state.comments);
+  check(site.state.moreExpansions === 1, 'conteúdo longo foi expandido e relido antes da IA', site.state.moreExpansions);
   const rows = (await call('listCampaigns', acc.id)).find((c) => c.id === campaignId).people;
   check(rows.length === 1 && rows[0].status === 'successful', 'etapa composta concluída uma vez', rows);
   const stats = await call('accountStats', acc.id);
