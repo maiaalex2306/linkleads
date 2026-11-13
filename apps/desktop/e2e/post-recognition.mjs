@@ -1,6 +1,6 @@
 // Fase 3: fixtures Chromium totalmente isoladas, sem rede externa/LinkedIn.
 import { createRequire } from 'node:module';
-import { extractPosts, llPostContainers, llIsReact } from '../dist/main/linkedin/dom-scripts.js';
+import { extractPosts, likeState, llPostContainers, llIsReact, llReactionTarget, llReactionClickGuard } from '../dist/main/linkedin/dom-scripts.js';
 const require = createRequire(import.meta.url);
 const { chromium } = require('playwright');
 const browser = await chromium.launch({ headless: true });
@@ -14,7 +14,11 @@ const sel = {
   postResharedHeader: ['.update-components-header'],
   likeButton: ['button[aria-pressed][aria-label*="Like"]'],
 };
-const functions = { reaction: llIsReact.toString(), containers: llPostContainers.toString(), extract: extractPosts.toString() };
+const functions = {
+  reaction: llIsReact.toString(), containers: llPostContainers.toString(),
+  reactionTarget: llReactionTarget.toString(), extract: extractPosts.toString(),
+  likeState: likeState.toString(), clickGuard: llReactionClickGuard.toString(),
+};
 const check = (ok, message, evidence) => {
   if (!ok) throw Error('FALHOU: ' + message + (evidence === undefined ? '' : ' ' + JSON.stringify(evidence)));
   console.log('ok - ' + message);
@@ -23,9 +27,30 @@ const scan = () => page.evaluate(({ fns, selectors }) => {
   const __llIsReact = eval('(' + fns.reaction + ')');
   const llIsReact = __llIsReact;
   const __llPostContainers = eval('(' + fns.containers + ')');
+  const __llReactionTarget = eval('(' + fns.reactionTarget + ')');
   const extract = eval('(' + fns.extract + ')');
   return extract(selectors, 50);
 }, { fns: functions, selectors: sel });
+const probe = (urn, clickPoint = null) => page.evaluate(({ fns, selectors, urn, clickPoint }) => {
+  const __llIsReact = eval('(' + fns.reaction + ')');
+  const llIsReact = __llIsReact;
+  const __llPostContainers = eval('(' + fns.containers + ')');
+  const __llReactionTarget = eval('(' + fns.reactionTarget + ')');
+  const read = eval('(' + fns.likeState + ')');
+  const guard = eval('(' + fns.clickGuard + ')');
+  const container = __llPostContainers({ postItem: selectors.postItem, likeButton: selectors.likeButton })
+    .find((c) => c.urn === urn)?.el;
+  const target = container ? __llReactionTarget(container, selectors.likeButton) : null;
+  const rect = target?.element?.getBoundingClientRect();
+  const point = clickPoint ?? (rect ? { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 } : null);
+  return {
+    state: read(selectors, urn),
+    reason: target?.reason ?? 'NO_CARD',
+    guard: point ? guard(selectors, urn, point.x, point.y) : false,
+    point,
+  };
+}, { fns: functions, selectors: sel, urn, clickPoint });
+
 const comment = 'Este texto de comentário não é a publicação. '.repeat(35);
 const noise = 'Ruído de comentário muito longo. '.repeat(50);
 try {
@@ -307,6 +332,86 @@ try {
     posts[0].actorHref?.endsWith('/douglas-rodrigues/') &&
     posts[0].liked === false,
     'Douglas: bloco moderno sem header usa proximidade autor-permalink e ignora menção', posts);
+
+  // FASE 3/P1 — controles de reação devem pertencer ao cartão principal.
+  const reactionUrn = 'urn:li:activity:7381234567890129901';
+  const embeddedUrn = 'urn:li:activity:7381234567890129902';
+  const baseCard = (button, extra = '') =>
+    '<main><div class="feed-shared-update-v2" data-urn="' + reactionUrn + '">' +
+    '<div class="update-components-actor"><a href="https://www.linkedin.com/in/ana-silva/">Ana Silva</a>' +
+    '<span class="update-components-actor__sub-description">2 d</span></div>' +
+    '<div class="update-components-text">Publicação original.</div>' +
+    extra + button + '</div></main>';
+  await page.setContent(baseCard('<button aria-pressed="false" aria-label="Like">Like</button>'));
+  let state = await probe(reactionUrn);
+  check(state.state === false && state.guard === true, 'Fase 3: curtida ausente confirmada com alvo e pixel inequívocos', state);
+  await page.evaluate(() => document.querySelector('button')?.setAttribute('aria-pressed', 'true'));
+  state = await probe(reactionUrn);
+  check(state.state === true && state.guard === false, 'Fase 3: publicação já curtida jamais recebe novo clique', state);
+
+  await page.setContent(baseCard(
+    '<button aria-label="Situação do botão de reação: nenhuma reação">Like</button>'));
+  state = await probe(reactionUrn);
+  check(state.state === false && state.guard, 'Fase 3: estado negativo em aria-label moderno', state);
+  await page.evaluate(() => document.querySelector('button')?.setAttribute(
+    'aria-label', 'Situação do botão de reação: Gostei'));
+  state = await probe(reactionUrn);
+  check(state.state === true && !state.guard, 'Fase 3: transição para curtido detectada no mesmo post', state);
+
+  await page.setContent(baseCard('<div role="button" aria-label="React" tabindex="0">' +
+    '<svg data-test-icon="thumbs-up-outline-small"></svg></div>'));
+  state = await probe(reactionUrn);
+  check(state.state === false && state.guard, 'Fase 3: ícone sem aria-pressed reconhece não curtido', state);
+
+  await page.setContent(baseCard('<div role="button" aria-label="React" tabindex="0">' +
+    '<svg data-test-icon="thumbs-up-filled"></svg></div>'));
+  state = await probe(reactionUrn);
+  check(state.state === true && !state.guard, 'Fase 3: ícone preenchido indica curtida existente', state);
+
+  await page.setContent(baseCard('<button aria-pressed="false" aria-label="Unlike">Unlike</button>'));
+  state = await probe(reactionUrn);
+  check(state.state === null && !state.guard && state.reason === 'CONFLICTING_STATE',
+    'Fase 3: evidências conflitantes não autorizam clique', state);
+
+  await page.setContent(baseCard('<button aria-label="React">React</button>'));
+  state = await probe(reactionUrn);
+  check(state.state === null && !state.guard && state.reason === 'STATE_UNKNOWN',
+    'Fase 3: reação sem prova de estado permanece desconhecida', state);
+
+  await page.setContent(baseCard('<button aria-pressed="false" aria-label="Like">Like</button>' +
+    '<button aria-pressed="false" aria-label="React Like">Like 2</button>'));
+  state = await probe(reactionUrn);
+  check(state.state === null && !state.guard && state.reason === 'AMBIGUOUS_BUTTONS',
+    'Fase 3: múltiplos controles no mesmo cartão impedem interação', state);
+
+  await page.setContent(baseCard(
+    '<button aria-pressed="false" aria-label="Like">Like</button>',
+    '<div class="feed-shared-mini-update-v2" data-urn="' + embeddedUrn + '">' +
+    '<button aria-pressed="true" aria-label="Like">Like incorporado</button></div>'));
+  state = await probe(reactionUrn);
+  check(state.state === false && state.guard,
+    'Fase 3: reação do conteúdo incorporado não contamina a publicação principal', state);
+
+  // Interação foi planejada no mesmo ponto, mas o feed trocou o cartão.
+  const oldPoint = state.point;
+  await page.setContent(baseCard('<button aria-pressed="false" aria-label="Like">Like</button>')
+    .replaceAll(reactionUrn, 'urn:li:activity:7381234567890129999'));
+  state = await probe(reactionUrn, oldPoint);
+  check(state.state === null && state.guard === false,
+    'Fase 3: virtualização que substituiu a URN bloqueia o mouseDown', state);
+
+  // Overlay transparente cobrindo o botão também impede clique por coordenada.
+  await page.setContent(baseCard('<button aria-pressed="false" aria-label="Like">Like</button>'));
+  const validPoint = (await probe(reactionUrn)).point;
+  await page.evaluate(({ x, y }) => {
+    const blocker = document.createElement('div');
+    blocker.style.cssText = 'position:fixed;z-index:99999;left:' + (x - 16) +
+      'px;top:' + (y - 16) + 'px;width:32px;height:32px;background:rgba(255,0,0,0.01)';
+    document.body.append(blocker);
+  }, validPoint);
+  state = await probe(reactionUrn, validPoint);
+  check(state.state === false && !state.guard,
+    'Fase 3: overlay que intercepta pixel não autoriza clique', state);
 
   console.log('E2E FASE 3 — RECONHECIMENTO DE PUBLICAÇÕES OK');
 } catch (error) {
