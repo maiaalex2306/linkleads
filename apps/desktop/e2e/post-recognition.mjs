@@ -292,6 +292,22 @@ try {
     posts[0].urn === 'urn:li:activity:7381234567890128701',
     'Douglas: autoria do header moderno não é contaminada por menção no conteúdo', posts);
 
+  // Autor e permalink no mesmo bloco moderno, sem header/classe legacy.
+  await page.setContent(
+    '<main><div class="new-card">' +
+    '<div class="x9"><a href="https://www.linkedin.com/in/douglas-rodrigues/"><span>Douglas Rodrigues</span></a>' +
+    '<span>Diretor</span><a href="/posts/douglas_post-activity-7381234567890128801-A">há 2 d</a></div>' +
+    '<div class="x7"><span dir="ltr">Parabéns a <a href="https://www.linkedin.com/in/terceiro/">um colega</a> pela conquista.</span></div>' +
+    '<div role="button" aria-pressed="false"><svg data-test-icon="thumbs-up-outline-small"></svg></div>' +
+    '<button aria-label="Comentar">Comentar</button></div></main>'
+  );
+  posts = await scan();
+  check(posts.length === 1 &&
+    posts[0].urn === 'urn:li:activity:7381234567890128801' &&
+    posts[0].actorHref?.endsWith('/douglas-rodrigues/') &&
+    posts[0].liked === false,
+    'Douglas: bloco moderno sem header usa proximidade autor-permalink e ignora menção', posts);
+
   console.log('E2E FASE 3 — RECONHECIMENTO DE PUBLICAÇÕES OK');
 } catch (error) {
   console.error(error?.stack ?? error);
