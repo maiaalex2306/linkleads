@@ -72,6 +72,7 @@ jobs:
           Copy-Item -Path 'apps/desktop/release/win-unpacked/*' -Destination 'portable-package/LinkLeads' -Recurse -Force
           Copy-Item -LiteralPath 'scripts/INSTALAR-LINKLEADS.cmd' -Destination 'portable-package/INSTALAR-LINKLEADS.cmd'
           Copy-Item -LiteralPath 'scripts/ABRIR-LINKLEADS.cmd' -Destination 'portable-package/ABRIR-LINKLEADS.cmd'
+          Copy-Item -LiteralPath 'docs/CONTRATO_PERFIS_POSTS_SALESNAV_20261113.md' -Destination 'portable-package/CONTRATO_IDENTIDADE_E_POSTS.md'
           $exe='portable-package/LinkLeads/LinkLeads.exe'
           if (-not (Test-Path $exe) -or -not (Test-Path 'portable-package/LinkLeads/resources/app.asar')) { throw 'Pacote Electron incompleto' }
           $hash=(Get-FileHash $exe -Algorithm SHA256).Hash
@@ -183,6 +184,7 @@ jobs:
           test -f portable-package/LinkLeads/LinkLeads.exe
           test -f portable-package/INSTALAR-LINKLEADS.cmd
           test -f portable-package/ABRIR-LINKLEADS.cmd
+          test -f portable-package/CONTRATO_IDENTIDADE_E_POSTS.md
           grep -Fq 'D:\LINKLEADS' portable-package/LEIA-ME.txt
           short="${GITHUB_SHA:0:8}"
           tag="v0.5.11-windows-${short}"

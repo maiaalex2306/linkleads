@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { memberIdFromSalesHash } from '@linkleads/core';
+import { memberIdFromBasicOpaquePublicId, memberIdFromSalesHash } from '@linkleads/core';
 import type { Person } from '@linkleads/core';
-import { parseSalesSource, profileResolutionRoutes, samePersonCompany, samePersonName, snHashCore } from '../src/main/linkedin/profile-resolver.js';
+import { parseSalesSource, profileResolutionRoutes, safePublicId, samePersonCompany, samePersonName, snHashCore } from '../src/main/linkedin/profile-resolver.js';
 
 describe('resolver de identidade — somente leitura/rotas conhecidas', () => {
   const hash = 'ACwAAAIATasBA_OC0NMUDatWeEBCssGNHCpTT6U';
@@ -25,25 +25,75 @@ describe('resolver de identidade — somente leitura/rotas conhecidas', () => {
       core: hash, url: lead.custom?.linkleads_source_url,
     });
     const routes = profileResolutionRoutes(lead);
+    expect(routes.map((r) => r.method)).toEqual(['basic_hash_candidate', 'member_legacy', 'sales_source']);
+    expect(routes[0]?.url).toBe('https://www.linkedin.com/in/' + hash + '/');
+    expect(routes[0]?.requiresNameConfirmation).toBe(false);
+    expect(routes[1]?.url).toBe('https://www.linkedin.com/profile/view?id=33574315');
+    expect(routes[2]?.url).toBe(lead.custom?.linkleads_source_url);
+  });
+  it('preserva case de ACo no candidato /in/ e nao modifica slug comum', () => {
+    const basic = 'ACoAAA8BYqEBCGLg_vT_ca6mMEqkpp9nVffJ3hc';
+    expect(safePublicId(basic)).toBe(basic);
+    expect(safePublicId('Nome-Pessoa')).toBe('nome-pessoa');
+    const routes = profileResolutionRoutes({ id: 'opaque', custom: {
+      linkleads_import_public_id_unverified: basic,
+    } });
+    expect(routes[0]?.url).toBe('https://www.linkedin.com/in/' + basic + '/');
+  });
+  it('hash Basic ACo confirma o MESMO member_id sem supor que ACw gera ACo', () => {
+    expect(memberIdFromBasicOpaquePublicId('ACoAAA8BYqEBCGLg_vT_ca6mMEqkpp9nVffJ3hc')).toBe('251749025');
+    expect(memberIdFromSalesHash('ACwAAA8BYqEBlKc364xhzvygIeuJJ3rATiwe2NE')).toBe('251749025');
+    expect(memberIdFromBasicOpaquePublicId(hash)).toBeUndefined();
+    expect(memberIdFromBasicOpaquePublicId('helena-m-baptista')).toBeUndefined();
+  });
+  it('recupera URL original do Sales Navigator guardada em coluna legada custom', () => {
+    const original = lead.custom?.linkleads_source_url;
+    const routes = profileResolutionRoutes({ ...lead,
+      custom: { sn_id: hash, profile_url: original, linkleads_sn_hash_core: hash } });
+    expect(routes.map((r) => r.method)).toEqual(['basic_hash_candidate', 'member_legacy', 'sales_source']);
+    expect(routes[2]?.url).toBe(original);
+  });
+  it('recusa associar duas origens Sales de hashes diferentes no mesmo lead', () => {
+    const routes = profileResolutionRoutes({ ...lead, custom: {
+      sn_id: hash,
+      profile_url: lead.custom?.linkleads_source_url,
+      sourceUrl: 'https://www.linkedin.com/sales/people/ACwAAA8BYqEBlKc364xhzvygIeuJJ3rATiwe2NE,name,sSHS/',
+    } });
+    expect(routes).toEqual([]);
+  });
+  it('recupera URL Sales embutida em Observacao de base antiga', () => {
+    const original = 'https://www.linkedin.com/sales/lead/' + hash + ',NAME_SEARCH,sSHS/?_ntb=abc';
+    const routes = profileResolutionRoutes({ ...lead, custom: {
+      sn_id: hash, Observacao: 'Perfil importado: ' + original + ' (conferir)',
+    } });
+    expect(routes.map((r) => r.method)).toEqual(['basic_hash_candidate', 'member_legacy', 'sales_source']);
+    expect(routes[2]?.url).toBe(original);
+  });
+  it('aceita /sales/profile numerico e recupera member_id sem tratar numero como hash', () => {
+    const routes = profileResolutionRoutes({ id: 'legacy:251749025', firstName: 'Fulano',
+      custom: { 'profile_url': 'https://www.linkedin.com/sales/profile/251749025,sSHS,name' },
+    });
     expect(routes.map((r) => r.method)).toEqual(['member_legacy', 'sales_source']);
-    expect(routes[0]?.url).toBe('https://www.linkedin.com/profile/view?id=33574315');
-    expect(routes[1]?.url).toBe(lead.custom?.linkleads_source_url);
+    expect(routes[0]?.url).toBe('https://www.linkedin.com/profile/view?id=251749025');
   });
   it('sem URL original aproveita hash isolado do CSV', () => {
     const routes = profileResolutionRoutes({
       ...lead, memberId: undefined,
       custom: { sn_id: hash, linkleads_sn_hash_core: hash },
     });
-    expect(routes).toEqual([{ method: 'member_legacy',
-      url: 'https://www.linkedin.com/profile/view?id=33574315',
-      requiresNameConfirmation: false }]);
+    expect(routes).toEqual([
+      { method: 'basic_hash_candidate',
+        url: 'https://www.linkedin.com/in/' + hash + '/', requiresNameConfirmation: false },
+      { method: 'member_legacy',
+        url: 'https://www.linkedin.com/profile/view?id=33574315', requiresNameConfirmation: false },
+    ]);
   });
   it('recompõe URL Sales Navigator SOMENTE quando o CSV preservou o token completo', () => {
     const raw = hash + ',9rcn,NAME_SEARCH';
     const routes = profileResolutionRoutes({ ...lead,
       custom: { sn_id: hash, linkleads_sn_hash_raw: raw } });
-    expect(routes.map((r) => r.method)).toEqual(['member_legacy', 'sales_source']);
-    expect(routes[1]?.url).toBe('https://www.linkedin.com/sales/people/' + raw + '/');
+    expect(routes.map((r) => r.method)).toEqual(['basic_hash_candidate', 'member_legacy', 'sales_source']);
+    expect(routes[2]?.url).toBe('https://www.linkedin.com/sales/people/' + raw + '/');
   });
   it('public_id isolado é candidato e não confirmação automática', () => {
     const routes = profileResolutionRoutes({

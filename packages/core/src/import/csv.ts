@@ -29,6 +29,15 @@ export function parseCsv(text: string): string[][] {
   return rows;
 }
 
+/** Normaliza slugs legíveis, mas PRESERVA a caixa dos IDs opacos Base64URL ACo.
+ * Em IDs opacos ACo/ACw/ACr trocar maiúsculas/minúsculas muda a identidade do membro.
+ */
+export function normalizeLinkedInPublicId(raw?: string): string | undefined {
+  const slug = raw?.trim();
+  if (!slug) return undefined;
+  return /^AC[owr][A-Za-z0-9_-]{30,}$/.test(slug) ? slug : slug.toLowerCase();
+}
+
 /** Extrai o slug público de uma URL de perfil (/in/<slug>). */
 export function publicIdFromUrl(url: string): string | undefined {
   try {
@@ -39,7 +48,7 @@ export function publicIdFromUrl(url: string): string | undefined {
     if (host !== 'linkedin.com' && !host.endsWith('.linkedin.com')) return undefined;
     const match = parsed.pathname.match(/^\/in\/([^/?#]+)/i);
     if (!match || parsed.username || parsed.password || parsed.port) return undefined;
-    const slug = decodeURIComponent(match[1]!).toLowerCase();
+    const slug = normalizeLinkedInPublicId(decodeURIComponent(match[1]!));
     if (!slug || slug === '.' || slug === '..' || slug.includes('/') || slug.includes('\\') || /[\s?#]/.test(slug)) return undefined;
     return slug;
   } catch {
@@ -77,6 +86,19 @@ export function memberIdFromSalesHash(raw: string | undefined): string | undefin
     bytes[2] !== 0 || bytes[3] !== 0) return undefined;
   const id = bytes[4]! * 16777216 + bytes[5]! * 65536 + bytes[6]! * 256 + bytes[7]!;
   return id > 0 ? String(id) : undefined;
+}
+
+
+/**
+ * IDs públicos opacos /in/ACoAAA... podem incorporar o mesmo member_id
+ * numérico do Sales Navigator, embora os sufixos criptográficos sejam distintos.
+ * Útil APENAS como verificação de uma URL /in/ já observada; não permite gerar
+ * um identificador ACo a partir do hash ACw.
+ */
+export function memberIdFromBasicOpaquePublicId(raw?: string): string | undefined {
+  const value = raw?.trim().split('/')[0];
+  if (!value || !/^ACo[A-Za-z0-9_-]{30,}$/.test(value)) return undefined;
+  return memberIdFromSalesHash('ACw' + value.slice(3));
 }
 
 const norm = (h: string) => h.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -148,7 +170,8 @@ export function importPeopleFromCsv(text: string, makeId: (publicId: string) => 
       return;
     }
     const profileFromUrl = distinct[0];
-    const exportedId = rec.publicId && /^[a-z0-9][a-z0-9._%-]*$/i.test(rec.publicId) ? rec.publicId.toLowerCase() : undefined;
+    const exportedId = rec.publicId && /^[a-z0-9][a-z0-9._%-]*$/i.test(rec.publicId)
+      ? normalizeLinkedInPublicId(rec.publicId) : undefined;
     // public_id isolado ou link Sales Navigator nao comprovam um /in/ exato.
     const publicId = profileFromUrl;
     if (profileFromUrl) {
@@ -173,7 +196,8 @@ export function importPeopleFromCsv(text: string, makeId: (publicId: string) => 
     }
     // Links do Sales Navigator também podem vir em coluna livre do export.
     // Preservar o caminho INTEIRO, inclusive os segmentos após as vírgulas.
-    const embeddedSales = cols.flatMap((value) => [...value.matchAll(/https:\/\/(?:[a-z]{2,3}\.)?linkedin\.com\/sales\/(?:people|lead|profile)\/[A-Za-z0-9_-]+(?:,[A-Za-z0-9_-]+)*\/?/gi)].map((m) => m[0]!));
+    const embeddedSales = cols.flatMap((value) => [...value.matchAll(/https:\/\/(?:[a-z]{2,3}\.)?linkedin\.com\/sales\/(?:people|lead|profile)\/[A-Za-z0-9_-]+(?:,[A-Za-z0-9_-]+)*\/?(?:\?[^\s"'<>]*)?/gi)]
+      .map((m) => m[0]!.replace(/[),;]+$/, '')));
     const sourceUrl = urlCandidates.find((v) => /linkedin\.com\/in\//i.test(v))
       ?? urlCandidates.find((v) => /linkedin\.com\/sales\//i.test(v))
       ?? embeddedSales[0]

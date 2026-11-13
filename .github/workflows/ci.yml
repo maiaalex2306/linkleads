@@ -232,11 +232,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Teste do instalador reprovado no mesmo shell do workflow de producao' }
 
   windows-e2e-smoke:
-    name: Windows Electron + instalador NSIS — prova de execução real
-    # Teste nativo independente do runner Linux (sem contornar checks para a release).
+    name: Windows Electron — interfaces e campanhas (sem NSIS)
+    # O instalador oficial D:\LINKLEADS e homologado exclusivamente no
+    # windows-portable-recovery.yml. Nao gerar o NSIS obsoleto aqui.
     needs: windows-homologator
     runs-on: windows-latest
-    timeout-minutes: 55
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -254,42 +255,3 @@ jobs:
             & node "apps/desktop/e2e/$suite.mjs"
             if ($LASTEXITCODE -ne 0) { throw "E2E Windows reprovado: $suite (exit $LASTEXITCODE)" }
           }
-      - name: Gerar NSIS de teste de instalacao no PR
-        shell: pwsh
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-          LINKLEADS_UPDATE_URL: https://github.com/maiaalex2306/linkleads/releases/latest/download
-          LINKLEADS_OWNER_TEST_BUILD: '1'
-        run: |
-          $ErrorActionPreference = 'Stop'
-          npm run bundle -w @linkleads/desktop
-          if ($LASTEXITCODE -ne 0) { throw 'Bundle NSIS de teste falhou' }
-          Push-Location apps/desktop
-          try {
-            npx electron-builder --win nsis --x64 --publish never -c electron-builder.yml
-            if ($LASTEXITCODE -ne 0) { throw 'Compilacao do instalador NSIS falhou' }
-          } finally { Pop-Location }
-      - name: Fotografar bundle e validar instalacao NSIS real no Windows
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $version = (Get-Content 'apps/desktop/package.json' -Raw | ConvertFrom-Json).version
-          node apps/desktop/e2e/visual-snapshots.mjs --app-dir "apps/desktop/app-dist" --out "nsis-ci/base"
-          if ($LASTEXITCODE -ne 0) { throw 'Nao foi possivel capturar o bundle de referencia' }
-          powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-installed-linkleads.ps1 `
-            -InstallerPath "apps/desktop/release/LinkLeads-Setup-$version.exe" `
-            -ExpectedVersion $version `
-            -ReportDirectory "nsis-ci/installed" `
-            -VisualBaselineDirectory "nsis-ci/base"
-          if ($LASTEXITCODE -ne 0) { throw "Instalador NSIS nao abriu ou nao persistiu dados (exit $LASTEXITCODE)" }
-      - name: Preservar diagnostico se instalacao NSIS falhar
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: LinkLeads-PR-NSIS-Smoke-${{ github.run_id }}
-          path: |
-            nsis-ci/nsis-install-report.json
-            nsis-ci/smoke-report.json
-            nsis-ci/installed-launcher.png
-          if-no-files-found: warn
-          retention-days: 14

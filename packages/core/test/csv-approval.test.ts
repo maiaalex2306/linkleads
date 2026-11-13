@@ -18,6 +18,10 @@ describe('CSV', () => {
   });
 
   it('extrai slug público', () => {
+    const opaque = 'ACoAAA8BYqEBCGLg_vT_ca6mMEqkpp9nVffJ3hc';
+    expect(publicIdFromUrl('https://www.linkedin.com/in/' + opaque + '/')).toBe(opaque);
+    const salesHash = 'ACwAAAIATasBA_OC0NMUDatWeEBCssGNHCpTT6U';
+    expect(publicIdFromUrl('https://www.linkedin.com/in/' + salesHash + '/')).toBe(salesHash);
     expect(publicIdFromUrl('https://www.linkedin.com/in/Maria-Silva-123/?trk=x')).toBe('maria-silva-123');
     expect(publicIdFromUrl('https://br.linkedin.com/in/jos%C3%A9-souza')).toBe('josé-souza');
     expect(publicIdFromUrl('https://example.com/maria')).toBeUndefined();
@@ -209,5 +213,16 @@ describe('CSV de identidade: hash do Sales Navigator independente da URL', () =>
     expect(r.people).toHaveLength(1);
     expect(r.people[0]?.memberId).toBe('33574315');
     expect(r.people[0]?.custom?.linkleads_open_strategy).toBe('member_legacy');
+  });
+});
+
+describe('URL Sales Navigator completa com query e dados de origem', () => {
+  it('preserva ?_ntb e tokens apos as virgulas em coluna de observacao', () => {
+    const url = 'https://www.linkedin.com/sales/lead/ACwAAAIATasBA_OC0NMUDatWeEBCssGNHCpTT6U,NAME_SEARCH,sSHS/?_ntb=abc123';
+    const csv = ['Nome completo;Observacao', 'Carlos Pereira;"LinkedIn: ' + url + '"'].join('\n');
+    const result = importPeopleFromCsv(csv);
+    expect(result.people).toHaveLength(1);
+    expect(result.people[0]?.custom?.linkleads_source_url).toBe(url);
+    expect(result.people[0]?.custom?.linkleads_sn_hash_core).toBe('ACwAAAIATasBA_OC0NMUDatWeEBCssGNHCpTT6U');
   });
 });

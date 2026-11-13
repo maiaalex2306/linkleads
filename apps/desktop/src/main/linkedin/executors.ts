@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { ActionExecutor, BudgetKey, ExecutionContext, ExecutionResult, Person, PostSnapshot } from '@linkleads/core';
-import { detectJobChange, getActionDefinition, memberIdFromSalesHash, parseRelativeAgeDays, publicIdFromUrl } from '@linkleads/core';
+import { detectJobChange, getActionDefinition, memberIdFromBasicOpaquePublicId, memberIdFromSalesHash, normalizeLinkedInPublicId, parseRelativeAgeDays, publicIdFromUrl } from '@linkleads/core';
 import type { CommentSettings, LlmClient, PostInterpreter } from '@linkleads/ai';
 import type { IntegrationCrm } from '@linkleads/db';
 import type { EnrichmentProvider } from '@linkleads/integrations';
@@ -20,11 +20,21 @@ export function profileSlug(href: string): string | undefined {
         !(url.hostname === 'linkedin.com' || url.hostname.endsWith('.linkedin.com')))) return undefined;
     const m = url.pathname.match(/^\/in\/([^/?#]+)/i);
     if (!m) return undefined;
-    const slug = decodeURIComponent(m[1]!).toLowerCase();
-    return /[\\/\s?#\x00-\x1f]/.test(slug) ? undefined : slug;
+    const slug = normalizeLinkedInPublicId(decodeURIComponent(m[1]!));
+    return !slug || /[\\/\s?#\x00-\x1f]/.test(slug) ? undefined : slug;
   } catch {
     return undefined;
   }
+}
+
+/** IDs Base64URL de membros são sensíveis à caixa, inclusive quando o
+ * restante da aplicação normaliza slugs convencionais de usuário.
+ */
+export function sameConfirmedPublicId(observed: string | undefined, expected: string): boolean {
+  if (!observed) return false;
+  const raw = expected.trim();
+  if (/^AC[owr][A-Za-z0-9_-]{30,}$/.test(raw)) return observed === raw;
+  return observed === normalizeLinkedInPublicId(raw);
 }
 
 export const profileUrl = (p: Person) => `${BASE}/in/${encodeURIComponent(p.publicId ?? p.id)}/`;
@@ -183,15 +193,22 @@ export function firstUnlikedCandidate(
   const norm = (v: string) => v.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
   const cleanName = personName.replace(/^(?:(?:Atividades|Activity|Publicações|Publications|Posts|Comentários|Comments)\s*[|·–-]\s*)+/i, '');
   const expected = norm(cleanName);
-  const id = publicId.toLowerCase();
   for (const post of posts) {
     if (post.liked === true) continue; // curtido: ir ao proximo sem outras verificacoes
     if (post.isReshare && !options.includeReshares) continue;
     const actor = post.actorHref ? profileSlug(post.actorHref) : undefined;
-    const actorKnown = !!actor && !/^(?:acoaa|acwaa)/i.test(actor);
+    // Opaque /in/ACo ou /in/ACw é válido quando coincide EXATAMENTE com
+    // o publicId persistido, incluindo a caixa do código Base64URL.
+    const actorKnown = !!actor;
     if (post.actorHref && !actor)
       return { post, why: 'Link do autor não é um perfil confiável do LinkedIn', uncertain: true };
-    if (actorKnown && actor !== id) continue; // atividade de terceiro
+    if (actorKnown && !sameConfirmedPublicId(actor, publicId)) {
+      // Opaque diferente continua incerto: pode ser outro membro ou alias não
+      // reconciliado. Não autorizar interação por semelhança de nome.
+      if (/^AC[owr]/i.test(actor))
+        return { why: 'Identificador opaco do autor diferente do perfil confirmado', uncertain: true };
+      continue;
+    }
     // Nome completo, mesmo exato, não identifica unicamente uma pessoa:
     // existem homônimos. A autoria precisa ser comprovada pelo /in/ do lead.
     if (!actorKnown)
@@ -213,7 +230,7 @@ export function choosePost(posts: PostExtract[], publicId: string, s: LikeSettin
   const cleanPersonName = personName.replace(/^(?:(?:Atividades|Activity|Publicações|Publications|Posts|Comentários|Comments)\s*[|·–-]\s*)+/i, '');
   const expected = norm(cleanPersonName);
   const isOwn = (p: PostExtract) =>
-    !!p.actorHref && profileSlug(p.actorHref) === publicId.toLowerCase();
+    !!p.actorHref && sameConfirmedPublicId(profileSlug(p.actorHref), publicId);
   let empty = 0;
   let reshare = 0;
   let others = 0;
@@ -227,9 +244,12 @@ export function choosePost(posts: PostExtract[], publicId: string, s: LikeSettin
     if (!p.text && !p.hasMedia) return (empty++, false);
     if (p.isReshare && !s.includeReshares) return (reshare++, false);
     const actor = p.actorHref ? profileSlug(p.actorHref) : undefined;
-    if (!actor || /^(?:acoaa|acwaa)/i.test(actor))
+    if (!actor)
       return (uncertainActors++, false);
-    if (!isOwn(p)) return (others++, false);
+    if (!isOwn(p)) {
+      if (/^AC[owr]/i.test(actor)) return (uncertainActors++, false);
+      return (others++, false);
+    }
     // Qualquer consumidor de choosePost deve receber somente conteúdo verificável.
     // URNs temporárias e datas ilegíveis servem para diagnóstico, não para interação.
     if (!isCanonicalPostUrn(p.urn)) return (uncertainPosts++, provisionalPosts++, false);
@@ -622,7 +642,9 @@ export function sourceSalesNavigatorUrl(p: Person): string | undefined {
 function salesPagePublicProfileLinks(): string[] {
   const root = document.querySelector('main') ?? document;
   const label = /(?:ver|visualizar|abrir|ir para|view|open|go to).{0,40}(?:perfil|profile)|(?:perfil|profile).{0,30}(?:linkedin|público|public)/i;
-  return Array.from(root.querySelectorAll('a[href*="/in/"]'))
+  const canonical = (document.querySelector('link[rel="canonical"]') as HTMLLinkElement | null)?.href;
+  const og = (document.querySelector('meta[property="og:url"]') as HTMLMetaElement | null)?.content;
+  const explicit = Array.from(root.querySelectorAll('a[href*="/in/"]'))
     .filter((el) => {
       const a = el as HTMLAnchorElement;
       const text = [a.textContent, a.getAttribute('aria-label'), a.getAttribute('title')]
@@ -630,6 +652,7 @@ function salesPagePublicProfileLinks(): string[] {
       const bounds = a.getBoundingClientRect();
       return bounds.width > 0 && bounds.height > 0 && label.test(text);
     }).map((el) => (el as HTMLAnchorElement).href);
+  return [...new Set([canonical, og, ...explicit].filter((x): x is string => !!x))];
 }
 
 const routeTestUrl = (url: string): string => {
@@ -648,7 +671,7 @@ const routeTestUrl = (url: string): string => {
  * A ausência de resposta na conta Basic não autoriza escolher homônimos.
  */
 export async function gotoProfile(d: ExecutorDeps, p: Person, suffix = ''): Promise<OpenResult> {
-  let slug = p.publicId?.trim().toLowerCase();
+  let slug = normalizeLinkedInPublicId(p.publicId);
   if (slug && (slug.includes('/') || slug.includes('\\') || /[\s?#]/.test(slug)))
     return { needsReview: 'Identificador público inválido. Confira a URL do perfil.' };
   const derivedMemberId = memberIdFromSalesHash(p.custom?.sn_id ?? p.custom?.linkleads_sn_hash_core);
@@ -666,9 +689,9 @@ export async function gotoProfile(d: ExecutorDeps, p: Person, suffix = ''): Prom
     (!slug || profileSlug(d.driver.wc.getURL()) !== slug))
     return { retryAt: d.limits.freeAt('profile_url') };
 
+  let verifiedRoute: ProfileRoute | undefined;
   if (!slug) {
     const attempts: string[] = [];
-    let verifiedRoute: ProfileRoute | undefined;
     for (const route of routes) {
       if (d.limits && d.limits.left('profile_url') <= 0)
         return { retryAt: d.limits.freeAt('profile_url') };
@@ -681,9 +704,17 @@ export async function gotoProfile(d: ExecutorDeps, p: Person, suffix = ''): Prom
         continue;
       }
       let observed = profileSlug(d.driver.wc.getURL());
-      if (!observed && (route.method === 'sales_source')) {
-        const links = await d.driver.read(salesPagePublicProfileLinks).catch(() => [] as string[]);
-        const slugs = [...new Set(links.map(profileSlug).filter((s): s is string => !!s))];
+      // /in/ACw pode responder sem redirecionar, mas o documento revelar um
+      // canonical ou og:url /in/nome (ou /in/ACo). Nunca persistir o hash
+      // como public_id simplesmente porque ele aparece na barra de endereco.
+      const unresolvedHash = route.method === 'basic_hash_candidate' &&
+        observed === publicIdFromUrl(route.url);
+      if ((unresolvedHash || !observed) &&
+          (route.method === 'basic_hash_candidate' || route.method === 'sales_source')) {
+        const candidates = await d.driver.read(salesPagePublicProfileLinks).catch(() => [] as string[]);
+        const links = Array.isArray(candidates) ? candidates.filter((x): x is string => typeof x === 'string') : [];
+        const slugs = [...new Set(links.map(profileSlug).filter((s): s is string =>
+          !!s && (!unresolvedHash || s !== observed)))];
         if (slugs.length > 1) { attempts.push(route.method + ': múltiplos perfis possíveis'); continue; }
         if (slugs.length === 1) {
           observed = slugs[0]!;
@@ -697,34 +728,52 @@ export async function gotoProfile(d: ExecutorDeps, p: Person, suffix = ''): Prom
           }
         }
       }
-      if (!observed || profileSlug(d.driver.wc.getURL()) !== observed) {
+      if (!observed || unresolvedHash && observed === publicIdFromUrl(route.url) ||
+          profileSlug(d.driver.wc.getURL()) !== observed) {
         attempts.push(route.method + ': sem URL pública verificável');
         continue;
       }
-      if (route.method === 'exported_public_candidate' &&
-        !route.url.includes('/in/' + encodeURIComponent(observed) + '/')) {
-        attempts.push(route.method + ': destino divergente do arquivo');
+      const observedMemberId = memberIdFromBasicOpaquePublicId(observed) ?? memberIdFromSalesHash(observed);
+      const expectedMemberId = p.memberId ?? derivedMemberId;
+      if (observedMemberId && expectedMemberId && observedMemberId !== expectedMemberId) {
+        attempts.push(route.method + ': member_id do perfil opaco /in/ nao corresponde ao lead');
         continue;
       }
-      // Mesmo quando a plataforma redireciona, conferir o nome exibido:
-      // previne associação inadvertida a um perfil de terceiro.
+      // URL Basic /in/ACo... pode redirecionar para um slug de nome.
+      // Uma URL /in/nome simples NAO autoriza redirecionamento para outro nome.
+      if (route.method === 'exported_public_candidate') {
+        const originalCandidate = publicIdFromUrl(route.url);
+        const opaqueCandidateId = memberIdFromBasicOpaquePublicId(originalCandidate);
+        if (!opaqueCandidateId && originalCandidate !== observed) {
+          attempts.push(route.method + ': destino divergente do arquivo');
+          continue;
+        }
+        if (opaqueCandidateId && expectedMemberId && opaqueCandidateId !== expectedMemberId) {
+          attempts.push(route.method + ': identificador ACo importado pertence a outro member_id');
+          continue;
+        }
+      }
+      const exactMemberMatch = !!observedMemberId && !!expectedMemberId &&
+        observedMemberId === expectedMemberId;
+      // Prova por member_id e mais forte que nome/empresa, que podem mudar.
+      // Sem prova numerica, exigir nome + empresa para candidatos.
       const profile = await d.driver.read(extractProfile,
         d.driver.sel as unknown as Record<string, readonly string[]>)
         .catch(() => ({ name: null, company: null }));
+      if (!profile.name?.trim()) {
+        attempts.push(route.method + ': pagina sem dados de perfil; possivel 404 ou carregamento incompleto');
+        continue;
+      }
       const expectedName = !!p.firstName && !!p.lastName;
-      if (expectedName && !samePersonName(p, profile.name)) {
+      if (expectedName && !exactMemberMatch && !samePersonName(p, profile.name)) {
         attempts.push(route.method + ': nome do perfil não corresponde ao lead');
         continue;
       }
-      if (route.requiresNameConfirmation && !expectedName) {
+      if (route.requiresNameConfirmation && !expectedName && !exactMemberMatch) {
         attempts.push(route.method + ': confirmação de nome necessária');
         continue;
       }
-      // Um public_id isolado no CSV não foi comprovado pela fonte. Nome coincidente
-      // pode ser homônimo; exigir também empresa visível e compatível nessa rota.
-      // As rotas vinculadas a member_id/hash mantêm checagem de nome sem depender
-      // de empregador atual, que pode ter mudado desde a coleta.
-      if (route.requiresNameConfirmation && !samePersonCompany(p, profile.company)) {
+      if (route.requiresNameConfirmation && !exactMemberMatch && !samePersonCompany(p, profile.company)) {
         attempts.push(route.method + ': empresa do candidato ausente ou divergente');
         continue;
       }
@@ -736,11 +785,34 @@ export async function gotoProfile(d: ExecutorDeps, p: Person, suffix = ''): Prom
       verifiedRoute = route;
       break;
     }
-    if (!slug || !verifiedRoute)
-      return { needsReview: 'Perfil não resolvido. Tentativas: ' + attempts.join('; ').slice(0, 800) +
-        '. Conta Basic pode não disponibilizar rotas do Sales Navigator; não selecionar homônimos.' };
-    // Salvar no MESMO registro antes das atividades. A confirmação do destino
-    // já aconteceu; falha posterior em atividades não desfaz a identidade.
+    if (!slug || !verifiedRoute) {
+      const hasSalesSource = routes.some((r) => r.method === 'sales_source');
+      const sourceStatus = hasSalesSource
+        ? 'URL original Sales Navigator encontrada, mas a sessao nao retornou identidade publica correspondente.'
+        : 'URL Sales Navigator completa nao preservada neste cadastro; buscar no CSV original e reimportar para o mesmo lead.';
+      return { needsReview: 'Perfil ainda nao identificado. ' + sourceStatus +
+        ' Rotas tentadas: ' + attempts.join('; ').slice(0, 800) +
+        '. Nenhum perfil foi associado e nenhuma interacao foi executada.' };
+    }
+  }
+
+  const finalUrl = BASE + '/in/' + encodeURIComponent(slug) + '/' + suffix;
+  await d.driver.goto(finalUrl);
+  await d.driver.assertNotBlocked();
+  if (profileSlug(d.driver.wc.getURL()) !== slug)
+    return { needsReview: 'Redirecionamento para perfil ou domínio diferente da identidade resolvida.' };
+  // A pagina /recent-activity/all/ nao apresenta h1 de perfil.
+  // A identidade foi validada na pagina /in/ antes do acesso as atividades.
+  if (verifiedRoute && !suffix) {
+    const finalIdentity = await d.driver.read(extractProfile,
+      d.driver.sel as unknown as Record<string, readonly string[]>)
+      .catch(() => ({ name: null }));
+    if (!finalIdentity.name?.trim())
+      return { needsReview: 'Destino /in/ abriu sem dados de perfil: identidade nao foi gravada.' };
+  }
+  // Somente gravar a identidade quando a navegação FINAL estiver confirmada.
+  // Um candidato ACw nao se transforma automaticamente num /in/ACo.
+  if (verifiedRoute) {
     p.publicId = slug;
     p.custom = { ...(p.custom ?? {}),
       linkleads_profile_url: 'https://www.linkedin.com/in/' + encodeURIComponent(slug) + '/',
@@ -751,11 +823,5 @@ export async function gotoProfile(d: ExecutorDeps, p: Person, suffix = ''): Prom
       linkleads_identity_review_required: 'false' };
     d.crm.upsertPerson(p);
   }
-
-  const finalUrl = BASE + '/in/' + encodeURIComponent(slug) + '/' + suffix;
-  await d.driver.goto(finalUrl);
-  await d.driver.assertNotBlocked();
-  if (profileSlug(d.driver.wc.getURL()) !== slug)
-    return { needsReview: 'Redirecionamento para perfil ou domínio diferente da identidade resolvida.' };
   return 'ok';
 }
