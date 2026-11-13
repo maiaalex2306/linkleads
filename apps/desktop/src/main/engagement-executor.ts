@@ -45,7 +45,12 @@ export function likeAndComment(d: ExecutorDeps): ActionExecutor {
           } },
       };
       const liked = await like.execute(likeCtx);
-      if (!liked.ok) return liked;
+      if (!liked.ok) {
+        // Uma falha após mouseDown ainda pode ter consumido a operação externa.
+        // Só cobrar likes se a tentativa REAL foi iniciada, nunca erro de parser.
+        const usageKeys: BudgetKey[] = liked.data?.likeAttempted === true ? ['likes'] : [];
+        return { ...liked, data: { ...(liked.data ?? {}), usageKeys } };
+      }
 
       const wasAlreadyLiked = liked.data?.alreadyLiked === true;
       const usageKeys: BudgetKey[] = wasAlreadyLiked ? [] : ['likes'];
@@ -74,11 +79,24 @@ export function likeAndComment(d: ExecutorDeps): ActionExecutor {
           } },
       };
       const posted = await comment.execute(commentCtx);
+      // "Não achei editor" ou "IA indisponível" não são publicações tentadas.
+      // CLICK enviado porém incerto entra conservadoramente no orçamento,
+      // mas não vira sucesso confirmado na UI/SQLite.
       if ((posted.ok && posted.data?.alreadyCommented !== true) ||
-        (!posted.ok && posted.reason === 'NO_REAL_EFFECT')) {
+          posted.data?.commentAttempted === true)
         usageKeys.push('comments');
-      }
-      return { ...posted, data: { ...(posted.data ?? {}), usageKeys } } as ExecutionResult;
+      const awaiting = !posted.ok && posted.reason === 'AWAITING_APPROVAL';
+      return {
+        ...posted,
+        ...(awaiting ? { message: 'Curtida confirmada. Comentário com IA criado; aprovação manual pendente na aba Aprovações.' } : {}),
+        data: {
+          ...(posted.data ?? {}), usageKeys,
+          likeStatus: 'confirmed',
+          commentStatus: awaiting ? 'awaiting_approval'
+            : posted.ok ? 'confirmed'
+              : posted.data?.commentAttempted ? 'uncertain' : 'not_sent',
+        },
+      } as ExecutionResult;
     },
     // Cada efeito é validado sincronicamente pelos executores reutilizados.
     // Não marcar sucesso se o comentário ficou aguardando aprovação.
