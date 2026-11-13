@@ -722,10 +722,24 @@ export class LocalCrm extends SqliteCampaignStore {
    * INSERT OR IGNORE: uma queda não pode autorizar clique duplicado.
    */
   beginLikeAttempt(postUrl: string, personId: string, campaignId: string, actionId: string): boolean {
-    const attempt = this.db.prepare(
-      "INSERT OR IGNORE INTO like_attempt_ledger (post_url, person_id, campaign_id, action_id, status) VALUES (?,?,?,?, 'started')",
-    ).run(postUrl, personId, campaignId, actionId);
-    return Number(attempt.changes) === 1;
+    // Uma reserva cancelada significa que o preflight abortou ANTES de
+    // mouseDown. Ela pode ser rearmada com segurança, mantendo o evento
+    // anterior em engagement_effects. Nunca rearmar started/uncertain/confirmed.
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const attempt = this.db.prepare(
+        "INSERT OR IGNORE INTO like_attempt_ledger (post_url, person_id, campaign_id, action_id, status) VALUES (?,?,?,?, 'started')",
+      ).run(postUrl, personId, campaignId, actionId);
+      const reserved = Number(attempt.changes) === 1 ||
+        Number(this.db.prepare(
+          "UPDATE like_attempt_ledger SET person_id=?, campaign_id=?, action_id=?, status='started', started_at=datetime('now'), finished_at=NULL WHERE post_url=? AND status='cancelled'",
+        ).run(personId, campaignId, actionId, postUrl).changes) === 1;
+      this.db.exec('COMMIT');
+      return reserved;
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
   }
 
   likeAttempt(postUrl: string): { personId: string; status: 'started' | 'confirmed' | 'uncertain' | 'cancelled' } | undefined {
