@@ -512,7 +512,19 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
             // O feed pode ser virtualizado durante a pausa e o movimento do
             // mouse. Revalidar a URN, o estado NÃO CURTIDO, o botão e o pixel
             // imediatamente antes de mouseDown: nunca desfazer uma curtida.
-            const click = await d.driver.clickVerifiedLike(post.urn);
+            let click: 'CLICKED' | 'NOT_FOUND' | 'REVIEW_REQUIRED';
+            try {
+              click = await d.driver.clickVerifiedLike(post.urn);
+            } catch {
+              d.crm.finishLikeAttempt(post.urn, 'uncertain');
+              d.crm.recordEngagementEffect({
+                campaignId: ctx.campaignId, actionId: ctx.action.id, personId: ctx.person.id,
+                postUrl: post.urn, stage: 'like', status: 'uncertain', reason: 'CLICK_INTERRUPTED',
+              });
+              return { ok: false, reason: 'NO_REAL_EFFECT',
+                message: 'Clique interrompido: curtida indeterminada, conciliação manual obrigatória',
+                data: { post: post.urn, likeAttempted: true, uncertainLike: true } };
+            }
             if (click !== 'CLICKED') {
               d.crm.finishLikeAttempt(post.urn, 'cancelled');
               d.crm.recordEngagementEffect({
@@ -673,7 +685,8 @@ export async function publishComment(d: ExecutorDeps, urn: string, text: string)
       if (!clicked) {
         d.crm.finishCommentSubmission(urn, 'uncertain');
         return { ok: false, reason: 'NO_REAL_EFFECT',
-          message: 'A publicação foi cancelada antes de mouseDown; reserva mantida para revisão, sem novo clique automático' };
+          message: 'A publicação foi cancelada antes de mouseDown; reserva mantida para revisão, sem novo clique automático',
+          data: { post: urn, commentAttempted: false, commentConfirmed: false } };
       }
       const published = await d.driver.waitUntil(async () => {
         const evidence = await d.driver.read(commentEvidence, selectorMap, urn, text);
@@ -685,14 +698,16 @@ export async function publishComment(d: ExecutorDeps, urn: string, text: string)
           evidence.editorEmpty;
       }, 12_000);
       d.crm.finishCommentSubmission(urn, published ? 'confirmed' : 'uncertain');
-      return published ? { ok: true, data: { post: urn } }
+      return published ? { ok: true, data: { post: urn, commentAttempted: true, commentConfirmed: true } }
         : { ok: false, reason: 'NO_REAL_EFFECT',
-          message: 'Envio possivelmente realizado, mas não confirmado. Reconciliação manual obrigatória; não repetir automaticamente.' };
+          message: 'Envio possivelmente realizado, mas não confirmado. Reconciliação manual obrigatória; não repetir automaticamente.',
+          data: { post: urn, commentAttempted: true, commentConfirmed: false } };
     } catch (error) {
       d.crm.finishCommentSubmission(urn, 'uncertain');
       return { ok: false, reason: 'NO_REAL_EFFECT',
         message: 'A confirmação foi interrompida após reservar o envio; resultado incerto, não repetir. ' +
-          (error instanceof Error ? error.message : String(error)) };
+          (error instanceof Error ? error.message : String(error)),
+        data: { post: urn, commentAttempted: true, commentConfirmed: false } };
     }
   });
 }
