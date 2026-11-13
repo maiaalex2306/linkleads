@@ -79,6 +79,19 @@ export function memberIdFromSalesHash(raw: string | undefined): string | undefin
   return id > 0 ? String(id) : undefined;
 }
 
+
+/**
+ * IDs públicos opacos /in/ACoAAA... podem incorporar o mesmo member_id
+ * numérico do Sales Navigator, embora os sufixos criptográficos sejam distintos.
+ * Útil APENAS como verificação de uma URL /in/ já observada; não permite gerar
+ * um identificador ACo a partir do hash ACw.
+ */
+export function memberIdFromBasicOpaquePublicId(raw?: string): string | undefined {
+  const value = raw?.trim().split('/')[0];
+  if (!value || !/^ACo[A-Za-z0-9_-]{30,}$/.test(value)) return undefined;
+  return memberIdFromSalesHash('ACw' + value.slice(3));
+}
+
 const norm = (h: string) => h.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
 /** Sinônimos de cabeçalho aceitos (pt/en, exportações comuns). */
