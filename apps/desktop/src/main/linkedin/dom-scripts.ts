@@ -758,6 +758,42 @@ export function commentClickGuard(
   return !!hit && (hit === target || target.contains(hit));
 }
 
+/** Botão que ABRE a área de comentários: não confundir com o envio. */
+export function commentOpenGuard(
+  sel: Record<string, readonly string[]>, urn: string, x: number, y: number,
+): boolean {
+  const cards = __llPostContainers({ postItem: sel.postItem!, likeButton: sel.likeButton! })
+    .filter((card) => card.urn === urn && card.identity.identityStatus === 'CONFIRMED');
+  if (cards.length !== 1) return false;
+  const root = cards[0]!.el;
+  const elements = new Set<HTMLElement>();
+  for (const selector of sel.commentButton ?? []) {
+    try {
+      for (const candidate of Array.from(root.querySelectorAll(selector))) {
+        if (!(candidate instanceof HTMLElement) ||
+          candidate.closest('form, .comments-comment-entity, .comments-comment-item') ||
+          !/^(?:comentar|comment|abrir comentários|show comments)$/i.test(
+            (candidate.getAttribute('aria-label') || candidate.innerText || '').replace(/\s+/g, ' ').trim())) continue;
+        let parent = candidate.parentElement;
+        let embedded = false;
+        while (parent && parent !== root) {
+          if (parent.matches('[data-urn], [data-activity-urn], .feed-shared-mini-update-v2, .update-components-mini-update-v2')) {
+            embedded = true; break;
+          }
+          parent = parent.parentElement;
+        }
+        if (!embedded && parent === root) elements.add(candidate);
+      }
+    } catch { /* configurar seletor inválido não abre um controle externo */ }
+  }
+  if (elements.size !== 1) return false;
+  const button = [...elements][0]!;
+  const rect = button.getBoundingClientRect();
+  if (!(rect.width > 0 && rect.height > 0) || x < rect.left || x >= rect.right || y < rect.top || y >= rect.bottom) return false;
+  const hit = document.elementFromPoint(x, y);
+  return !!hit && (hit === button || button.contains(hit));
+}
+
 /** Controle "ver mais" restrito ao TEXTO do post principal, jamais comentários. */
 export function postExpandPoint(
   sel: Record<string, readonly string[]>, urn: string,
