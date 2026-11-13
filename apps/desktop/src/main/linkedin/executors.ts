@@ -183,12 +183,14 @@ export function firstUnlikedCandidate(
   const norm = (v: string) => v.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
   const cleanName = personName.replace(/^(?:(?:Atividades|Activity|Publicações|Publications|Posts|Comentários|Comments)\s*[|·–-]\s*)+/i, '');
   const expected = norm(cleanName);
-  const id = publicId.toLowerCase();
+  const id = normalizeLinkedInPublicId(publicId);
   for (const post of posts) {
     if (post.liked === true) continue; // curtido: ir ao proximo sem outras verificacoes
     if (post.isReshare && !options.includeReshares) continue;
     const actor = post.actorHref ? profileSlug(post.actorHref) : undefined;
-    const actorKnown = !!actor && !/^(?:acoaa|acwaa)/i.test(actor);
+    // Opaque /in/ACo ou /in/ACw é válido quando coincide EXATAMENTE com
+    // o publicId persistido, incluindo a caixa do código Base64URL.
+    const actorKnown = !!actor;
     if (post.actorHref && !actor)
       return { post, why: 'Link do autor não é um perfil confiável do LinkedIn', uncertain: true };
     if (actorKnown && actor !== id) continue; // atividade de terceiro
@@ -213,7 +215,7 @@ export function choosePost(posts: PostExtract[], publicId: string, s: LikeSettin
   const cleanPersonName = personName.replace(/^(?:(?:Atividades|Activity|Publicações|Publications|Posts|Comentários|Comments)\s*[|·–-]\s*)+/i, '');
   const expected = norm(cleanPersonName);
   const isOwn = (p: PostExtract) =>
-    !!p.actorHref && profileSlug(p.actorHref) === publicId.toLowerCase();
+    !!p.actorHref && profileSlug(p.actorHref) === normalizeLinkedInPublicId(publicId);
   let empty = 0;
   let reshare = 0;
   let others = 0;
@@ -227,7 +229,7 @@ export function choosePost(posts: PostExtract[], publicId: string, s: LikeSettin
     if (!p.text && !p.hasMedia) return (empty++, false);
     if (p.isReshare && !s.includeReshares) return (reshare++, false);
     const actor = p.actorHref ? profileSlug(p.actorHref) : undefined;
-    if (!actor || /^(?:acoaa|acwaa)/i.test(actor))
+    if (!actor)
       return (uncertainActors++, false);
     if (!isOwn(p)) return (others++, false);
     // Qualquer consumidor de choosePost deve receber somente conteúdo verificável.
