@@ -166,7 +166,18 @@ try {
   assert((await run('submitPoint', [urn])) === null,
     'botão Publicar de formulário diferente não é confundido com envio');
 
-  console.log('E2E FASE 4 — EDITOR, ENVIO, PROVA E EXPANSÃO OK');
+
+  // Fase 7: o botão desabilitado (HTML ou ARIA) nunca é um alvo de envio.
+  await page.setContent('<main>' + card(urn, 'Publicação principal.',
+    form.replace('type="submit"', 'type="submit" disabled')) + '</main>');
+  assert((await run('submitPoint', [urn])) === null,
+    'Fase 7: botão Publicar disabled não autoriza envio');
+  await page.setContent('<main>' + card(urn, 'Publicação principal.',
+    form.replace('type="submit"', 'type="submit" aria-disabled="true"')) + '</main>');
+  assert((await run('submitPoint', [urn])) === null,
+    'Fase 7: botão Publicar aria-disabled não autoriza envio');
+
+  console.log('E2E FASE 4/7 — EDITOR, ENVIO E PROVA OK');
 } catch (e) {
   console.error(e?.stack ?? e);
   process.exitCode = 1;

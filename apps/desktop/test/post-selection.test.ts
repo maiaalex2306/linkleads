@@ -253,3 +253,56 @@ describe('fase 3 — origem do autor e rolagem sem falsas identidades', () => {
     ]) expect(profileSlug(url)).toBeUndefined();
   });
 });
+
+describe('Fase 7 — incidentes Renato/Douglas e seleção segura', () => {
+  const renato = 'renato-bonfogo', douglas = 'douglas-rodrigues';
+  const post = (suffix: string, actor: string): PostExtract => ({
+    urn: 'urn:li:activity:738123456789012' + suffix,
+    text: 'Mensagem de teste de autoria, identidade e engajamento.',
+    actorHref: 'https://www.linkedin.com/in/' + actor + '/',
+    actorName: actor, age: '2 d', liked: false, hasMedia: false, isReshare: false,
+    postKind: 'ORIGINAL',
+    cardIdentity: {
+      cardId: 'urn:li:activity:738123456789012' + suffix,
+      postUrn: 'urn:li:activity:738123456789012' + suffix,
+      permalink: null, primaryActorUrl: 'https://www.linkedin.com/in/' + actor + '/',
+      primaryActorName: actor, embeddedPostUrn: null, embeddedActorUrl: null,
+      identityStatus: 'CONFIRMED',
+    },
+  });
+  it('Renato: vaga anexa não substitui autoria nem identificador principal', () => {
+    const p = post('8101', renato);
+    p.postKind = 'ORIGINAL_WITH_ATTACHMENT';
+    p.cardIdentity!.embeddedPostUrn = 'urn:li:activity:7381234567890128199';
+    expect(choosePost([p], renato, {}).post?.urn).toBe(p.urn);
+    expect(choosePost([p], douglas, {}).post).toBeUndefined();
+  });
+  it('Renato: repost de terceiro respeita a política e distingue o repostador', () => {
+    const p = post('8601', 'tassiana-ribas');
+    p.postKind = 'RESHARE_PLAIN'; p.isReshare = true;
+    p.resharedByHref = 'https://www.linkedin.com/in/' + renato + '/';
+    expect(choosePost([p], renato, { includeReshares: false }).post).toBeUndefined();
+    expect(choosePost([p], renato, { includeReshares: true }).post).toBe(p);
+    expect(choosePost([p], douglas, { includeReshares: true }).post).toBeUndefined();
+  });
+  it('Douglas: menções e links secundários nunca alteram autor verificado', () => {
+    const p = post('8701', douglas);
+    p.text = 'Agradeço o apoio de Renato.';
+    p.cardIdentity!.embeddedActorUrl = 'https://www.linkedin.com/in/' + renato + '/';
+    expect(choosePost([p], douglas, {}).post).toBe(p);
+    expect(choosePost([p], renato, {}).post).toBeUndefined();
+    p.actorHref = null;
+    expect(choosePost([p], douglas, {}).uncertain).toBe(true);
+  });
+  it('não passa ao post seguinte quando o primeiro não curtido tem reação desconhecida', () => {
+    const first = post('8801', renato); first.liked = null;
+    const second = post('8802', renato);
+    expect(choosePost([first, second], renato, {}).post).toBeUndefined();
+    expect(choosePost([first, second], renato, {}).uncertain).toBe(true);
+  });
+  it('não conta uma URN repetida na próxima rolagem como uma nova publicação', () => {
+    const same = post('8901', renato);
+    expect(hasNewVerifiedPost(new Map([[same.urn, same]]), [same, same])).toBe(false);
+    expect(hasNewVerifiedPost(new Map([[same.urn, same]]), [post('8902', renato)])).toBe(true);
+  });
+});

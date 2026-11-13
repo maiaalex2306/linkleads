@@ -13,12 +13,13 @@ const csv = join(tmp, 'pessoa.csv');
 writeFileSync(csv, 'firstName,lastName,profileUrl\nAna,Silva,https://www.linkedin.com/in/ana-silva/\n');
 const site = await startFakeSite();
 site.state.noCommentRender = true;
-const app = await electron.launch({
+const env = { ...process.env, XDG_CONFIG_HOME: tmp,
+  LINKLEADS_TEST_BASE_URL: site.url, LINKLEADS_TEST_AI_STUB: '1' };
+const launch = () => electron.launch({
   executablePath: require(join(appDir, '../../node_modules/electron')),
-  args: [process.env.LINKLEADS_E2E_APP ?? appDir],
-  env: { ...process.env, XDG_CONFIG_HOME: tmp,
-    LINKLEADS_TEST_BASE_URL: site.url, LINKLEADS_TEST_AI_STUB: '1' },
+  args: [process.env.LINKLEADS_E2E_APP ?? appDir], env,
 });
+let app = await launch();
 try {
   const ui = await app.firstWindow();
   await ui.waitForLoadState('domcontentloaded');
@@ -67,7 +68,29 @@ try {
   await call('runNow', acc.id);
   if (site.state.comments.length !== 1)
     throw Error('Envio não confirmado foi repetido após novo ciclo');
-  console.log('E2E FASE 4 — EFEITO INCERTO NÃO REENVIADO OK');
+  // FASE 7: crash/restart real do Electron, preservando SQLite e a conta.
+  // O comentário pode ter chegado ao servidor. Nunca fazer segundo envio.
+  await app.close();
+  app = await launch();
+  const reopened = await app.firstWindow();
+  await reopened.waitForLoadState('domcontentloaded');
+  const restoredCall = (name, ...args) => reopened.evaluate(([fn, params]) =>
+    window.linkleads[fn](...params), [name, args]);
+  const restoredAccounts = await restoredCall('listAccounts');
+  if (!restoredAccounts.some((a) => a.id === acc.id))
+    throw Error('Fase 7: conta desapareceu após reinício');
+  const campaigns = await restoredCall('listCampaigns', acc.id);
+  if (!campaigns.some((c) => c.id === campaignId))
+    throw Error('Fase 7: campanha desapareceu após reinício');
+  await restoredCall('openBrowser', acc.id);
+  await restoredCall('runNow', acc.id);
+  if (site.state.comments.length !== 1 || site.state.likes !== 1)
+    throw Error('Fase 7: ação duplicada após reinício: ' + JSON.stringify(site.state));
+  const restoredEffects = await restoredCall('engagementEffects', acc.id, campaignId);
+  if (!restoredEffects.some((e) => e.stage === 'comment' && e.status === 'uncertain') ||
+      restoredEffects.some((e) => e.stage === 'comment' && e.status === 'confirmed'))
+    throw Error('Fase 7: estado do comentário incerto se perdeu: ' + JSON.stringify(restoredEffects));
+  console.log('E2E FASE 4/7 — REINÍCIO COM EFEITO INCERTO SEM RETRY OK');
 } catch (error) {
   console.error('FALHOU:', error?.stack ?? error);
   process.exitCode = 1;

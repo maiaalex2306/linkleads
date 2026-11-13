@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { WebContents } from 'electron';
 import type { SelectorMap } from '../src/main/linkedin/selectors.js';
-import { PageDriver } from '../src/main/linkedin/page-driver.js';
+import { BlockedError, PageDriver } from '../src/main/linkedin/page-driver.js';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -217,5 +217,17 @@ describe('Fase 6 — privacidade de links e URNs no diagnóstico', () => {
       .toBe('/messaging/thread/[id]/');
     expect(diagnosticPath('https://www.linkedin.com/sales/people/ACw-opaque-hash,NAME_SEARCH/'))
       .toBe('/sales/people/[id]/');
+  });
+});
+
+describe('Fase 7 — checkpoint: interrupção obrigatória', () => {
+  it('não consulta DOM nem permite interação quando o navegador está em checkpoint', async () => {
+    const wc = { getURL: () => 'https://www.linkedin.com/checkpoint/challenge' };
+    const driver = new PageDriver(wc as unknown as WebContents,
+      selectors as unknown as SelectorMap);
+    const spy = vi.spyOn(driver, 'read');
+    await expect(driver.assertNotBlocked()).rejects.toBeInstanceOf(BlockedError);
+    await expect(driver.assertNotBlocked()).rejects.toMatchObject({ kind: 'checkpoint' });
+    expect(spy).not.toHaveBeenCalled();
   });
 });
