@@ -159,7 +159,7 @@ describe('CSV Sales Navigator somente hash — navegação Basic observada', () 
     deps.crm = { upsertPerson, findByPublicId: vi.fn() } as unknown as ExecutorDeps['crm'];
     const p = person();
     const result = await gotoProfile(deps, p);
-    expect(result).toMatchObject({ needsReview: expect.stringMatching(/member_id do \/in\/ACo/) });
+    expect(result).toMatchObject({ needsReview: expect.stringMatching(/member_id do perfil opaco/) });
     expect(p.publicId).toBeUndefined();
     expect(upsertPerson).not.toHaveBeenCalled();
   });
