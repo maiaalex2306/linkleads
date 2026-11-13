@@ -95,6 +95,52 @@ describe('navegação por identidade de perfil — etapa 2', () => {
   });
 });
 
+describe('CSV Sales Navigator somente hash — navegação Basic observada', () => {
+  const hash = 'ACwAAAIATasBA_OC0NMUDatWeEBCssGNHCpTT6U';
+  const person = (): Person => ({ id: 'm:33574315', memberId: '33574315',
+    firstName: 'Carlos', lastName: 'Pereira', company: 'Toyota',
+    custom: { sn_id: hash, linkleads_sn_hash_core: hash } });
+
+  it('tenta a rota Basic ACw antes do member_legacy e grava somente apos URL final', async () => {
+    const { deps, goto } = mockBrowser((url) => url.includes('/in/' + hash + '/')
+      ? 'https://www.linkedin.com/in/carlos-pereira/' : url);
+    const upsertPerson = vi.fn();
+    deps.crm = { upsertPerson, findByPublicId: vi.fn() } as unknown as ExecutorDeps['crm'];
+    const p = person();
+    expect(await gotoProfile(deps, p)).toBe('ok');
+    expect(goto).toHaveBeenCalledWith('https://www.linkedin.com/in/' + hash + '/');
+    expect(p.publicId).toBe('carlos-pereira');
+    expect(p.custom?.linkleads_identity_method).toBe('basic_hash_candidate');
+    expect(upsertPerson).toHaveBeenCalledWith(expect.objectContaining({ id: 'm:33574315' }));
+  });
+
+  it('nao vincula ACo quando member_id extraido diverge do Sales Navigator', async () => {
+    const basic = 'ACoAAA8BYqEBCGLg_vT_ca6mMEqkpp9nVffJ3hc';
+    const { deps } = mockBrowser((url) =>
+      url.includes('/in/' + hash + '/') ? 'https://www.linkedin.com/in/' + basic + '/' : url);
+    const upsertPerson = vi.fn();
+    deps.crm = { upsertPerson, findByPublicId: vi.fn() } as unknown as ExecutorDeps['crm'];
+    const p = person();
+    const result = await gotoProfile(deps, p);
+    expect(result).toMatchObject({ needsReview: expect.stringMatching(/member_id do \/in\/ACo/) });
+    expect(p.publicId).toBeUndefined();
+    expect(upsertPerson).not.toHaveBeenCalled();
+  });
+
+  it('nao persiste candidato enquanto a ultima navegacao divergir', async () => {
+    const { deps } = mockBrowser((url) => url.includes('/in/' + hash + '/')
+      ? 'https://www.linkedin.com/in/carlos-pereira/'
+      : url.includes('/in/carlos-pereira/')
+        ? 'https://www.linkedin.com/in/outra-pessoa/' : url);
+    const upsertPerson = vi.fn();
+    deps.crm = { upsertPerson, findByPublicId: vi.fn() } as unknown as ExecutorDeps['crm'];
+    const p = person();
+    expect(await gotoProfile(deps, p)).toHaveProperty('needsReview');
+    expect(p.publicId).toBeUndefined();
+    expect(upsertPerson).not.toHaveBeenCalled();
+  });
+});
+
 describe('Sales Navigator - resolução pelo link original do CSV', () => {
   const source = 'https://www.linkedin.com/sales/people/ACwAAAcar,9rcn,NAME_SEARCH/';
   const sn = (): Person => ({
