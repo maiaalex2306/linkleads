@@ -75,7 +75,7 @@ const postHtml = (withEditor, urn = URN) => `
 const likeScript = `document.querySelector('.react-button__trigger').addEventListener('click', async (e) => {
   if (!e.isTrusted) return; // como o site real, ignora cliques sintéticos
   await fetch('/api/like', { method: 'POST' }); if (e.target.hasAttribute('aria-pressed')) e.target.setAttribute('aria-pressed', 'true'); else e.target.setAttribute('aria-label', 'Situação do botão de reação: Gostei'); });`;
-const commentScript = likeScript + `document.querySelector('.comments-comment-box__submit-button').addEventListener('click', async (e) => {
+const commentScript = () => likeScript + `document.querySelector('.comments-comment-box__submit-button').addEventListener('click', async (e) => {
   if (!e.isTrusted) return;
   const text = document.querySelector('.comments-comment-box__form [contenteditable]').innerText.trim();
   await fetch('/api/comment', { method: 'POST', body: text });
@@ -257,7 +257,7 @@ export function startFakeSite(port = 0) {
       const other = state.unrelatedEditor
         ? '<aside data-urn="urn:li:activity:9999999999999999999"><div class="comments-comment-box-comment__text-editor"><div contenteditable="true">Rascunho não relacionado</div></div><button>Post</button></aside>'
         : '';
-      return html(other + postHtml(true, postIdentity), commentScript);
+      return html(other + postHtml(true, postIdentity), commentScript());
     }
     if (url === '/in/ana-silva/recent-activity/all/') {
       if (state.activityDeepPosts) {
