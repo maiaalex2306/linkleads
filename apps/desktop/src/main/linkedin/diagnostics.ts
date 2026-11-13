@@ -1,6 +1,6 @@
 import { DEFAULT_LABELS, selectorAudit, type SelectorAudit, type LabelKey, type SelectorKey } from './selectors.js';
 import { evaluatePost } from './executors.js';
-import { cardDecision, layoutHash, layoutShape, type CardDecision, type DiagnosticCode, type LayoutShape } from './diagnostics-policy.js';
+import { cardDecision, diagnosticPath, layoutHash, layoutShape, type CardDecision, type DiagnosticCode, type LayoutShape } from './diagnostics-policy.js';
 import type { BaselineResult } from './diagnostic-baselines.js';
 import { diagnoseKeys, visibleButtonLabels, extractPosts, type KeyDiagnosis } from './dom-scripts.js';
 import { isCanonicalPostUrn } from './post-identity.js';
@@ -267,7 +267,7 @@ export async function diagnosePage(
     layout: { shape, hash: layoutHash(shape) },
     primaryCode: priority,
     page,
-    path: new URL(url).pathname.replace(/^\/(in|company)\/[^/]+/, '/$1/[id]'),
+    path: diagnosticPath(url),
     uiLanguage,
     blocked: { checkpoint, loggedOut },
     keys,
