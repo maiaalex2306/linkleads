@@ -106,7 +106,9 @@ jobs:
           if (-not (Test-Path $exe) -or -not (Test-Path 'portable-package/LinkLeads/resources/app.asar')) { throw 'Pacote Electron incompleto' }
           $hash=(Get-FileHash $exe -Algorithm SHA256).Hash
           $files=Get-ChildItem 'portable-package/LinkLeads' -Recurse -File
-          [ordered]@{schema='linkleads.installer.fixed.v1';sha=$env:SOURCE_SHA;target='D:\LINKLEADS';exe='D:\LINKLEADS\APP\LinkLeads.exe';exeSha256=$hash;fileCount=$files.Count;totalBytes=($files | Measure-Object Length -Sum).Sum} | ConvertTo-Json | Set-Content 'portable-package/manifesto.json' -Encoding UTF8
+          $base=(Resolve-Path 'portable-package/LinkLeads').Path
+          $hashed=@($files | ForEach-Object { [ordered]@{path=$_.FullName.Substring($base.Length+1).Replace('\\','/');bytes=$_.Length;sha256=(Get-FileHash $_.FullName -Algorithm SHA256).Hash} })
+          [ordered]@{schema='linkleads.installer.fixed.v2';sha=$env:SOURCE_SHA;target='D:\LINKLEADS';exe='D:\LINKLEADS\APP\LinkLeads.exe';exeSha256=$hash;fileCount=$files.Count;totalBytes=($files | Measure-Object Length -Sum).Sum;files=$hashed} | ConvertTo-Json -Depth 6 | Set-Content 'portable-package/manifesto.json' -Encoding UTF8
           @(
             'LINKLEADS — INSTALACAO WINDOWS'
             'DESTINO PERMANENTE E OBRIGATORIO: D:\LINKLEADS'
@@ -116,7 +118,7 @@ jobs:
             '4. Use o atalho LinkLeads da area de trabalho.'
             'Aplicativo: D:\LINKLEADS\APP\LinkLeads.exe'
             'Diagnostico: D:\LINKLEADS\resultado-instalacao-linkleads.txt'
-            'Nao exige backup, nao desinstala, nao exclui pastas e nao desativa antivirus.'
+            'Backup verificado de userData, staging e rollback de codigo; nenhum dado removido.'
             'Esta entrega nao usa o instalador NSIS antigo.'
             'Conta LinkedIn real requer homologacao supervisionada; nao ha garantia de resolucao universal.'
           ) | Set-Content 'portable-package/LEIA-ME.txt' -Encoding UTF8
@@ -232,4 +234,4 @@ jobs:
           gh release create "${tag}" "${zipfile}" "${zipfile}.sha256" \
             --target "${SOURCE_SHA}" --latest \
             --title "LINKLEADS 0.5.11 - Instalador Windows D:\LINKLEADS" \
-            --notes "UNICO PADRAO WINDOWS: extraia o ZIP, execute INSTALAR-LINKLEADS.cmd na raiz; sempre instala em D:\LINKLEADS e cria atalho no desktop. Sem NSIS, sem backup obrigatorio, sem exclusao de campanhas. Build/EXE/instalacao/atalho/janela homologados em Windows isolado. Operacao em conta LinkedIn real depende de homologacao do proprietario. Este pacote nao e assinado digitalmente."
+            --notes "UNICO PADRAO WINDOWS: extraia o ZIP, execute INSTALAR-LINKLEADS.cmd na raiz; sempre instala em D:\LINKLEADS e cria atalho no desktop. Sem NSIS, backup verificado e rollback do codigo; sem exclusao de campanhas. Build/EXE/instalacao/atalho/janela homologados em Windows isolado. Operacao em conta LinkedIn real depende de homologacao do proprietario. Este pacote nao e assinado digitalmente."

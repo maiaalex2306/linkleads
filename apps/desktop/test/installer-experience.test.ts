@@ -23,12 +23,18 @@ describe('padrao fixo de instalacao Windows D:\\LINKLEADS', () => {
     expect(launch).toContain('set "LL_EXE=D:\\LINKLEADS\\APP\\LinkLeads.exe"');
   });
 
-  it('exige pacote inteiro, SHA256 e preserva dados sem backup obrigatorio', () => {
+  it('exige SHA256 integral, backup verificado e rollback antes de concluir', () => {
     expect(installer).toContain('LL_MANIFEST');
     expect(installer).toContain('SHA256]::Create()');
     expect(installer).toContain('ComputeHash');
     expect(installer).not.toContain('Get-FileHash');
     expect(installer).toContain('exeSha256');
+    expect(installer).toContain('linkleads.installer.fixed.v2');
+    expect(installer).toContain('BACKUP_VERIFICADO');
+    expect(installer).toContain('APP.stage-');
+    expect(installer).toContain('APP.previous-');
+    expect(installer).toContain('ROLLBACK_OK');
+    expect(release).toContain("schema='linkleads.installer.fixed.v2'");
     expect(installer).toContain('--check-only');
     expect(installer).toContain('robocopy');
     expect(installer).toContain('/E /COPY:DAT');
