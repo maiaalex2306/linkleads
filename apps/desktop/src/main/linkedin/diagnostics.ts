@@ -1,6 +1,7 @@
 import { DEFAULT_LABELS, selectorAudit, type SelectorAudit, type LabelKey, type SelectorKey } from './selectors.js';
 import { evaluatePost } from './executors.js';
 import { cardDecision, layoutHash, layoutShape, type CardDecision, type DiagnosticCode, type LayoutShape } from './diagnostics-policy.js';
+import type { BaselineResult } from './diagnostic-baselines.js';
 import { diagnoseKeys, visibleButtonLabels, extractPosts, type KeyDiagnosis } from './dom-scripts.js';
 import { isCanonicalPostUrn } from './post-identity.js';
 import { parseRelativeAgeDays } from '@linkleads/core';
@@ -64,7 +65,7 @@ export interface DiagnosisReport {
   selectorsVersion: string;
   selectorConfiguration: SelectorAudit;
   /** Contrato estrutural anonimizável, confrontado com baseline por página/idioma. */
-  layout: { shape: LayoutShape; hash: string };
+  layout: { shape: LayoutShape; hash: string; comparison?: BaselineResult };
   primaryCode: DiagnosticCode | 'OK';
   page: PageKind;
   /** caminho sem o identificador da pessoa/empresa */
