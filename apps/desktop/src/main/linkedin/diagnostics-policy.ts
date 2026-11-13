@@ -2,6 +2,22 @@ import { createHash } from 'node:crypto';
 import type { PostExtract } from './dom-scripts.js';
 import type { PostEvaluation } from './executors.js';
 
+/** Remove todos os identificadores de URL antes de exportar diagnóstico.
+ * Nunca incluir URN de post, membro, thread ou nome de empresa.
+ */
+export function diagnosticPath(rawUrl: string): string {
+  try {
+    return new URL(rawUrl).pathname
+      .replace(/^\/(in|pub|company)\/[^/]+/i, '/$1/[id]')
+      .replace(/^\/feed\/update\/[^/]+/i, '/feed/update/[id]')
+      .replace(/^\/posts\/[^/]+/i, '/posts/[id]')
+      .replace(/^\/messaging\/(?:thread|detail)\/[^/]+/i, '/messaging/thread/[id]')
+      .slice(0, 180);
+  } catch {
+    return '[unavailable]';
+  }
+}
+
 export type DiagnosticCode =
   | 'CARD_NOT_FOUND' | 'CARD_ID_CONFLICT' | 'CARD_ID_PROVISIONAL'
   | 'RESHARE_CLASSIFICATION_ERROR' | 'RESHARE_EXCLUDED'
