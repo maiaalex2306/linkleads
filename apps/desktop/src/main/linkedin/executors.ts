@@ -552,7 +552,11 @@ async function hydratePostForComment(
       }
       if (!current || current.truncated || !current.text.trim())
         return failure('Texto integral do post indisponível; revisão necessária antes da IA');
-      // Somente após reler uma publicação canônica sem truncamento.
+      const owner = d.crm.getPerson(personId)?.publicId;
+      const actorUrl = current.isReshare ? current.resharedByHref : current.actorHref;
+      if (!owner || !actorUrl || !sameConfirmedPublicId(profileSlug(actorUrl), owner))
+        return failure('Autoria do post no permalink não corresponde ao lead confirmado; IA bloqueada');
+      // Somente após reler uma publicação canônica sem truncamento e com autoria comprovada.
       d.crm.savePost(personId, {
         url: post.url, text: current.text,
         postedAt: current.age ?? post.postedAt, hasMedia: current.hasMedia,
