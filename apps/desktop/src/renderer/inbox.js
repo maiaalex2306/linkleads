@@ -58,9 +58,9 @@ async function inboxView(a) {
       h('input', { type: 'checkbox', checked: inboxOnlyOpen, onchange: (e) => { inboxOnlyOpen = e.target.checked; renderView(); } }), 'Só não tratadas'),
     a.running && h('button', { onclick: () => safe(() => api.checkInbox(a.id)).then((r) => { toast(r ? `${r.newReplies.length} resposta(s) nova(s)` : 'Verificado'); renderView(); }) }, 'Verificar inbox agora'),
   );
-  if (!items.length) return h('div', { class: 'stack' }, head, h('p', { class: 'muted' }, 'Nenhuma resposta. O app verifica o inbox a cada 30 minutos enquanto a conta está em execução.'));
+  if (!items.length) return h('div', { class: 'stack' }, head, h('p', { class: 'muted' }, 'Nenhuma resposta registrada. A caixa de entrada só será consultada quando você clicar em "Verificar inbox agora".'));
   return h('div', { class: 'stack' }, head,
-    h('p', { class: 'muted' }, 'Quem respondeu sai automaticamente de todas as sequências. Continue a conversa pelo LinkedIn.'),
+    h('p', { class: 'muted' }, 'As respostas são identificadas pela consulta manual ao Inbox ou pela verificação da conversa antes do envio de uma mensagem. Depois de identificadas, interrompem a sequência desse contato.'),
     ...items.map((it) => {
       const m = it.lastInbound;
       const thread = h('div', { class: 'thread' });

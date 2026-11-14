@@ -3,7 +3,7 @@ import { createServer } from 'node:http';
 
 const state = {
   liked: false, comments: [], connection: 'none', inviteNote: null, invites: 0, withdrawals: 0, messages: [], unread: false,
-  anaHeadline: 'Diretora de Operações na Águas do Vale', companyVisits: 0,
+  anaHeadline: 'Diretora de Operações na Águas do Vale', companyVisits: 0, inboxVisits: 0,
   // sessão do LinkedIn falso: loggedOut força a página de login; logins guarda as tentativas (e-mail, senha)
   unrelatedEditor: false, longPost: false, moreExpansions: 0, noCommentRender: false,
   loggedOut: false, logins: [], loginEmail: 'ana@empresa.com.br', loginPassword: 'senha-certa',
@@ -302,7 +302,7 @@ export function startFakeSite(port = 0) {
       return html(`<div class="spacer"></div>${postHtml(false)}<div class="spacer"></div>`, likeScript);
     }
     if (url === '/in/ana-silva/') return html(profileHtml(), profileScript);
-    if (url === '/messaging/') return html(inboxHtml(), inboxScript);
+    if (url === '/messaging/') { state.inboxVisits++; return html(inboxHtml(), inboxScript); }
     if (url.match(/^\/in\/[a-z-]+\/overlay\/contact-info\/$/)) {
       const isAna = url.startsWith('/in/ana-silva/');
       const email = isAna && state.connection === 'connected'
