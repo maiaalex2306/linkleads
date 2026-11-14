@@ -7,7 +7,7 @@ import type { EnrichmentProvider } from '@linkleads/integrations';
 import { commentEditorPoint, commentSubmitPoint, commentEvidence, editorText, extractPosts, extractProfile, likeState, profileReady, type PostExtract } from './dom-scripts.js';
 import { BlockedError, type PageDriver } from './page-driver.js';
 import { isCanonicalPostUrn, provisionalPostFingerprint, type PostSelectionContext } from './post-identity.js';
-import { evaluatePost, firstUnlikedCandidate, profileSlug, sameConfirmedPublicId } from './post-evaluation.js';
+import { evaluatePost, firstUnlikedCandidate, profileSlug, sameConfirmedPublicId, type PostEvaluationCode } from './post-evaluation.js';
 export { evaluatePost, firstUnlikedCandidate, profileSlug, sameConfirmedPublicId } from './post-evaluation.js';
 export type { PostEvaluation, PostEvaluationStatus, PostEvaluationStage, PostEvaluationCode } from './post-evaluation.js';
 import type { DiagnosisContext } from './diagnostics.js';
