@@ -377,10 +377,11 @@ async function discoverUnlikedPost(
   d: ExecutorDeps, publicId: string, settings: LikeSettings, personName: string,
   ignoredUrns: ReadonlySet<string> = new Set(),
   sourceSection: 'posts' | 'activity' = 'activity',
+  personId: string = publicId,
 ): Promise<{ post?: PostExtract; posts: PostExtract[]; why: string; uncertain?: boolean }> {
   const seen = new Map<string, PostExtract>();
   const contextForPost = (post: PostExtract): PostSelectionContext => ({
-    personId: publicId,
+    personId,
     confirmedPublicId: publicId,
     sourceSection,
     postUrn: isCanonicalPostUrn(post.urn) ? post.urn : null,
@@ -390,7 +391,8 @@ async function discoverUnlikedPost(
     authorEvidence: post.actorHref ? 'explicit' :
       sourceSection === 'posts' && !post.isReshare && post.postKind !== 'UNKNOWN'
         ? 'contextual' : 'unknown',
-    authorConflict: post.cardIdentity?.identityStatus === 'CONFLICT',
+    authorConflict: post.cardIdentity?.identityStatus === 'CONFLICT' ||
+      (!post.isReshare && !!post.resharedByHref),
     reactionState: post.liked === null ? 'unknown' : post.liked ? 'liked' : 'not_liked',
     contentState: post.truncated ? 'truncated' : post.text || post.hasMedia ? 'complete' : 'unavailable',
   });
@@ -420,20 +422,25 @@ async function discoverUnlikedPost(
     const ordered = [...seen.values()].filter((p) => !ignoredUrns.has(p.urn));
     let candidate = firstUnlikedCandidate(ordered, publicId, personName, settings, contextForPost);
     if (candidate.uncertain) {
-      // Antes de interromper, reler apenas o documento atual; não navegar nem
-      // escolher outra publicação enquanto o primeiro cartão é incerto.
-      for (let retry = 0; retry < 2 && candidate.uncertain; retry++) {
+      // Reidratação deve preservar a MESMA posição e o mesmo conteúdo
+      // do primeiro candidato incerto, nunca substituir por outro posterior.
+      const blockedIndex = ordered.findIndex((post) => post.liked !== true &&
+        evaluatePost(post, publicId, settings, contextForPost(post)).status === 'REVIEW_REQUIRED');
+      const original = blockedIndex >= 0 ? ordered[blockedIndex] : undefined;
+      for (let retry = 0; retry < 2 && candidate.uncertain && original; retry++) {
         await new Promise((resolve) => setTimeout(resolve, 350));
         await d.driver.assertNotBlocked();
-        const hydrated = await d.driver.read(extractPosts,
-          d.driver.sel as unknown as Record<string, readonly string[]>, 150);
-        const reassessed = firstUnlikedCandidate(
-          hydrated.filter((post) => !ignoredUrns.has(post.urn)),
-          publicId, personName, settings, contextForPost);
-        if (!reassessed.uncertain && reassessed.post) {
-          candidate = reassessed;
-          seen.set(reassessed.post.urn, reassessed.post);
-          break;
+        const hydrated = (await d.driver.read(extractPosts,
+          d.driver.sel as unknown as Record<string, readonly string[]>, 150))
+          .filter((post) => !ignoredUrns.has(post.urn));
+        const updated = hydrated[blockedIndex];
+        if (!updated || updated.isReshare !== original.isReshare ||
+            (isCanonicalPostUrn(original.urn) && updated.urn !== original.urn) ||
+            (original.text.trim() && updated.text.trim() !== original.text.trim())) continue;
+        const reassessed = evaluatePost(updated, publicId, settings, contextForPost(updated));
+        if (reassessed.status === 'ELIGIBLE') {
+          candidate = {post: updated, why: ''};
+          seen.set(updated.urn, updated);
         }
       }
     }
@@ -530,7 +537,7 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
           for (let attempt = 0; attempt < 4; attempt++) {
             const found = await discoverUnlikedPost(d, ctx.person.publicId ?? ctx.person.id, s,
               [ctx.person.firstName, ctx.person.lastName].filter(Boolean).join(' '), ignored,
-              postSection.source);
+              postSection.source, ctx.person.id);
             const post = found.post;
             if (!post) {
               const empty = await d.driver.exists('emptyActivity').catch(() => false);
