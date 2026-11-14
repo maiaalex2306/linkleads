@@ -54,6 +54,7 @@ try {
   await new Promise((r) => setTimeout(r, 3000));
 
   await call('runNow', acc.id); // visita + convite (IA → rascunho)
+  check(site.state.inboxVisits === 0, 'iniciar campanha nao abre caixa de entrada automaticamente');
   const drafts = await call('listDrafts', acc.id);
   check(drafts.length === 1 && drafts[0].kind === 'invite_note', 'nota de convite da IA aguardando aprovação');
 
@@ -87,6 +88,7 @@ try {
   check(ap.ok && site.state.connection === 'pending' && site.state.inviteNote === note, 'convite enviado com a nota aprovada e "Pendente" confirmado');
 
   await call('runNow', acc.id); // aceite ainda pendente → volta para a fila
+  check(site.state.inboxVisits === 0, 'outros ciclos da campanha tambem nao consultam inbox');
   let ps = await people();
   check(ps[0].reason === 'RETRY_LATER' && ps[0].actionName === 'Aguardar aceite', 'convite pendente: checa de novo depois');
 
@@ -106,6 +108,7 @@ try {
   check(ps[0].status === 'failed' && ps[0].reason === 'REPLIED', 'pessoa saiu da sequência (REPLIED)');
 
   const scan = await call('checkInbox', acc.id);
+  check(site.state.inboxVisits === 1, 'consulta manual ao inbox continua disponivel');
   check(scan && scan.newReplies.length === 0, 'resposta já tratada na checagem antes do envio: o inbox não a repete');
 
   const inbox = await call('listInbox', acc.id, true);
