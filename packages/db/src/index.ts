@@ -218,24 +218,6 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
       ALTER TABLE comment_submission_ledger_v14 RENAME TO comment_submission_ledger;
     `,
   },
-  {
-    version: 15,
-    // Fase 5: prova de origem contextual, somente após seleção elegível.
-    // A migração é aditiva e não altera tentativas, posts ou rascunhos existentes.
-    sql: `
-      CREATE TABLE IF NOT EXISTS post_selection_proofs (
-        post_url TEXT PRIMARY KEY,
-        person_id TEXT NOT NULL,
-        public_id TEXT NOT NULL,
-        source_section TEXT NOT NULL CHECK (source_section='posts'),
-        post_kind TEXT NOT NULL CHECK (post_kind='original'),
-        author_evidence TEXT NOT NULL CHECK (author_evidence='contextual'),
-        created_at TEXT NOT NULL DEFAULT (datetime('now'))
-      );
-      CREATE INDEX IF NOT EXISTS idx_post_selection_proofs_person
-        ON post_selection_proofs(person_id);
-    `,
-  },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.version;
@@ -751,31 +733,6 @@ export class LocalCrm extends SqliteCampaignStore {
       .run(post.url, personId, post.text, post.postedAt ?? null, post.hasMedia ? 1 : 0);
   }
 
-  /** Prova contextual persistida uma única vez e imutável: nunca promover
-   * autoria ambígua ou trocar o contato de um post já conhecido.
-   * Somente o executor após avaliação elegível pode chamar este método.
-   */
-  savePostSelectionProof(postUrl: string, personId: string, publicId: string): boolean {
-    if (!/^urn:li:(?:activity|ugcPost|share):[0-9]+$/.test(postUrl) ||
-        !personId.trim() || !publicId.trim()) return false;
-    this.db.prepare(
-      "INSERT OR IGNORE INTO post_selection_proofs(post_url,person_id,public_id,source_section,post_kind,author_evidence) VALUES (?, ?, ?, 'posts', 'original', 'contextual')",
-    ).run(postUrl, personId, publicId);
-    const stored = this.postSelectionProof(postUrl);
-    return Boolean(stored && stored.personId === personId && stored.publicId === publicId);
-  }
-
-  postSelectionProof(postUrl: string): {
-    personId: string; publicId: string; sourceSection: 'posts';
-    postKind: 'original'; authorEvidence: 'contextual';
-  } | undefined {
-    const row = this.db.prepare(
-      "SELECT person_id,public_id,source_section,post_kind,author_evidence FROM post_selection_proofs WHERE post_url=?",
-    ).get(postUrl) as Row | undefined;
-    return row ? {personId: String(row.person_id), publicId: String(row.public_id),
-      sourceSection: 'posts', postKind: 'original', authorEvidence: 'contextual'} : undefined;
-  }
-
   markPostLiked(url: string): void {
     this.db.prepare(`UPDATE posts SET liked_at = datetime('now') WHERE url = ?`).run(url);
   }
@@ -870,16 +827,12 @@ export class LocalCrm extends SqliteCampaignStore {
   }
 
   /** Recuperação exclusivamente de falhas de PARSER anteriores ao clique, com
-   * código estruturado (legado: texto) e NENHUM indício persistente de interação.
+   * evidência textual explícita e NENHUM indício persistente de interação.
    * Um NO_POST genérico ou falha pós-clique jamais entra neste conjunto.
    */
   recognitionRetryCandidates(campaignId: string): Array<{ actionId: string; personId: string }> {
     const rows = this.db.prepare(
-      `SELECT cap.action_id, cap.person_id, cap.reason, cap.message,
-         (SELECT e.reason FROM engagement_effects e
-           WHERE e.campaign_id=cap.campaign_id AND e.action_id=cap.action_id
-             AND e.person_id=cap.person_id AND e.stage='selection' AND e.status='blocked'
-           ORDER BY e.id DESC LIMIT 1) AS selection_code
+      `SELECT cap.action_id, cap.person_id, cap.reason, cap.message
        FROM campaign_action_people cap JOIN campaign_actions a ON a.id=cap.action_id
        WHERE cap.campaign_id=? AND cap.status='failed'
          AND a.type IN ('LikeAndComment','LikePosts')
@@ -894,16 +847,7 @@ export class LocalCrm extends SqliteCampaignStore {
        ORDER BY cap.seq`,
     ).all(campaignId) as Row[];
     const preClickParser = /^(?:Achei \d+ post|Primeiro cartão encontrado|Nenhuma publicação elegível|Não foi possível comprovar autoria|Post.*(?:autoria|classifica)|Publicação.*(?:autor|classific)|Estado de curtida incerto imediatamente antes do clique)/i;
-    // Contrato estável nas versões novas; fallback textual somente para
-    // registros históricos que nunca receberam um código de seleção.
-    // Conflito de URNs e autores terceiros NÃO entram na fila de retry.
-    const preClickCodes = new Set([
-      'CARD_NOT_FOUND', 'POST_ID_PROVISIONAL', 'POST_AGE_UNVERIFIED',
-      'AUTHOR_UNVERIFIED', 'RESHARE_CLASSIFICATION_ERROR', 'REACTION_UNKNOWN',
-    ]);
-    return rows.filter((r) => r.selection_code != null
-      ? preClickCodes.has(String(r.selection_code))
-      : preClickParser.test(String(r.message ?? ''))).map((r) => ({
+    return rows.filter((r) => preClickParser.test(String(r.message ?? ''))).map((r) => ({
       actionId: String(r.action_id), personId: String(r.person_id),
     }));
   }
@@ -1032,7 +976,8 @@ export class LocalCrm extends SqliteCampaignStore {
     this.db
       .prepare(
         `INSERT INTO comment_drafts (kind, campaign_id, action_id, person_id, post_url, comment, interpretation_json) VALUES (?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(action_id, person_id) DO NOTHING`,
+         ON CONFLICT(action_id, person_id) DO UPDATE SET kind=excluded.kind, post_url=excluded.post_url, comment=excluded.comment,
+           interpretation_json=excluded.interpretation_json, status='pending', error=NULL, decided_at=NULL`,
       )
       .run(d.kind ?? 'comment', d.campaignId, d.actionId, d.personId, d.postUrl, d.comment, JSON.stringify(d.interpretation));
   }
