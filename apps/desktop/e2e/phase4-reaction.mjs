@@ -66,7 +66,7 @@ try {
 
   await page.setContent(card('<button aria-label="Like" aria-pressed="false">Like</button>'));
   const before = await inspect();
-  await page.locator('[data-urn="'+urn+'"]').remove();
+  await page.locator('[data-urn="'+urn+'"]').evaluate(el => el.remove());
   const after = await inspect();
   check(before.canClick && !after.canClick,'virtualização remove o alvo: preflight bloqueia', {before,after});
 
