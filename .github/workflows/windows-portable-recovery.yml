@@ -243,8 +243,14 @@ jobs:
             echo "Commit substituído; publicação do pacote antigo bloqueada."
             exit 0
           fi
+          # Ler a versao do mesmo commit que o CI homologou (nao fixar numero no workflow).
+          version="$(gh api "repos/${GH_REPO}/contents/apps/desktop/package.json?ref=${SOURCE_SHA}" --jq '.content' | tr -d '\r\n' | base64 --decode | jq -r '.version')"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Versao de desktop invalida no commit ${SOURCE_SHA}: ${version}" >&2
+            exit 1
+          fi
           short="${SOURCE_SHA:0:8}"
-          tag="v0.5.12-windows-${short}"
+          tag="v${version}-windows-${short}"
           zipfile="LINKLEADS-INSTALADOR-D-LINKLEADS.zip"
           (
             cd portable-package
@@ -253,5 +259,5 @@ jobs:
           sha256sum "${zipfile}" > "${zipfile}.sha256"
           gh release create "${tag}" "${zipfile}" "${zipfile}.sha256" \
             --target "${SOURCE_SHA}" --latest \
-            --title "LINKLEADS 0.5.12 - Instalador Windows D:\LINKLEADS" \
+            --title "LINKLEADS ${version} - Instalador Windows D:\LINKLEADS" \
             --notes "UNICO PADRAO WINDOWS: extraia o ZIP, execute INSTALAR-LINKLEADS.cmd na raiz; sempre instala em D:\LINKLEADS e cria atalho no desktop. Sem NSIS, backup verificado e rollback do codigo; sem exclusao de campanhas. Build/EXE/instalacao/atalho/janela homologados em Windows isolado. Operacao em conta LinkedIn real depende de homologacao do proprietario. Este pacote nao e assinado digitalmente."
