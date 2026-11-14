@@ -445,7 +445,25 @@ export function llPostContainers(
     ...(Array.from(root.querySelectorAll('button, [role="button"]')) as Element[])
       .filter((b) => (typeof __llIsReact === 'function' ? __llIsReact : llIsReact)(b)),
   ];
+  // Fase 2: cartões explícitos podem existir sem horário/link de autor
+  // durante a hidratação. Descoberta não implica identidade confirmada.
+  const explicitContainers = Array.from(root.querySelectorAll([
+    'article[data-urn]', 'article[data-id]', 'article[data-activity-urn]',
+    'article[data-testid*="post"]', 'article[data-test-id*="post"]',
+    'article.feed-shared-update-v2', '[data-testid="feed-post"]',
+    '[data-test-id="feed-post"]',
+  ].join(', '))).filter((el) =>
+    !el.closest('.comments-comment-entity, .comments-comment-item') &&
+    (el.querySelector('a[href*="/feed/update/"], a[href*="/posts/"], time[datetime]') ||
+     el.querySelector('button, [role="button"]') ||
+     el.hasAttribute('data-urn') || el.hasAttribute('data-activity-urn')));
   const candidates = new Set<Element>();
+  for (const card of explicitContainers) {
+    // Sem elevar uma citação interna a publicação principal.
+    if (!card.closest('.feed-shared-mini-update-v2, .update-components-mini-update-v2, [data-testid*="quoted"], [data-test-id*="reshared"]')) {
+      candidates.add(card);
+    }
+  }
   for (const seed of seeds) {
     let node: Element | null = seed;
     let best: Element | null = null;
@@ -453,8 +471,14 @@ export function llPostContainers(
       if (countTimes(node) > 1) break;
       const reactions = (Array.from(node.querySelectorAll('button, [role="button"]')) as Element[])
         .filter((button) => (typeof __llIsReact === 'function' ? __llIsReact : llIsReact)(button)).length;
-      if (countTimes(node) === 1 && reactions === 1 &&
-          node.querySelector('a[href*="/in/"]') && (node.textContent ?? '').length > 40) best = node;
+      const hasPrimaryPermalink = !!node.querySelector('a[href*="/feed/update/"], a[href*="/posts/"]');
+      // O permalink é evidência de candidatura, não prova de identidade.
+      // Sem metadados suficientes, o cartão permanece PROVISIONAL.
+      const hasSemanticBody = !!node.querySelector(
+        '.update-components-text, .feed-shared-text, [data-testid*="post-text"], [data-test-id*="commentary"], [dir="ltr"]');
+      if (reactions === 1 && (countTimes(node) === 1 || hasPrimaryPermalink) &&
+          (node.querySelector('a[href*="/in/"]') || hasPrimaryPermalink) &&
+          (node.textContent ?? '').length > 20 && (hasSemanticBody || countTimes(node) === 1)) best = node;
     }
     if (best) candidates.add(best);
   }
