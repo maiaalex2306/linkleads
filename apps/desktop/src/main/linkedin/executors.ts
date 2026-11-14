@@ -13,6 +13,7 @@ export type { PostEvaluation, PostEvaluationStatus, PostEvaluationStage, PostEva
 import type { DiagnosisContext } from './diagnostics.js';
 import { cardDecision } from './diagnostics-policy.js';
 import { openPostsSection } from './posts-section.js';
+import { savePostSelectionProof, postSelectionProof, saveCommentDraftOnce } from '../phase56-store.js';
 import { parseSalesSource, profileResolutionRoutes, samePersonCompany, samePersonName, type ProfileRoute } from './profile-resolver.js';
 
 /** LINKLEADS_TEST_BASE_URL aponta para o site falso dos testes e2e; nunca usar em produção. */
@@ -432,7 +433,7 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
             const proof = buildPostSelectionContext(post, ctx.person.id,
               ctx.person.publicId ?? ctx.person.id, postSection.source);
             if (contextualAuthorAccepted(proof) &&
-                !d.crm.savePostSelectionProof(post.urn, ctx.person.id, proof.confirmedPublicId))
+                !savePostSelectionProof(d.crm, post.urn, ctx.person.id, proof.confirmedPublicId))
               return { ok: false, reason: 'NO_REAL_EFFECT',
                 message: 'Prova contextual de autoria não pôde ser preservada; nenhuma curtida enviada' };
             d.crm.recordEngagementEffect({
@@ -555,7 +556,7 @@ async function hydratePostForComment(
       const actorUrl = current.isReshare ? current.resharedByHref : current.actorHref;
       const explicit = Boolean(owner && actorUrl &&
         sameConfirmedPublicId(profileSlug(actorUrl), owner));
-      const stored = !actorUrl ? d.crm.postSelectionProof(post.url) : undefined;
+      const stored = !actorUrl ? postSelectionProof(d.crm, post.url) : undefined;
       const contextual = Boolean(owner && stored &&
         stored.personId === personId && stored.publicId === owner &&
         stored.sourceSection === 'posts' && stored.postKind === 'original' &&
@@ -727,7 +728,7 @@ export function commentWithAi(d: ExecutorDeps): ActionExecutor {
       effect('ai', 'confirmed');
 
       if ((s.mode ?? 'manual') === 'manual') {
-        d.crm.saveDraft({
+        const draftState = saveCommentDraftOnce(d.crm, {
           campaignId: ctx.campaignId,
           actionId: ctx.action.id,
           personId: ctx.person.id,
@@ -735,6 +736,11 @@ export function commentWithAi(d: ExecutorDeps): ActionExecutor {
           comment: interpretation.comment,
           interpretation,
         });
+        if (draftState === 'blocked') {
+          effect('approval', 'blocked', 'DRAFT_ALREADY_FINAL_OR_DIFFERENT_POST');
+          return { ok: false, reason: 'NO_REAL_EFFECT',
+            message: 'Já existe rascunho decidido ou vinculado a outra publicação; não reabrir aprovação automaticamente.' };
+        }
         effect('approval', 'pending', 'MANUAL_APPROVAL_REQUIRED');
         return { ok: false, reason: 'AWAITING_APPROVAL',
           message: 'Curtida confirmada. Comentário preparado pela IA aguardando aprovação humana.',
