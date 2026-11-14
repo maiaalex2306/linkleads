@@ -75,12 +75,12 @@ export function contextualAuthorAccepted(context: PostSelectionContext | undefin
 export function buildPostSelectionContext(
   post: {
     urn: string;
-    postKind: 'ORIGINAL' | 'ORIGINAL_WITH_ATTACHMENT' | 'RESHARE_PLAIN' | 'RESHARE_COMMENTED' | 'UNKNOWN';
+    postKind?: 'ORIGINAL' | 'ORIGINAL_WITH_ATTACHMENT' | 'RESHARE_PLAIN' | 'RESHARE_COMMENTED' | 'UNKNOWN';
     isReshare: boolean;
     actorHref: string | null;
-    resharedByHref: string | null;
+    resharedByHref?: string | null;
     liked: boolean | null;
-    truncated: boolean;
+    truncated?: boolean;
     text: string;
     hasMedia: boolean;
     cardIdentity?: { identityStatus: 'CONFIRMED' | 'PROVISIONAL' | 'CONFLICT' };
@@ -89,7 +89,7 @@ export function buildPostSelectionContext(
   confirmedPublicId: string,
   sourceSection: PostSelectionContext['sourceSection'],
 ): PostSelectionContext {
-  const postKind = post.postKind === 'UNKNOWN' ? 'unknown' :
+  const postKind = !post.postKind || post.postKind === 'UNKNOWN' ? 'unknown' :
     post.isReshare || post.postKind === 'RESHARE_PLAIN' ||
     post.postKind === 'RESHARE_COMMENTED' ? 'reshare' : 'original';
   const authorConflict = post.cardIdentity?.identityStatus === 'CONFLICT' ||
