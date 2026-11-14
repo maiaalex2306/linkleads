@@ -47,11 +47,10 @@ try {
   assert.equal((await call(ui,'pilotSummary',alpha.id,campaignId)).completedChecks,1);
   assert.equal((await call(ui,'reliabilitySummary',beta.id)).observed.campaigns,0,
     'segunda conta continua vazia');
-  // Abrir a aba pela navegação real da UI, sem abrir navegador LinkedIn.
-  await ui.evaluate(async(id)=>{
-    await openAccountWorkspace(id);
-    state.mode='advanced';state.tab='reliability';await renderView();
-  },alpha.id);
+  // Abrir a ferramenta pelo menu real, preservando o layout das oito telas.
+  await ui.evaluate((id)=>openAccountWorkspace(id),alpha.id);
+  await ui.locator('.top-menu summary').click();
+  await ui.getByRole('button',{name:'Confiabilidade'}).click();
   await ui.getByText('Inteligência de confiabilidade').waitFor({timeout:10000});
   await ui.getByText('Fase 9 · Piloto supervisionado (5 casos)').waitFor({timeout:10000});
   assert.equal(await ui.locator('select[aria-label="Campanha do piloto"]').count(),1,
