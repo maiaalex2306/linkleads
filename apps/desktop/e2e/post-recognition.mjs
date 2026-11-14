@@ -449,6 +449,45 @@ try {
   check(state.state === null && !state.guard && state.reason === 'DISABLED',
     'Fase 7: botão de reação desabilitado nunca autoriza clique', state);
 
+  // Fase 2: descoberta progressiva de cartões mesmo sem metadados completos.
+  await page.setContent('<main><article data-testid="feed-post">' +
+    '<div class="update-components-text">Texto inicial de cartão em hidratação.</div>' +
+    '<button aria-label="Like" aria-pressed="false">Like</button></article></main>');
+  posts = await scan();
+  check(posts.length === 1 && posts[0].cardIdentity?.identityStatus === 'PROVISIONAL' &&
+    posts[0].urn.startsWith('ll-idx-'),
+    'Fase 2: cartão visível sem autor, data ou URN permanece candidato provisório', posts);
+
+  await page.setContent('<main><article data-testid="feed-post" data-urn="urn:li:ugcPost:7381234567890129871">' +
+    '<div class="update-components-text">Publicação atual com mídia e sem hora.</div>' +
+    '<video src="/midia.mp4"></video><button aria-label="Like" aria-pressed="false">Like</button>' +
+    '</article></main>');
+  posts = await scan();
+  check(posts.length === 1 && posts[0].urn === 'urn:li:ugcPost:7381234567890129871' &&
+    posts[0].hasMedia === true && posts[0].cardIdentity?.identityStatus === 'CONFIRMED',
+    'Fase 2: formato sem horário com URN ugcPost e vídeo reconhecido', posts);
+
+  await page.setContent('<main><article data-testid="feed-post" data-urn="urn:li:share:7381234567890129872">' +
+    '<div class="update-components-text">Publicação externa distinta do anexo.</div>' +
+    '<section class="feed-shared-mini-update-v2" data-urn="urn:li:activity:7381234567890129873">' +
+    '<div class="update-components-text">Texto do post incorporado.</div>' +
+    '<a href="/feed/update/urn:li:activity:7381234567890129873/">Citação</a></section>' +
+    '<button aria-label="Like" aria-pressed="false">Like</button></article></main>');
+  posts = await scan();
+  check(posts.length === 1 && posts[0].urn === 'urn:li:share:7381234567890129872' &&
+    posts[0].cardIdentity?.embeddedPostUrn === 'urn:li:activity:7381234567890129873' &&
+    !posts[0].text.includes('Texto do post incorporado'),
+    'Fase 2: share principal separado do conteúdo incorporado', posts);
+
+  await page.setContent('<main><article data-testid="feed-post" data-urn="urn:li:activity:7381234567890129874">' +
+    '<a href="/feed/update/urn:li:activity:7381234567890129875/">Post inconsistente</a>' +
+    '<div class="update-components-text">Conteúdo com metadados conflitantes.</div>' +
+    '<button aria-label="Like" aria-pressed="false">Like</button></article></main>');
+  posts = await scan();
+  check(posts.length === 1 && posts[0].cardIdentity?.identityStatus === 'CONFLICT' &&
+    posts[0].urn.startsWith('ll-idx-'),
+    'Fase 2: divergência entre data-urn e permalink não promove identidade', posts);
+
   console.log('E2E FASE 3/7 — MATRIZ DE RECONHECIMENTO OK');
 } catch (error) {
   console.error(error?.stack ?? error);

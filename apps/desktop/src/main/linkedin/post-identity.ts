@@ -39,3 +39,32 @@ export function provisionalPostFingerprint(post: {
   }
   return 'll-unresolved-' + (hash >>> 0).toString(16).padStart(8, '0');
 }
+
+/** Evidências de seleção derivadas da rota efetivamente observada e do cartão.
+ * A seção Posts não é prova de autoria para reshares ou cartões conflitantes.
+ */
+export interface PostSelectionContext {
+  personId: string;
+  confirmedPublicId: string;
+  sourceSection: 'posts' | 'activity' | 'permalink';
+  postUrn: string | null;
+  postKind: 'original' | 'reshare' | 'unknown';
+  authorEvidence: 'explicit' | 'contextual' | 'unknown';
+  authorConflict: boolean;
+  reactionState: 'liked' | 'not_liked' | 'unknown';
+  contentState: 'complete' | 'truncated' | 'unavailable';
+}
+
+/** Contexto de origem tem valor apenas no feed Posts do perfil cuja
+ * navegação foi validada; não valida reshare, URL conflitante ou URN incerta.
+ */
+export function contextualAuthorAccepted(context: PostSelectionContext | undefined): boolean {
+  return Boolean(context &&
+    context.sourceSection === 'posts' &&
+    context.authorEvidence === 'contextual' &&
+    !context.authorConflict &&
+    context.postKind === 'original' &&
+    isCanonicalPostUrn(context.postUrn) &&
+    context.confirmedPublicId.trim().length > 0 &&
+    context.personId.trim().length > 0);
+}
