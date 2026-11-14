@@ -1,6 +1,6 @@
 // Fases 3 e 4: unit/contract regression without external LinkedIn interactions.
 import assert from 'node:assert/strict';
-import { evaluatePost, firstUnlikedCandidate } from '../dist/main/linkedin/executors.js';
+import { evaluatePost, firstUnlikedCandidate } from '../dist/main/linkedin/post-evaluation.js';
 import { contextualAuthorAccepted } from '../dist/main/linkedin/post-identity.js';
 import { parseRelativeAgeDays } from '@linkleads/core';
 let checks = 0;
@@ -62,7 +62,7 @@ const blocked = firstUnlikedCandidate([uncertain,own], 'leticia','',settings,p=>
 check(blocked.uncertain && blocked.post?.urn === uncertain.urn,
   'primeira publicação incerta não é saltada');
 const dateCases = [
-  ['2 d',2],['há 3 dias',3],['1 sem',7],['2 weeks',14],['5 min',0],
+  ['2 d',2],['2d •',2],['há 3 dias',3],['1 sem',7],['2 weeks',14],['5 min',0],
   ['5 m',150],['5m',0],['2 meses',60],['2 anos',730],['há 2 d · Editado',2],
 ];
 for (const [label, expected] of dateCases) {
