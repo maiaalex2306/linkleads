@@ -75,6 +75,8 @@ jobs:
           $env:LINKLEADS_E2E_APP = Join-Path $env:GITHUB_WORKSPACE 'apps/desktop/app-dist'
           node apps/desktop/e2e/post-recognition.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Fase 7: matriz Renato/Douglas reprovada' }
+          node apps/desktop/e2e/post-section-fase1.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Fase 1: filtro Posts e estados reprovados no Windows' }
           node apps/desktop/e2e/comment-editor-fase4.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Fase 7: editor ou submit desabilitado reprovado' }
           node apps/desktop/e2e/comment-unconfirmed-fase4.mjs
@@ -105,6 +107,9 @@ jobs:
           Copy-Item -Path 'apps/desktop/release/win-unpacked/*' -Destination 'portable-package/LinkLeads' -Recurse -Force
           Copy-Item -LiteralPath 'scripts/INSTALAR-LINKLEADS.cmd' -Destination 'portable-package/INSTALAR-LINKLEADS.cmd'
           Copy-Item -LiteralPath 'scripts/ABRIR-LINKLEADS.cmd' -Destination 'portable-package/ABRIR-LINKLEADS.cmd'
+          Copy-Item -LiteralPath 'scripts/PRESERVAR-LINKLEADS.cmd' -Destination 'portable-package/PRESERVAR-LINKLEADS.cmd'
+          Copy-Item -LiteralPath 'scripts/BASELINE-LINKLEADS.ps1' -Destination 'portable-package/BASELINE-LINKLEADS.ps1'
+          Copy-Item -LiteralPath 'docs/LINKLEADS_FASE0_BASE_0.5.13.md' -Destination 'portable-package/FASE0-MANIFESTO-BASE.md'
           Copy-Item -LiteralPath 'docs/CONTRATO_PERFIS_POSTS_SALESNAV_20261113.md' -Destination 'portable-package/CONTRATO_IDENTIDADE_E_POSTS.md'
           $exe='portable-package/LinkLeads/LinkLeads.exe'
           if (-not (Test-Path $exe) -or -not (Test-Path 'portable-package/LinkLeads/resources/app.asar')) { throw 'Pacote Electron incompleto' }
@@ -118,15 +123,16 @@ jobs:
             'DESTINO PERMANENTE E OBRIGATORIO: D:\LINKLEADS'
             '1. Extraia o ZIP inteiro em qualquer pasta.'
             '2. Feche qualquer LinkLeads.exe anterior.'
-            '3. Execute INSTALAR-LINKLEADS.cmd na raiz da pasta extraida.'
-            '4. Use o atalho LinkLeads da area de trabalho.'
+            '3. ANTES da atualizacao, execute PRESERVAR-LINKLEADS.cmd na raiz deste pacote e confirme BACKUP_VERIFICADO.'
+            '4. Execute INSTALAR-LINKLEADS.cmd na raiz da pasta extraida.'
+            '5. Use o atalho LinkLeads da area de trabalho.'
             'Aplicativo: D:\LINKLEADS\APP\LinkLeads.exe'
             'Diagnostico: D:\LINKLEADS\resultado-instalacao-linkleads.txt'
             'Backup verificado de userData, staging e rollback de codigo; nenhum dado removido.'
             'Esta entrega nao usa o instalador NSIS antigo.'
             'Conta LinkedIn real requer homologacao supervisionada; nao ha garantia de resolucao universal.'
           ) | Set-Content 'portable-package/LEIA-ME.txt' -Encoding UTF8
-          foreach ($name in @('INSTALAR-LINKLEADS.cmd','ABRIR-LINKLEADS.cmd','manifesto.json')) {
+          foreach ($name in @('INSTALAR-LINKLEADS.cmd','ABRIR-LINKLEADS.cmd','PRESERVAR-LINKLEADS.cmd','BASELINE-LINKLEADS.ps1','FASE0-MANIFESTO-BASE.md','manifesto.json')) {
             if (-not (Test-Path ("portable-package/" + $name))) { throw "Pacote sem $name na raiz" }
           }
 
