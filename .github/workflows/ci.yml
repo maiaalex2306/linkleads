@@ -258,6 +258,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      - name: Preparar Chromium para contrato Fase 4 no Windows
+        run: npx playwright install chromium
       - name: Validar Electron real no Windows com dados isolados e site simulado
         shell: pwsh
         run: |
