@@ -6,7 +6,7 @@ import type { IntegrationCrm } from '@linkleads/db';
 import type { EnrichmentProvider } from '@linkleads/integrations';
 import { commentEditorPoint, commentSubmitPoint, commentEvidence, editorText, extractPosts, extractProfile, likeState, profileReady, type PostExtract } from './dom-scripts.js';
 import { BlockedError, type PageDriver } from './page-driver.js';
-import { isCanonicalPostUrn, provisionalPostFingerprint, type PostSelectionContext } from './post-identity.js';
+import { isCanonicalPostUrn, provisionalPostFingerprint, contextualAuthorAccepted, buildPostSelectionContext, type PostSelectionContext } from './post-identity.js';
 import { evaluatePost, firstUnlikedCandidate, profileSlug, sameConfirmedPublicId, type PostEvaluationCode } from './post-evaluation.js';
 export { evaluatePost, firstUnlikedCandidate, profileSlug, sameConfirmedPublicId } from './post-evaluation.js';
 export type { PostEvaluation, PostEvaluationStatus, PostEvaluationStage, PostEvaluationCode } from './post-evaluation.js';
@@ -235,22 +235,8 @@ async function discoverUnlikedPost(
   personId: string = publicId,
 ): Promise<{ post?: PostExtract; posts: PostExtract[]; why: string; uncertain?: boolean }> {
   const seen = new Map<string, PostExtract>();
-  const contextForPost = (post: PostExtract): PostSelectionContext => ({
-    personId,
-    confirmedPublicId: publicId,
-    sourceSection,
-    postUrn: isCanonicalPostUrn(post.urn) ? post.urn : null,
-    postKind: post.postKind === 'UNKNOWN' ? 'unknown' :
-      post.isReshare || post.postKind === 'RESHARE_PLAIN' || post.postKind === 'RESHARE_COMMENTED'
-        ? 'reshare' : 'original',
-    authorEvidence: post.actorHref ? 'explicit' :
-      sourceSection === 'posts' && !post.isReshare && post.postKind !== 'UNKNOWN'
-        ? 'contextual' : 'unknown',
-    authorConflict: post.cardIdentity?.identityStatus === 'CONFLICT' ||
-      (!post.isReshare && !!post.resharedByHref),
-    reactionState: post.liked === null ? 'unknown' : post.liked ? 'liked' : 'not_liked',
-    contentState: post.truncated ? 'truncated' : post.text || post.hasMedia ? 'complete' : 'unavailable',
-  });
+  const contextForPost = (post: PostExtract): PostSelectionContext =>
+    buildPostSelectionContext(post, personId, publicId, sourceSection);
   const start = Date.now();
   const ageLimit = Math.max(1, Math.min(365, settings.maxPostAgeDays ?? 365));
   // Publicações antigas podem exigir várias cargas da timeline.
@@ -361,6 +347,7 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
             expectedPublicId: ctx.person.publicId ?? ctx.person.id,
             includeReshares: s.includeReshares === true,
             maxPostAgeDays: s.maxPostAgeDays ?? 365,
+            personId: ctx.person.id,
           };
           const previous = d.crm.latestLikeAttempt(ctx.person.id, ctx.campaignId, ctx.action.id);
           if (previous?.status === 'confirmed') {
@@ -382,6 +369,7 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
           if (postSection.status === 'POST_SECTION_UNAVAILABLE')
             return { ok: false, reason: 'NO_REAL_EFFECT',
               message: 'A secao de publicacoes nao ficou pronta; carregamento, rota ou layout devem ser verificados. Nenhuma curtida enviada.' };
+          diagnosisContext.sourceSection = postSection.source;
           if (postSection.status === 'POST_SECTION_EMPTY')
             return { ok: false, reason: 'NO_POST',
               message: 'A secao de publicacoes informa explicitamente que nao ha publicacoes visiveis.' };
@@ -428,6 +416,15 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
             d.crm.savePost(ctx.person.id, {
               url: post.urn, text: post.text, postedAt: post.age ?? undefined, hasMedia: post.hasMedia,
             });
+            // O feed Posts foi validado anteriormente; persistir a evidência
+            // contextual ANTES de mudar de rota. Ela permanece vinculada
+            // ao mesmo post e pessoa após reinício, sem autorizar conflitos.
+            const proof = buildPostSelectionContext(post, ctx.person.id,
+              ctx.person.publicId ?? ctx.person.id, postSection.source);
+            if (contextualAuthorAccepted(proof) &&
+                !d.crm.savePostSelectionProof(post.urn, ctx.person.id, proof.confirmedPublicId))
+              return { ok: false, reason: 'NO_REAL_EFFECT',
+                message: 'Prova contextual de autoria não pôde ser preservada; nenhuma curtida enviada' };
             d.crm.recordEngagementEffect({
               campaignId: ctx.campaignId, actionId: ctx.action.id, personId: ctx.person.id,
               postUrl: post.urn, stage: 'selection', status: 'confirmed',
@@ -546,8 +543,19 @@ async function hydratePostForComment(
         return failure('Texto integral do post indisponível; revisão necessária antes da IA');
       const owner = d.crm.getPerson(personId)?.publicId;
       const actorUrl = current.isReshare ? current.resharedByHref : current.actorHref;
-      if (!owner || !actorUrl || !sameConfirmedPublicId(profileSlug(actorUrl), owner))
-        return failure('Autoria do post no permalink não corresponde ao lead confirmado; IA bloqueada');
+      const explicit = Boolean(owner && actorUrl &&
+        sameConfirmedPublicId(profileSlug(actorUrl), owner));
+      const stored = !actorUrl ? d.crm.postSelectionProof(post.url) : undefined;
+      const contextual = Boolean(owner && stored &&
+        stored.personId === personId && stored.publicId === owner &&
+        stored.sourceSection === 'posts' && stored.postKind === 'original' &&
+        stored.authorEvidence === 'contextual' &&
+        !current.isReshare && !current.resharedByHref &&
+        (current.postKind === 'ORIGINAL' || current.postKind === 'ORIGINAL_WITH_ATTACHMENT') &&
+        current.cardIdentity?.identityStatus === 'CONFIRMED' &&
+        current.urn === post.url);
+      if (!explicit && !contextual)
+        return failure('Autoria do post no permalink não corresponde ao lead nem à prova contextual assinada na seleção; IA bloqueada');
       // Somente após reler uma publicação canônica sem truncamento e com autoria comprovada.
       d.crm.savePost(personId, {
         url: post.url, text: current.text,
