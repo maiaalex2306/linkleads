@@ -233,7 +233,8 @@ async function discoverUnlikedPost(
   ignoredUrns: ReadonlySet<string> = new Set(),
   sourceSection: 'posts' | 'activity' = 'activity',
   personId: string = publicId,
-): Promise<{ post?: PostExtract; posts: PostExtract[]; why: string; uncertain?: boolean }> {
+): Promise<{ post?: PostExtract; posts: PostExtract[]; why: string; uncertain?: boolean;
+  diagnosticCode?: PostEvaluationCode | 'CARD_NOT_FOUND' }> {
   const seen = new Map<string, PostExtract>();
   const contextForPost = (post: PostExtract): PostSelectionContext =>
     buildPostSelectionContext(post, personId, publicId, sourceSection);
@@ -286,7 +287,8 @@ async function discoverUnlikedPost(
       }
     }
     if (candidate.uncertain)
-      return { posts: ordered, why: candidate.why + '. Confirmação humana necessária.', uncertain: true };
+      return { posts: ordered, why: candidate.why + '. Confirmação humana necessária.',
+        uncertain: true, diagnosticCode: candidate.code };
     if (candidate.post) {
       const post = candidate.post;
       if (!isCanonicalPostUrn(post.urn))
@@ -391,8 +393,16 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
               const unreadable = !found.posts.length;
               const file = (unreadable || found.uncertain) ?
                 await d.reportUnrecognized?.(diagnosisContext).catch(() => undefined) : undefined;
-              if (unreadable || found.uncertain) return { ok: false, reason: 'NO_REAL_EFFECT',
-                message: found.why + (file ? '. Diagnóstico: ' + file : '') };
+              if (unreadable || found.uncertain) {
+                // Código de seleção pré-interação; o ledger é a última barreira contra retry.
+                const code = found.diagnosticCode ?? (unreadable ? 'CARD_NOT_FOUND' : undefined);
+                if (code) d.crm.recordEngagementEffect({
+                  campaignId: ctx.campaignId, actionId: ctx.action.id, personId: ctx.person.id,
+                  stage: 'selection', status: 'blocked', reason: code,
+                });
+                return { ok: false, reason: 'NO_REAL_EFFECT',
+                  message: found.why + (file ? '. Diagnóstico: ' + file : '') };
+              }
               return { ok: false, reason: 'NO_POST',
                 message: empty ? 'A pessoa não tem publicações' : found.why };
             }
