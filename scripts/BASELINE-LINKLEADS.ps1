@@ -56,7 +56,8 @@ function Secure([string]$dir) {
 }
 $unsafeReport=$false
 try {
- $repoRoot=Full (Join-Path $PSScriptRoot '..')
+ # O script existe tanto em scripts/ no checkout quanto na raiz do ZIP oficial.
+ $repoRoot=if ((Split-Path -Leaf $PSScriptRoot) -eq 'scripts') { Full (Join-Path $PSScriptRoot '..') } else { Full $PSScriptRoot }
  if (Overlaps $repoRoot $ReportDirectory) {
   $unsafeReport=$true
   throw 'Relatorios nao podem sobrepor codigo/pacote do LinkLeads.'
@@ -88,6 +89,9 @@ try {
   if ($env:ProgramFiles) {$InstallationRoots += (Join-Path $env:ProgramFiles 'LinkLeads')}
   $p86=[Environment]::GetEnvironmentVariable('ProgramFiles(x86)')
   if ($p86) {$InstallationRoots += (Join-Path $p86 'LinkLeads')}
+  # Instalar em D:\LINKLEADS e contrato imutavel. Copiar SOMENTE APP;
+  # a raiz inclui BACKUPS e jamais deve ser percorrida recursivamente.
+  if (Test-Path 'D:\LINKLEADS\APP' -PathType Container) {$InstallationRoots += 'D:\LINKLEADS\APP'}
  }
  $roots=@()
  foreach($entry in @(@{kind='data';items=@($DataRoots)},@{kind='installed';items=@($InstallationRoots)})) {
