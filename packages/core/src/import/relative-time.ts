@@ -23,7 +23,7 @@ export function parseRelativeAgeDays(label: string): number | undefined {
   }
   if (/^(?:agora|now|just now|justo agora)(?:\s*[•·]\s*(?:editado|edited))?$/.test(s)) return 0;
   // Interpretar somente um token temporal, com sufixo editorial opcional.
-  const match = s.match(/^(?:ha\s+)?(\d{1,4})\s*(minutos?|mins?|minutes?|segundos?|secs?|seconds?|horas?|hrs?|hours?|dias?|days?|semanas?|sems?|weeks?|wks?|meses?|mes|months?|mos?|anos?|years?|yrs?|min|sec|hr|wk|mo|yr|h|d|w|y|a|m|s)(?:\s*[•·]\s*(?:editado|edited))?$/i);
+  const match = s.match(/^(?:ha\s+)?(\d{1,4})\s*(minutos?|mins?|minutes?|segundos?|secs?|seconds?|horas?|hrs?|hours?|dias?|days?|semanas?|sems?|weeks?|wks?|meses?|mes|months?|mos?|anos?|years?|yrs?|min|sec|hr|wk|mo|yr|h|d|w|y|a|m|s)(?:\s*[•·](?:\s*(?:editado|edited))?)?$/i);
   if (!match) return undefined;
   const n = Number(match[1]), unit = match[2];
   if (!Number.isSafeInteger(n)) return undefined;
