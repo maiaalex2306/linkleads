@@ -46,6 +46,9 @@ try {
   const conflict={...original,cardIdentity:{...original.cardIdentity,identityStatus:'CONFLICT'}};
   ok(!contextualAuthorAccepted(buildPostSelectionContext(conflict,'leticia','leticia','posts')),
     'conflito de URN impede evidência contextual');
+  const provisionalCard={...original,cardIdentity:{...original.cardIdentity,identityStatus:'PROVISIONAL'}};
+  ok(!contextualAuthorAccepted(buildPostSelectionContext(provisionalCard,'leticia','leticia','posts')),
+    'cartão não confirmado não pode fundamentar autoria contextual');
   const reshare={...original,isReshare:true,postKind:'RESHARE_PLAIN'};
   ok(!contextualAuthorAccepted(buildPostSelectionContext(reshare,'leticia','leticia','posts')),
     'republicação não herda autoria contextual');
