@@ -35,6 +35,7 @@ import { AccountStore, publicAccount } from './account-store.js';
 import { checkProxy, validateProxy } from './proxy-check.js';
 import { advanceClock, now } from './clock.js';
 import { CrmRegistry } from './crm-registry.js';
+import { recognitionRetryCandidates56, reprocessRecognitionFailures56 } from './phase56-store.js';
 import { accountStats } from './stats.js';
 import { TeamSync } from './team-sync.js';
 import { setupUpdater } from './updater.js';
@@ -343,7 +344,7 @@ ipcMain.handle('campaigns:recognitionRetryCandidates', (_e, id: string, campaign
   const a = account(id);
   const crm = crms.get(a);
   if (!crm.loadCampaign(campaignId, id)) throw new Error('Campanha inexistente nesta conta.');
-  return { count: crm.recognitionRetryCandidates(campaignId).length };
+  return { count: recognitionRetryCandidates56(crm,campaignId).length };
 });
 
 /** Reprocessamento EXPLICITAMENTE solicitado, apenas para falhas de reconhecimento
@@ -359,7 +360,7 @@ ipcMain.handle('campaigns:reprocessRecognitionFailures', (_e, id: string, campai
     campaignArchived: !!campaign.archived,
     runnerRunning: !!instances.get(id)?.schedulerRunning(),
   });
-  const count = crm.reprocessRecognitionFailures(campaignId);
+  const count = reprocessRecognitionFailures56(crm,campaignId);
   trace.record('campaign', 'recognition_failures_reprocessed', { count, policy: 'pre_click_no_effects_v1' },
     { accountId: id, campaignId });
   return count;
