@@ -12,7 +12,7 @@ import { reliabilitySummary } from '../dist/main/reliability.js';
 const root=mkdtempSync(join(tmpdir(),'linkleads-phase7-10-'));
 const dbs=[];
 const check=(value,why)=>{assert.ok(value,why);console.log('OK:',why);};
-const urn=(n)=>'urn:li:activity:'+(7381000000000000000+n);
+const urn=(n)=>'urn:li:activity:'+(7381000000000000000n+BigInt(n)).toString();
 const makeAccount=(name)=>{
   const db=openAccountDb(join(root,name+'.db'));
   dbs.push(db);
