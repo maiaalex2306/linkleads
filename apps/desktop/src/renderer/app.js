@@ -145,6 +145,7 @@ async function renderView() {
     ['signals', `Sinais${stats.unseenSignals ? ` (${stats.unseenSignals})` : ''}`],
     ['deliveries', 'Entregas'],
     ['diagnostics', 'Diagnóstico'],
+    ['reliability', 'Confiabilidade'],
     ['activity', 'Atividade'],
   ];
   const header = h('div', {},
@@ -190,7 +191,7 @@ async function renderView() {
   );
   const body = state.tab === 'campaigns' && state.campaignId
     ? await campaignDetailView(a)
-    : await ({ collections: collectionsView, campaigns: campaignsView, approvals: approvalsView, inbox: inboxView, companies: companiesView, signals: signalsView, deliveries: deliveriesView, diagnostics: diagnosticsView, activity: activityView }[state.tab] || campaignsView)(a);
+    : await ({ collections: collectionsView, campaigns: campaignsView, approvals: approvalsView, inbox: inboxView, companies: companiesView, signals: signalsView, deliveries: deliveriesView, diagnostics: diagnosticsView, reliability: reliabilityView, activity: activityView }[state.tab] || campaignsView)(a);
   commitView(header, body);
 }
 
