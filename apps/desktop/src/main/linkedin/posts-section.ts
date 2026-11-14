@@ -34,8 +34,16 @@ export async function openPostsSection(
     const clicked = await d.driver.input.click(target.point.x, target.point.y,
       (x, y) => d.driver.read(postsFilterClickGuard, confirmedPublicId, x, y));
     if (clicked) {
-      const active = await d.driver.waitUntil(async () =>
-        (await probe()).kind === 'ACTIVE', 4_000, 300);
+      const active = await d.driver.waitUntil(async () => {
+        try { return (await probe()).kind === 'ACTIVE'; }
+        catch (error) {
+          // Clique na aba pode iniciar navegacao completa. Uma leitura do
+          // documento antigo nesse instante e transitoriamente invalida.
+          const message = error instanceof Error ? error.message : String(error);
+          if (/execution context was destroyed|navigation|frame was detached/i.test(message)) return false;
+          throw error;
+        }
+      }, 4_000, 300);
       if (active) method = 'BUTTON';
     }
   }
