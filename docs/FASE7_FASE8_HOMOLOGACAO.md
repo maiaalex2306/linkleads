@@ -90,3 +90,8 @@ a produção operacional permanece **NÃO HOMOLOGADA**.
 - Se a reserva do comentario esta `started` ou `uncertain`, o rascunho permanece visivel como `approved`, mas nao permite novo despacho automatico.
 - Com observacao humana de comentario publicado no post correto, a opcao 'Conferi: comentario esta publicado' apenas registra a conciliacao; nunca emite novo clique.
 - Um comentario incerto nao recebe `failed` com desaparicao da lista de revisao; a tentativa continua contabilizada e seu ledger continua bloqueado.
+
+## Protecao de inicializacao da conta (hotfix 0.5.12)
+- A abertura de navegador separada do comando Rodar agora pode ocorrer antes do proxy e da primeira pagina carregarem.
+- `AccountInstance.withBrowser` aguarda agora a promessa `startupReady` (proxy + `loadURL` completo). Falha no carregamento impede a acao externa.
+- O E2E de aprovacao pendente injeta atraso sintetico de 1,5 s ANTES da pagina inicial e chama Rodar agora imediatamente, comprovando que a primeira curtida nao se perde por corrida de inicializacao.

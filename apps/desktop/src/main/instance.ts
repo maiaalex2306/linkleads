@@ -269,6 +269,13 @@ export class AccountInstance {
     // A primeira operacao de navegador agora aguarda proxy e pagina prontos.
     this.startupReady = proxyReady.then(async () => {
       if (this.window.isDestroyed()) throw new Error('Janela da conta fechada antes de iniciar');
+      // Fixture deterministica: prova que Rodar agora espera a primeira
+      // pagina, mesmo se houver atraso no setup de uma conta.
+      const testDelay = process.env.LINKLEADS_TEST_BASE_URL
+        ? Math.min(5_000, Math.max(0, Number(process.env.LINKLEADS_TEST_STARTUP_DELAY_MS ?? 0)))
+        : 0;
+      if (Number.isFinite(testDelay) && testDelay > 0)
+        await new Promise((resolve) => setTimeout(resolve, testDelay));
       await this.window.loadURL(START_PAGE);
     });
     void this.startupReady.catch(() => {

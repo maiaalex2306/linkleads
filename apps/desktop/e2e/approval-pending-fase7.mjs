@@ -15,7 +15,8 @@ writeFileSync(csv, 'firstName,lastName,profileUrl\nAna,Silva,https://www.linkedi
 const site = await startFakeSite();
 const env = { ...process.env, XDG_CONFIG_HOME: temp,
   LINKLEADS_TEST_USER_DATA: join(temp, 'isolated-user-data'),
-  LINKLEADS_TEST_BASE_URL: site.url, LINKLEADS_TEST_AI_STUB: '1' };
+  LINKLEADS_TEST_BASE_URL: site.url, LINKLEADS_TEST_AI_STUB: '1',
+  LINKLEADS_TEST_STARTUP_DELAY_MS: '1500' };
 const launch = () => electron.launch({
   executablePath: require(join(appDir, '../../node_modules/electron')),
   args: [process.env.LINKLEADS_E2E_APP ?? appDir], env,
@@ -54,9 +55,12 @@ try {
   await call(ui, 'addCollectionToCampaign', acc.id, campaignId, imported.collectionId);
   await call(ui, 'setCampaignActive', acc.id, campaignId, true);
   await call(ui, 'openBrowser', acc.id);
-  await call(ui, 'runNow', acc.id);
+  // Deliberadamente SEM espera pelo carregamento: o executor deve
+  // serializar o proxy e loadURL inicial antes do primeiro clique.
+  const firstRun = await call(ui, 'runNow', acc.id);
   check(site.state.likes === 1 && site.state.comments.length === 0,
-    'curtida confirmada sem envio do comentário pendente');
+    'curtida confirmada sem envio do comentário pendente',
+    { firstRun, likes: site.state.likes, comments: site.state.comments.length });
   let drafts = await call(ui, 'listDrafts', acc.id);
   check(drafts.length === 1 && drafts[0].kind === 'comment' &&
     drafts[0].status === 'pending' && drafts[0].campaignId === campaignId,
