@@ -6,7 +6,7 @@ import type { IntegrationCrm } from '@linkleads/db';
 import type { EnrichmentProvider } from '@linkleads/integrations';
 import { commentEditorPoint, commentSubmitPoint, commentEvidence, editorText, extractPosts, extractProfile, likeState, profileReady, type PostExtract } from './dom-scripts.js';
 import { BlockedError, type PageDriver } from './page-driver.js';
-import { isCanonicalPostUrn, provisionalPostFingerprint } from './post-identity.js';
+import { isCanonicalPostUrn, provisionalPostFingerprint, contextualAuthorAccepted, type PostSelectionContext } from './post-identity.js';
 import type { DiagnosisContext } from './diagnostics.js';
 import { cardDecision } from './diagnostics-policy.js';
 import { openPostsSection } from './posts-section.js';
@@ -207,6 +207,7 @@ export interface PostEvaluation {
 export function evaluatePost(
   post: PostExtract, publicId: string,
   settings: Pick<LikeSettings, 'includeReshares' | 'allowAlreadyLiked' | 'maxPostAgeDays'> = {},
+  selectionContext?: PostSelectionContext,
 ): PostEvaluation {
   const passedStages: PostEvaluationStage[] = ['POST_FOUND'];
   const result = (
@@ -238,11 +239,17 @@ export function evaluatePost(
   if (href && !actor)
     return result('REVIEW_REQUIRED', 'POST_FOUND', 'AUTHOR_UNVERIFIED',
       'Link do autor não é um perfil confiável do LinkedIn');
-  if (!actor)
+  // Fase 3: somente a rota Posts efetivamente validada pode complementar
+  // a ausência da URL redundante em publicação ORIGINAL, nunca um conflito.
+  const contextual = !href && !actor && !isReshare &&
+    selectionContext?.confirmedPublicId === publicId &&
+    selectionContext?.postUrn === post.urn &&
+    contextualAuthorAccepted(selectionContext);
+  if (!actor && !contextual)
     return result('REVIEW_REQUIRED', 'POST_FOUND', 'AUTHOR_UNVERIFIED',
       isReshare ? 'Identidade do compartilhador não comprovada por URL do perfil' :
-        'Identidade do autor não comprovada por URL do perfil');
-  if (!sameConfirmedPublicId(actor, publicId))
+        'Identidade do autor não comprovada por URL nem por origem contextual válida');
+  if (actor && !sameConfirmedPublicId(actor, publicId))
     return /^AC[owr]/i.test(actor) || /^AC[owr]/i.test(publicId)
       ? result('REVIEW_REQUIRED', 'POST_FOUND', 'AUTHOR_CONFLICT',
         'Identificador opaco do autor ou compartilhador diferente do perfil confirmado')
@@ -279,11 +286,12 @@ export function evaluatePost(
 export function firstUnlikedCandidate(
   posts: PostExtract[], publicId: string, personName = '',
   options: Pick<LikeSettings, 'includeReshares' | 'maxPostAgeDays'> = {},
+  contextForPost?: (post: PostExtract) => PostSelectionContext,
 ): { post?: PostExtract; why: string; uncertain?: boolean } {
   void personName; // Nome apresentado na UI não é uma prova de autoria.
   for (const post of posts) {
     if (post.liked === true) continue;
-    const assessment = evaluatePost(post, publicId, options);
+    const assessment = evaluatePost(post, publicId, options, contextForPost?.(post));
     if (assessment.status === 'NOT_ELIGIBLE') continue;
     if (assessment.status === 'REVIEW_REQUIRED')
       return {
@@ -301,13 +309,14 @@ export function firstUnlikedCandidate(
 /** Seleção segura: compartilha o avaliador, mas nunca retorna alvo sob revisão. */
 export function choosePost(
   posts: PostExtract[], publicId: string, settings: LikeSettings, personName = '',
+  contextForPost?: (post: PostExtract) => PostSelectionContext,
 ): { post?: PostExtract; why: string; uncertain?: boolean } {
   void personName;
   if (posts.length === 0) return {
     why: 'Nenhuma publicação reconhecida; carregamento ou layout deve ser verificado',
     uncertain: true,
   };
-  const assessments = posts.map((post) => evaluatePost(post, publicId, settings));
+  const assessments = posts.map((post) => evaluatePost(post, publicId, settings, contextForPost?.(post)));
   // Mesmo contrato do firstUnlikedCandidate: não saltar um cartão incerto
   // potencialmente elegível para comentar/curtir outro posterior.
   const actionable = assessments.find((item) =>
@@ -367,8 +376,24 @@ export function hasNewVerifiedPost(seen: ReadonlyMap<string, PostExtract>, batch
 async function discoverUnlikedPost(
   d: ExecutorDeps, publicId: string, settings: LikeSettings, personName: string,
   ignoredUrns: ReadonlySet<string> = new Set(),
+  sourceSection: 'posts' | 'activity' = 'activity',
 ): Promise<{ post?: PostExtract; posts: PostExtract[]; why: string; uncertain?: boolean }> {
   const seen = new Map<string, PostExtract>();
+  const contextForPost = (post: PostExtract): PostSelectionContext => ({
+    personId: publicId,
+    confirmedPublicId: publicId,
+    sourceSection,
+    postUrn: isCanonicalPostUrn(post.urn) ? post.urn : null,
+    postKind: post.postKind === 'UNKNOWN' ? 'unknown' :
+      post.isReshare || post.postKind === 'RESHARE_PLAIN' || post.postKind === 'RESHARE_COMMENTED'
+        ? 'reshare' : 'original',
+    authorEvidence: post.actorHref ? 'explicit' :
+      sourceSection === 'posts' && !post.isReshare && post.postKind !== 'UNKNOWN'
+        ? 'contextual' : 'unknown',
+    authorConflict: post.cardIdentity?.identityStatus === 'CONFLICT',
+    reactionState: post.liked === null ? 'unknown' : post.liked ? 'liked' : 'not_liked',
+    contentState: post.truncated ? 'truncated' : post.text || post.hasMedia ? 'complete' : 'unavailable',
+  });
   const start = Date.now();
   const ageLimit = Math.max(1, Math.min(365, settings.maxPostAgeDays ?? 365));
   // Publicações antigas podem exigir várias cargas da timeline.
@@ -386,14 +411,32 @@ async function discoverUnlikedPost(
         seen.set(key, p);
         // Telemetria de TODA nova decisão em uma campanha, inclusive elegíveis.
         // Não registra URN, identidade, nome, texto ou URL do cartão.
-        const assessment = evaluatePost(p, publicId, settings);
+        const assessment = evaluatePost(p, publicId, settings, contextForPost(p));
         d.driver.recordCardAssessment?.(cardDecision(p, seen.size, assessment));
       }
     }
     // Regra da conta: identificar primeiro o post nao curtido em ORDEM VISUAL.
     // Autor, estado, URN e data continuam sendo gates separados de interacao.
     const ordered = [...seen.values()].filter((p) => !ignoredUrns.has(p.urn));
-    const candidate = firstUnlikedCandidate(ordered, publicId, personName, settings);
+    let candidate = firstUnlikedCandidate(ordered, publicId, personName, settings, contextForPost);
+    if (candidate.uncertain) {
+      // Antes de interromper, reler apenas o documento atual; não navegar nem
+      // escolher outra publicação enquanto o primeiro cartão é incerto.
+      for (let retry = 0; retry < 2 && candidate.uncertain; retry++) {
+        await new Promise((resolve) => setTimeout(resolve, 350));
+        await d.driver.assertNotBlocked();
+        const hydrated = await d.driver.read(extractPosts,
+          d.driver.sel as unknown as Record<string, readonly string[]>, 150);
+        const reassessed = firstUnlikedCandidate(
+          hydrated.filter((post) => !ignoredUrns.has(post.urn)),
+          publicId, personName, settings, contextForPost);
+        if (!reassessed.uncertain && reassessed.post) {
+          candidate = reassessed;
+          seen.set(reassessed.post.urn, reassessed.post);
+          break;
+        }
+      }
+    }
     if (candidate.uncertain)
       return { posts: ordered, why: candidate.why + '. Confirmação humana necessária.', uncertain: true };
     if (candidate.post) {
@@ -435,7 +478,7 @@ async function discoverUnlikedPost(
   }
   const posts = [...seen.values()];
   const verdict = choosePost(posts.filter((p) => !ignoredUrns.has(p.urn)), publicId,
-    { ...settings, maxPostAgeDays: ageLimit, allowAlreadyLiked: false }, personName);
+    { ...settings, maxPostAgeDays: ageLimit, allowAlreadyLiked: false }, personName, contextForPost);
   const unknown = posts.some((p) => p.liked === null || !isCanonicalPostUrn(p.urn) ||
     !p.age || parseRelativeAgeDays(p.age) === undefined);
   return {
@@ -486,7 +529,8 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
           const ignored = new Set<string>();
           for (let attempt = 0; attempt < 4; attempt++) {
             const found = await discoverUnlikedPost(d, ctx.person.publicId ?? ctx.person.id, s,
-              [ctx.person.firstName, ctx.person.lastName].filter(Boolean).join(' '), ignored);
+              [ctx.person.firstName, ctx.person.lastName].filter(Boolean).join(' '), ignored,
+              postSection.source);
             const post = found.post;
             if (!post) {
               const empty = await d.driver.exists('emptyActivity').catch(() => false);
