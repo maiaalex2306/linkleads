@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { PostExtract } from './dom-scripts.js';
+import { isCanonicalPostUrn } from './post-identity.js';
 import type { PostEvaluation } from './executors.js';
 
 /** Remove todos os identificadores de URL antes de exportar diagnóstico.
@@ -84,7 +85,7 @@ export function cardDecision(
   return {
     ordinal, code, status, stage: evaluation?.stage ?? 'POST_FOUND',
     evidence: {
-      canonical: /^urn:li:activity:\d+$/.test(post.urn),
+      canonical: isCanonicalPostUrn(post.urn),
       identity, kind: post.postKind ?? 'UNKNOWN',
       actorLinkPresent: Boolean(post.actorHref || post.resharedByHref),
       embeddedActorPresent: Boolean(post.cardIdentity?.embeddedActorUrl),
