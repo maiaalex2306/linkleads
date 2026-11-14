@@ -832,7 +832,8 @@ ipcMain.handle('campaigns:inbox', (_e, id: string, campaignId: string) => {
 });
 ipcMain.handle('inbox:thread', (_e, id: string, personId: string) => crms.get(account(id)).thread(personId));
 ipcMain.handle('inbox:markHandled', (_e, id: string, personId: string) => crms.get(account(id)).markHandled(personId));
-ipcMain.handle('instance:checkInbox', (_e, id: string) => instances.require(id).checkInbox(true));
+// Consulta a caixa de entrada apenas ao clicar em "Verificar inbox agora".
+ipcMain.handle('instance:checkInbox', (_e, id: string) => instances.require(id).checkInbox());
 
 // Aprovação de comentários ---------------------------------------------------
 ipcMain.handle('drafts:list', (_e, id: string, status?: CommentDraft['status'] | 'review') => crms.get(account(id)).listDrafts(status ?? 'pending'));
