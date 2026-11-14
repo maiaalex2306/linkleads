@@ -94,12 +94,14 @@ export function buildPostSelectionContext(
     post.postKind === 'RESHARE_COMMENTED' ? 'reshare' : 'original';
   const authorConflict = post.cardIdentity?.identityStatus === 'CONFLICT' ||
     (postKind === 'original' && Boolean(post.resharedByHref));
+  const cardConfirmed = post.cardIdentity?.identityStatus === 'CONFIRMED';
   return {
     personId, confirmedPublicId, sourceSection,
     postUrn: isCanonicalPostUrn(post.urn) ? post.urn : null,
     postKind,
     authorEvidence: post.actorHref ? 'explicit' :
-      sourceSection === 'posts' && postKind === 'original' && !authorConflict
+      sourceSection === 'posts' && postKind === 'original' &&
+      cardConfirmed && !authorConflict
         ? 'contextual' : 'unknown',
     authorConflict,
     reactionState: post.liked === null ? 'unknown' : post.liked ? 'liked' : 'not_liked',
