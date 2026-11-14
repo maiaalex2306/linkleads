@@ -84,6 +84,11 @@ jobs:
           node apps/desktop/e2e/approval-pending-fase7.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Fase 7: comentário pendente/reinício reprovado' }
           node apps/desktop/e2e/session-persistence.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Persistencia de sessao reprovada' }
+          node apps/desktop/e2e/phase7-10-adversarial.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Fases 7-10: invariantes e privacidade reprovados' }
+          node apps/desktop/e2e/phase9-10-ui.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Fases 9-10: painel/IPC ou restart reprovados' }
           if ($LASTEXITCODE -ne 0) { throw 'Persistencia isolada reprovada' }
           node apps/desktop/e2e/unified-engagement.mjs
           if ($LASTEXITCODE -ne 0) { throw 'E2E engagement reprovado' }
@@ -111,6 +116,7 @@ jobs:
           Copy-Item -LiteralPath 'scripts/BASELINE-LINKLEADS.ps1' -Destination 'portable-package/BASELINE-LINKLEADS.ps1'
           Copy-Item -LiteralPath 'docs/LINKLEADS_FASE0_BASE_0.5.13.md' -Destination 'portable-package/FASE0-MANIFESTO-BASE.md'
           Copy-Item -LiteralPath 'docs/CONTRATO_PERFIS_POSTS_SALESNAV_20261113.md' -Destination 'portable-package/CONTRATO_IDENTIDADE_E_POSTS.md'
+          Copy-Item -LiteralPath 'docs/LINKLEADS_FASES7_10_ACEITE_20261114.md' -Destination 'portable-package/FASES7-10-ACEITE.md'
           $exe='portable-package/LinkLeads/LinkLeads.exe'
           if (-not (Test-Path $exe) -or -not (Test-Path 'portable-package/LinkLeads/resources/app.asar')) { throw 'Pacote Electron incompleto' }
           $hash=(Get-FileHash $exe -Algorithm SHA256).Hash
@@ -130,9 +136,10 @@ jobs:
             'Diagnostico: D:\LINKLEADS\resultado-instalacao-linkleads.txt'
             'Backup verificado de userData, staging e rollback de codigo; nenhum dado removido.'
             'Esta entrega nao usa o instalador NSIS antigo.'
+            'Leia FASES7-10-ACEITE.md: CI e instalacao Windows em runner nao substituem homologacao com conta real.'
             'Conta LinkedIn real requer homologacao supervisionada; nao ha garantia de resolucao universal.'
           ) | Set-Content 'portable-package/LEIA-ME.txt' -Encoding UTF8
-          foreach ($name in @('INSTALAR-LINKLEADS.cmd','ABRIR-LINKLEADS.cmd','PRESERVAR-LINKLEADS.cmd','BASELINE-LINKLEADS.ps1','FASE0-MANIFESTO-BASE.md','manifesto.json')) {
+          foreach ($name in @('INSTALAR-LINKLEADS.cmd','ABRIR-LINKLEADS.cmd','PRESERVAR-LINKLEADS.cmd','BASELINE-LINKLEADS.ps1','FASE0-MANIFESTO-BASE.md','FASES7-10-ACEITE.md','manifesto.json')) {
             if (-not (Test-Path ("portable-package/" + $name))) { throw "Pacote sem $name na raiz" }
           }
 
@@ -242,6 +249,7 @@ jobs:
           test -f portable-package/INSTALAR-LINKLEADS.cmd
           test -f portable-package/ABRIR-LINKLEADS.cmd
           test -f portable-package/CONTRATO_IDENTIDADE_E_POSTS.md
+          test -f portable-package/FASES7-10-ACEITE.md
           grep -Fq 'D:\LINKLEADS' portable-package/LEIA-ME.txt
           # CI verde é necessário. Também impedir publicar commit já ultrapassado.
           latest="$(gh api "repos/${GH_REPO}/branches/main" --jq '.commit.sha')"
