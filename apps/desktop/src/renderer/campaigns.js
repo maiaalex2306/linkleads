@@ -187,7 +187,7 @@ function replyStep(integ) {
   const wh = integ.webhook;
   const ok = wh.enabled && wh.url && wh.events.includes('reply_received');
   return h('div', { class: 'step' },
-    h('div', { class: 'head' }, h('span', { class: 'num' }, '✓'), h('strong', { style: 'flex:1' }, 'Respondeu → envia para o webhook'),
+    h('div', { class: 'head' }, h('span', { class: 'num' }, '✓'), h('strong', { style: 'flex:1' }, 'Resposta identificada → webhook'),
       h('span', { class: 'badge ' + (ok ? 'successful' : 'failed') }, ok ? 'webhook ligado' : 'webhook não configurado')),
     h('div', { class: 'muted' }, ok
       ? `Assim que a pessoa responder (em qualquer ponto), as mensagens param e a conversa vai para ${wh.format === 'linkedhelper' ? 'a ponte do IAD CRM (botão LinkLeads do Pipeline)' : 'o seu webhook'}, com a classificação da IA.`
