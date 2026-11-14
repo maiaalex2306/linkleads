@@ -32,6 +32,7 @@ try {
   const crm=new IntegrationCrm(db,'America/Sao_Paulo');
   crm.upsertPerson({id:'leticia',publicId:'leticia',firstName:'Letícia'});
   crm.upsertPerson({id:'outro',publicId:'outro',firstName:'Outro'});
+  crm.upsertPerson({id:'novo',publicId:'novo',firstName:'Novo'});
   crm.savePost('leticia',{url:urn,text:original.text,postedAt:'2 d',hasMedia:false});
   const context=buildPostSelectionContext(original,'leticia','leticia','posts');
   ok(contextualAuthorAccepted(context),'autoria contextual exclusiva da seção Posts');
@@ -74,18 +75,20 @@ try {
   db.prepare("INSERT INTO campaigns(id,name) VALUES(?,?)").run('c1','Campanha de teste isolada');
   db.prepare("INSERT INTO campaign_actions(id,campaign_id,position,type,name) VALUES(?,?,?,?,?)")
     .run('a1','c1',0,'LikePosts','Curtir');
-  for(const [id,code] of [['leticia','POST_ID_PROVISIONAL'],['outro','POST_ID_CONFLICT']]) {
+  for(const [id,code] of [['novo','POST_ID_PROVISIONAL'],['outro','POST_ID_CONFLICT']]) {
     db.prepare("INSERT INTO campaign_action_people(campaign_id,action_id,person_id,status,reason,seq,message) VALUES(?,?,?,?,?,?,?)")
-      .run('c1','a1',id,'failed','NO_REAL_EFFECT',id==='leticia'?1:2,'mensagem alterada sem padrão');
+      .run('c1','a1',id,'failed','NO_REAL_EFFECT',id==='novo'?1:2,'mensagem alterada sem padrão');
     crm.recordEngagementEffect({campaignId:'c1',actionId:'a1',personId:id,
       stage:'selection',status:'blocked',reason:code});
   }
   const retry=recognitionRetryCandidates56(crm,'c1');
-  ok(retry.length===1 && retry[0].personId==='leticia',
+  ok(retry.length===1 && retry[0].personId==='novo',
     'códigos estruturados permitem retry de parser, não de URN conflitante');
-  ok(crm.beginLikeAttempt(urn,'leticia','c1','a1'),'reserva sintética inserida');
+  ok(crm.beginLikeAttempt('urn:li:activity:7381234567890129552','novo','c1','a1'),'reserva sintética inserida');
   ok(recognitionRetryCandidates56(crm,'c1').length===0,
     'ledger started bloqueia reprocessamento mesmo com código recuperável');
+  ok(!recognitionRetryCandidates56(crm,'c1').some(x=>x.personId==='leticia'),
+    'contato com rascunho concluído não pode ser reprocessado');
   // Nenhuma migração poderá apagar esse estado ou liberar segundo clique.
   const beforePeople=Number(db.prepare('SELECT COUNT(*) n FROM people').get().n);
   const beforePosts=Number(db.prepare('SELECT COUNT(*) n FROM posts').get().n);
@@ -100,7 +103,7 @@ try {
     'migração não perde pessoas nem posts');
   ok(db.prepare('SELECT status,comment FROM comment_drafts WHERE id=?').get(draft.id).status==='posted',
     'decisão final do rascunho preservada pela migração');
-  ok(db.prepare('SELECT status FROM like_attempt_ledger WHERE post_url=?').get(urn).status==='started',
+  ok(db.prepare('SELECT status FROM like_attempt_ledger WHERE post_url=?').get('urn:li:activity:7381234567890129552').status==='started',
     'migração preserva tentativa incerta, sem habilitar segundo clique');
   const reopened=new IntegrationCrm(db,'America/Sao_Paulo');
   ok(savePostSelectionProof(reopened,urn,'leticia','leticia'),
