@@ -37,7 +37,7 @@ async function reliabilityView(a) {
   const obs = result.observed;
   const rate = (v) => v == null ? 'sem amostra' : v.toFixed(2).replace('.',',')+'%';
   const campaigns = (await safe(() => api.listCampaignSummaries(a.id,true)) || [])
-    .filter(c => c.actions?.some(x => x.type === 'LikeAndComment' || x.type === 'LikePosts'));
+    .filter(c => Number(c.actions) > 0); // endpoint leve devolve quantidade, não lista de ações
   // O usuário deve selecionar explicitamente um caso por campanha. O nome da
   // campanha não é incluído na evidência exportável, apenas o ID local do SQLite.
   const current = campaigns.find(c => c.id === state.pilotCampaignId) || campaigns[0];
