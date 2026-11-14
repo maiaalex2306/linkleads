@@ -35,6 +35,9 @@ try {
   const ui = await app.firstWindow();
   await ui.waitForLoadState('domcontentloaded');
   const call = (fn, ...args) => ui.evaluate(([fn, args]) => window.linkleads[fn](...args), [fn, args]);
+  // Este E2E testa prazos simulados de mensagens, e nao horario de expediente.
+  // A opcao explicita ignoreHours evita que +75h caia no minuto 23:59,
+  // fim EXCLUSIVO de WorkingHours. Limites e prazos continuam aplicados.
   const advanceHours = (h) => app.evaluate((_e, ms) => globalThis.__linkleadsTest.advanceClock(ms), h * 3_600_000);
   const person = async () => (await call('listCampaigns', acc.id))[0].people[0];
   const sent = () => site.state.messages.filter((m) => m.from === 'me').map((m) => m.body);
@@ -80,7 +83,7 @@ try {
   const seen = new Set();
   let polling = true;
   const poll = (async () => { while (polling) { const L = await call('liveStatus', acc.id); if (L?.doing) seen.add(L.doing); await new Promise((r) => setTimeout(r, 150)); } })();
-  await call('runNow', acc.id);
+  await call('runNow', acc.id, { ignoreHours: true });
   polling = false;
   await poll;
   check(site.state.liked && site.state.comments.length === 1, 'curtiu e comentou o post', { liked: site.state.liked, comments: site.state.comments });
@@ -104,27 +107,27 @@ try {
   check(mt('likes') === 1 && mt('comments') === 1 && mt('invites') === 1 && mt('profile_url') >= 1, 'contadores: 1 curtida, 1 comentário, 1 convite e abertura de perfil por URL registrada', stats.meters);
   check(/1\//.test(await ui.locator('#health-box').innerText()), 'contadores aparecem atualizados na tela');
 
-  await call('runNow', acc.id);
+  await call('runNow', acc.id, { ignoreHours: true });
   check((await person()).actionName === 'Conferir aceite (1 dia depois)' && site.state.messages.length === 0, 'antes de 1 dia, não confere nem manda mensagem');
 
   await advanceHours(25);
-  await call('runNow', acc.id);
+  await call('runNow', acc.id, { ignoreHours: true });
   check((await person()).reason === 'RETRY_LATER', 'não aceitou ainda: confere de novo amanhã');
 
   await fetch(site.url + '/test/accept', { method: 'POST' });
   await advanceHours(25);
-  await call('runNow', acc.id); // aceito → mensagem 1 na hora
+  await call('runNow', acc.id, { ignoreHours: true }); // aceito → mensagem 1 na hora
   check(sent().length === 1 && sent()[0] === 'Obrigado por aceitar, Ana!', 'aceitou: mensagem 1 assim que o aceite é confirmado', sent());
 
-  await call('runNow', acc.id);
+  await call('runNow', acc.id, { ignoreHours: true });
   check(sent().length === 1, 'mensagem 2 espera 1 dia');
   await advanceHours(25);
-  await call('runNow', acc.id);
+  await call('runNow', acc.id, { ignoreHours: true });
   check(sent().length === 2, 'mensagem 2 um dia depois (não respondeu)', sent());
 
   await fetch(site.url + '/test/reply', { method: 'POST', body: 'Oi! Tenho interesse, podemos falar semana que vem?' });
   await advanceHours(25);
-  await call('runNow', acc.id);
+  await call('runNow', acc.id, { ignoreHours: true });
   const p = await person();
   check(sent().length === 2 && p.reason === 'REPLIED', 'respondeu: mensagem 3 não sai e a sequência para', { sent: sent().length, p });
 

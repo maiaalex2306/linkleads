@@ -65,7 +65,7 @@ try {
   await fetch(site.url + '/test/jobchange', { method: 'POST', body: 'Diretora de Operações na Hidro Sul' });
   const mon = await call('createMonitorCampaign', acc.id, { name: 'Sinais ACME', companyId, everyDays: 7 });
   await call('setCampaignActive', acc.id, mon.campaignId, true);
-  await call('runNow', acc.id);
+  await call('runNow', acc.id, { ignoreHours: true });
   const signals = await call('listSignals', acc.id, true);
   const types = signals.map((s) => s.type).sort();
   check(types.join() === 'hiring,job_change,topic_post', 'sinais: vaga, mudança de cargo e post sobre o tema', signals.map((s) => [s.type, s.title]));
@@ -73,6 +73,9 @@ try {
   check(monCamp.people.every((p) => p.reason === 'RETRY_LATER'), 'monitoramento volta para a fila (próxima leitura em 7 dias)');
   await call('setCampaignActive', acc.id, mon.campaignId, false);
 
+  // Teste independente de horario: +3h pode cair exatamente em 23:59,
+  // fim EXCLUSIVO de WorkingHours. runNow(ignoreHours) testa a sequencia,
+  // enquanto testes de limites verificam o bloqueio fora do expediente.
   // sequência com filtro de ICP para o comitê
   const seq = await call('createSequenceCampaign', acc.id, {
     engage: false, name: 'Comitê ACME', collectionId: '', tone: 'consultivo', extraInstructions: '', icpFilter: true,
@@ -82,9 +85,9 @@ try {
   const n = await call('enqueueCommittee', acc.id, companyId, seq.campaignId, []);
   check(n === 4, 'comitê inteiro colocado na sequência', n);
   await call('setCampaignActive', acc.id, seq.campaignId, true);
-  await call('runNow', acc.id); // visita + filtro de ICP
+  await call('runNow', acc.id, { ignoreHours: true }); // visita + filtro de ICP
   await app.evaluate((_e, ms) => globalThis.__linkleadsTest.advanceClock(ms), 3 * 3_600_000); // convite sai 2 h após a visita
-  await call('runNow', acc.id);
+  await call('runNow', acc.id, { ignoreHours: true });
   const seqCamp = (await call('listCampaigns', acc.id)).find((c) => c.id === seq.campaignId);
   const diego = seqCamp.people.find((p) => p.name === 'Diego Alves');
   check(diego?.status === 'failed' && diego.reason === 'ICP_REJECTED', 'estagiário barrado pelo filtro de ICP antes do convite', diego);

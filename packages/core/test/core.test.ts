@@ -47,6 +47,14 @@ describe('ritmo', () => {
     expect(isWithinWorkingHours(new Date('2026-11-08T13:00:00Z'), wh)).toBe(false); // domingo
   });
 
+  it('23:59 e exclusivamente fora do intervalo e os dias continuam validos', () => {
+    const wh = { timezone: 'UTC', days: [0, 1, 2, 3, 4, 5, 6],
+      start: '00:00', end: '23:59' };
+    expect(isWithinWorkingHours(new Date('2026-11-14T23:58:59Z'), wh)).toBe(true);
+    expect(isWithinWorkingHours(new Date('2026-11-14T23:59:00Z'), wh)).toBe(false);
+    expect(isWithinWorkingHours(new Date('2026-11-15T00:00:00Z'), wh)).toBe(true);
+  });
+
   it('aquecimento só para conta NOVA no LinkedIn; teto rígido sempre', () => {
     const rule = { key: 'invites' as const, max: 20, hours: 24 };
     const fresh = account({ onboardedAt: MONDAY_10AM.toISOString(), limitRules: [rule] });
