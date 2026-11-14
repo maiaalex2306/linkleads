@@ -190,7 +190,7 @@ function replyStep(integ) {
     h('div', { class: 'head' }, h('span', { class: 'num' }, '✓'), h('strong', { style: 'flex:1' }, 'Resposta identificada → webhook'),
       h('span', { class: 'badge ' + (ok ? 'successful' : 'failed') }, ok ? 'webhook ligado' : 'webhook não configurado')),
     h('div', { class: 'muted' }, ok
-      ? `Assim que a pessoa responder (em qualquer ponto), as mensagens param e a conversa vai para ${wh.format === 'linkedhelper' ? 'a ponte do IAD CRM (botão LinkLeads do Pipeline)' : 'o seu webhook'}, com a classificação da IA.`
+      ? `Quando uma resposta for identificada na conversa antes de uma nova mensagem ou em uma consulta manual ao Inbox, a sequência é interrompida e a resposta vai para ${wh.format === 'linkedhelper' ? 'a ponte do IAD CRM (botão LinkLeads do Pipeline)' : 'o seu webhook'}, com a classificação da IA.`
       : 'Configure o webhook em Configurações → Integrações, marque "Resposta recebida" e ligue. Sem isso, a resposta fica só no Inbox do app.'),
     !ok && h('div', {}, h('button', { type: 'button', class: 'link', onclick: () => { state.tab = 'settings'; renderView(); } }, 'Abrir Configurações')));
 }
