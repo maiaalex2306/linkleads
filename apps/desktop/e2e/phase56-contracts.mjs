@@ -64,6 +64,22 @@ try {
   crm.saveDraft({...first,comment:'Novo comentário não autorizado'});
   ok(crm.getDraft(draft.id)?.status==='posted' && crm.getDraft(draft.id)?.comment===first.comment,
     'novo processamento não reabre rascunho publicado');
+  db.prepare("INSERT INTO campaigns(id,name) VALUES(?,?)").run('c1','Campanha de teste isolada');
+  db.prepare("INSERT INTO campaign_actions(id,campaign_id,position,type,name) VALUES(?,?,?,?,?)")
+    .run('a1','c1',0,'LikePosts','Curtir');
+  for(const [id,code] of [['leticia','POST_ID_PROVISIONAL'],['outro','POST_ID_CONFLICT']]) {
+    db.prepare("INSERT INTO campaign_action_people(campaign_id,action_id,person_id,status,reason,seq,message) VALUES(?,?,?,?,?,?,?)")
+      .run('c1','a1',id,'failed','NO_REAL_EFFECT',id==='leticia'?1:2,'mensagem alterada sem padrão');
+    crm.recordEngagementEffect({campaignId:'c1',actionId:'a1',personId:id,
+      stage:'selection',status:'blocked',reason:code});
+  }
+  const retry=crm.recognitionRetryCandidates('c1');
+  ok(retry.length===1 && retry[0].personId==='leticia',
+    'códigos estruturados permitem retry de parser, não de URN conflitante');
+  ok(crm.beginLikeAttempt(urn,'leticia','c1','a1'),'reserva sintética inserida');
+  ok(crm.recognitionRetryCandidates('c1').length===0,
+    'ledger started bloqueia reprocessamento mesmo com código recuperável');
+  // Nenhuma migração poderá apagar esse estado ou liberar segundo clique.
   const beforePeople=Number(db.prepare('SELECT COUNT(*) n FROM people').get().n);
   const beforePosts=Number(db.prepare('SELECT COUNT(*) n FROM posts').get().n);
   // Simular upgrade de uma base v14 preexistente, preservando todo seu conteúdo.
@@ -76,6 +92,8 @@ try {
     'migração não perde pessoas nem posts');
   ok(db.prepare('SELECT status,comment FROM comment_drafts WHERE id=?').get(draft.id).status==='posted',
     'decisão final do rascunho preservada pela migração');
+  ok(db.prepare('SELECT status FROM like_attempt_ledger WHERE post_url=?').get(urn).status==='started',
+    'migração preserva tentativa incerta, sem habilitar segundo clique');
   const reopened=new IntegrationCrm(db,'America/Sao_Paulo');
   ok(reopened.savePostSelectionProof(urn,'leticia','leticia'),
     'a prova funciona após migração e reinício');
