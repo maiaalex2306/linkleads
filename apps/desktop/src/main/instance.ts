@@ -54,8 +54,6 @@ const stubLlm: LlmClient = {
 };
 
 const START_PAGE = `${BASE}/feed/`;
-const INBOX_SCAN_EVERY_MS = 30 * 60_000;
-
 
 export interface InstanceEvents {
   onLog(accountId: string, line: string): void;
@@ -125,7 +123,6 @@ export class AccountInstance {
   private startupReady: Promise<void> = Promise.resolve();
   private currentTick?: Promise<TickReport[]>;
   private activeRun?: AbortController;
-  private lastInboxScan = 0;
   private llmCache?: { key: string; llm: LlmClient };
   private loginAttempts: number[] = [];
   private autoDiag = new Map<string, { at: number; file: string }>();
@@ -528,11 +525,9 @@ export class AccountInstance {
     };
   }
 
-  /** Lê o inbox e registra respostas (antes das campanhas, para nunca seguir quem já respondeu). */
-  async checkInbox(force = false): Promise<InboxScanResult | undefined> {
-    if (!force && Date.now() - this.lastInboxScan < INBOX_SCAN_EVERY_MS) return undefined;
+  /** Consulta o inbox SOMENTE por solicitação explícita do usuário, nunca no ciclo de campanha. */
+  async checkInbox(): Promise<InboxScanResult | undefined> {
     if (this.settings.disabledActions().includes('DetectReplies')) return undefined;
-    this.lastInboxScan = Date.now();
     try {
       Object.assign(this.live, { state: 'inbox', doing: 'Lendo as conversas não lidas do inbox (respostas)', plan: undefined, since: now().toISOString() });
       const r = await this.withBrowser(() => scanInbox(this.deps));
@@ -546,8 +541,8 @@ export class AccountInstance {
     }
   }
 
-  /** Roda um ciclo: inbox → freio → campanhas ativas. */
-  async tickAll(opts: { forceInbox?: boolean; waitIfBusy?: boolean; ignoreHours?: boolean } = {}): Promise<TickReport[]> {
+  /** Roda um ciclo: valida a sessão, aplica o freio e executa campanhas ativas, sem consultar o inbox. */
+  async tickAll(opts: { waitIfBusy?: boolean; ignoreHours?: boolean } = {}): Promise<TickReport[]> {
     // "Rodar agora" durante um ciclo automático: espera terminar e roda em seguida
     while (this.currentTick) {
       if (!opts.waitIfBusy) return [];
@@ -583,7 +578,7 @@ export class AccountInstance {
     }
   }
 
-  private async runTick(opts: { forceInbox?: boolean; ignoreHours?: boolean }, signal?: AbortSignal): Promise<TickReport[]> {
+  private async runTick(opts: { ignoreHours?: boolean }, signal?: AbortSignal): Promise<TickReport[]> {
     {
       // sessão caiu? entra de novo com o login salvo antes de qualquer ação
       const login = await this.withBrowser(() => this.ensureLoggedIn()).catch(() => 'not_needed');
@@ -595,9 +590,6 @@ export class AccountInstance {
         this.log('Sem sessão no LinkedIn: o ciclo fica para depois do login.');
         return [];
       }
-      await this.checkInbox(opts.forceInbox);
-      if (signal?.aborted) return [];
-
       const { matured, accepted } = this.crm.inviteAcceptance(14, 60, now());
       if (shouldAutoBrake(matured, accepted)) {
         this.pause(`taxa de aceite baixa (${accepted}/${matured} convites com 14+ dias). Revise o público e as notas antes de retomar.`);
