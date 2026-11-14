@@ -86,8 +86,10 @@ export function reliabilitySummary(crm: IntegrationCrm): ReliabilitySummary {
   const selectionBlocked = effect('selection','blocked');
   const uncertainExternalEffects = likes.uncertain+likes.started+comments.uncertain+comments.started;
   const pendingHumanActions = drafts.pending+drafts.approved;
-  const hasEvidence = effects.length > 0 || campaigns > 0 ||
-    Object.values(likes).some(Boolean) || Object.values(comments).some(Boolean);
+  // Campanha cadastrada não é evidência de execução. Sem eventos,
+  // tentativas ou rascunhos, a taxa de sucesso não é mensurável.
+  const hasEvidence = effects.length > 0 || Object.values(likes).some(Boolean) ||
+    Object.values(comments).some(Boolean) || Object.values(drafts).some(Boolean);
   const recommendationCode: ReliabilitySummary['recommendationCode'] =
     !hasEvidence ? 'NO_EVIDENCE' :
       uncertainExternalEffects > 0 ? 'RECONCILE_UNCERTAIN' :
