@@ -1,7 +1,7 @@
 // Fase 1: test cases em Chromium isolado, sem acesso ao LinkedIn real.
 import { createRequire } from 'node:module';
 import { postsFilterProbe, postsFilterClickGuard } from '../dist/main/linkedin/dom-scripts.js';
-import { openPostsSection } from '../dist/main/linkedin/executors.js';
+import { openPostsSection } from '../dist/main/linkedin/posts-section.js';
 const require = createRequire(import.meta.url);
 const { chromium } = require('playwright');
 const browser = await chromium.launch({ headless: true });
