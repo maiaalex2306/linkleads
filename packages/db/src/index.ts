@@ -870,12 +870,16 @@ export class LocalCrm extends SqliteCampaignStore {
   }
 
   /** Recuperação exclusivamente de falhas de PARSER anteriores ao clique, com
-   * evidência textual explícita e NENHUM indício persistente de interação.
+   * código estruturado (legado: texto) e NENHUM indício persistente de interação.
    * Um NO_POST genérico ou falha pós-clique jamais entra neste conjunto.
    */
   recognitionRetryCandidates(campaignId: string): Array<{ actionId: string; personId: string }> {
     const rows = this.db.prepare(
-      `SELECT cap.action_id, cap.person_id, cap.reason, cap.message
+      `SELECT cap.action_id, cap.person_id, cap.reason, cap.message,
+         (SELECT e.reason FROM engagement_effects e
+           WHERE e.campaign_id=cap.campaign_id AND e.action_id=cap.action_id
+             AND e.person_id=cap.person_id AND e.stage='selection' AND e.status='blocked'
+           ORDER BY e.id DESC LIMIT 1) AS selection_code
        FROM campaign_action_people cap JOIN campaign_actions a ON a.id=cap.action_id
        WHERE cap.campaign_id=? AND cap.status='failed'
          AND a.type IN ('LikeAndComment','LikePosts')
@@ -890,7 +894,16 @@ export class LocalCrm extends SqliteCampaignStore {
        ORDER BY cap.seq`,
     ).all(campaignId) as Row[];
     const preClickParser = /^(?:Achei \d+ post|Primeiro cartão encontrado|Nenhuma publicação elegível|Não foi possível comprovar autoria|Post.*(?:autoria|classifica)|Publicação.*(?:autor|classific)|Estado de curtida incerto imediatamente antes do clique)/i;
-    return rows.filter((r) => preClickParser.test(String(r.message ?? ''))).map((r) => ({
+    // Contrato estável nas versões novas; fallback textual somente para
+    // registros históricos que nunca receberam um código de seleção.
+    // Conflito de URNs e autores terceiros NÃO entram na fila de retry.
+    const preClickCodes = new Set([
+      'CARD_NOT_FOUND', 'POST_ID_PROVISIONAL', 'POST_AGE_UNVERIFIED',
+      'AUTHOR_UNVERIFIED', 'RESHARE_CLASSIFICATION_ERROR', 'REACTION_UNKNOWN',
+    ]);
+    return rows.filter((r) => r.selection_code != null
+      ? preClickCodes.has(String(r.selection_code))
+      : preClickParser.test(String(r.message ?? ''))).map((r) => ({
       actionId: String(r.action_id), personId: String(r.person_id),
     }));
   }
