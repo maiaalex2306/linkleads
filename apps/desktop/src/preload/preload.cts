@@ -1,12 +1,12 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
 let requestSeq = 0;
-const NOISE = new Set(['accounts:list', 'instance:live', 'app:info', 'accounts:stats', 'update:status']);
+const NOISE = new Set(['accounts:list', 'instance:live', 'app:info', 'accounts:stats', 'update:status', 'reliability:summary', 'pilot:summary']);
 const invoke = (channel: string) => (...args: unknown[]) => {
   if (NOISE.has(channel)) return ipcRenderer.invoke(channel, ...args);
   const requestId = String(++requestSeq);
   const accountId = typeof args[0] === 'string' &&
-    /^(accounts:(?:set|remove|check)|instance:|campaigns:|collections:|inbox:|drafts:|companies:|signals:|deliveries:|export:)/.test(channel)
+    /^(accounts:(?:set|remove|check)|instance:|campaigns:|collections:|inbox:|drafts:|companies:|signals:|deliveries:|export:|reliability:|pilot:)/.test(channel)
     ? args[0] : undefined;
   const start = Date.now();
   ipcRenderer.send('trace:ipc', { channel, phase: 'start', requestId, accountId });
@@ -49,6 +49,9 @@ contextBridge.exposeInMainWorld('linkleads', {
   appInfo: invoke('app:info'),
   retryFailed: invoke('campaigns:retryFailed'),
   engagementEffects: invoke('campaigns:engagementEffects'),
+  reliabilitySummary: invoke('reliability:summary'),
+  pilotSummary: invoke('pilot:summary'),
+  recordPilotObservation: invoke('pilot:record'),
   recognitionRetryCandidates: invoke('campaigns:recognitionRetryCandidates'),
   reprocessRecognitionFailures: invoke('campaigns:reprocessRecognitionFailures'),
   saveCurrentProfile: invoke('instance:saveCurrentProfile'),
