@@ -9,6 +9,7 @@ import { BlockedError, type PageDriver } from './page-driver.js';
 import { isCanonicalPostUrn, provisionalPostFingerprint } from './post-identity.js';
 import type { DiagnosisContext } from './diagnostics.js';
 import { cardDecision } from './diagnostics-policy.js';
+import { openPostsSection } from './posts-section.js';
 import { parseSalesSource, profileResolutionRoutes, samePersonCompany, samePersonName, type ProfileRoute } from './profile-resolver.js';
 
 /** LINKLEADS_TEST_BASE_URL aponta para o site falso dos testes e2e; nunca usar em produção. */
@@ -472,9 +473,13 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
               data: { post: previous.postUrl, likeAttempted: false, uncertainLike: true } };
           const open = await gotoProfile(d, ctx.person, 'recent-activity/all/');
           if (open !== 'ok') return openFailed(open);
-          await d.driver.waitUntil(async () =>
-            (await d.driver.read(extractPosts, d.driver.sel as unknown as Record<string, readonly string[]>, 1)).length > 0 ||
-            (await d.driver.exists('emptyActivity')), 20_000);
+          const postSection = await openPostsSection(d, ctx.person.publicId ?? ctx.person.id);
+          if (postSection.status === 'POST_SECTION_UNAVAILABLE')
+            return { ok: false, reason: 'NO_REAL_EFFECT',
+              message: 'A secao de publicacoes nao ficou pronta; carregamento, rota ou layout devem ser verificados. Nenhuma curtida enviada.' };
+          if (postSection.status === 'POST_SECTION_EMPTY')
+            return { ok: false, reason: 'NO_POST',
+              message: 'A secao de publicacoes informa explicitamente que nao ha publicacoes visiveis.' };
           if (d.preflightPostContract && !(await d.preflightPostContract(diagnosisContext)))
             return { ok: false, reason: 'NO_REAL_EFFECT',
               message: 'Contrato de layout não homologado nesta página: nenhum clique executado' };

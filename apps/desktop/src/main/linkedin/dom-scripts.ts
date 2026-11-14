@@ -76,6 +76,80 @@ export interface PostExtract {
 declare function __llIsReact(el: Element): boolean;
 
 /** Pura: o elemento é um botão de reação ("Gostei")? Rótulo, título, ícone de joinha. */
+/** Fase 1: localizar o filtro Posts observado NA pagina do perfil confirmado.
+ * Nao fabrica /shares/ nem transforma a pagina geral em evidencia de autoria.
+ * Funcao autonoma porque PageDriver.read a serializa no mundo isolado.
+ */
+export interface PostsFilterProbe {
+  kind: 'ACTIVE' | 'LINK' | 'BUTTON' | 'UNAVAILABLE';
+  href?: string;
+  point?: { x: number; y: number };
+}
+export function postsFilterProbe(expectedPublicId: string): PostsFilterProbe {
+  const route = location.pathname.match(/^\/in\/([^/]+)\/recent-activity\/(all|posts|shares)\/?$/i);
+  if (!route) return { kind: 'UNAVAILABLE' };
+  let slug: string;
+  try { slug = decodeURIComponent(route[1]!); }
+  catch { return { kind: 'UNAVAILABLE' }; }
+  if (slug !== expectedPublicId) return { kind: 'UNAVAILABLE' };
+  if (/^(?:posts|shares)$/i.test(route[2]!)) return { kind: 'ACTIVE' };
+  const root: ParentNode = document.querySelector('main') ?? document;
+  const matchLabel = (node: Element): boolean => {
+    const label = (node.getAttribute('aria-label') || (node as HTMLElement).innerText || node.textContent || '')
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+    return /^(?:posts|publicacoes|postagens)(?:\s*\(\d+\))?$/.test(label);
+  };
+  const isVisible = (el: Element): boolean => {
+    const r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0;
+  };
+  const safeHref = (el: Element): string | null => {
+    const raw = el.getAttribute('href');
+    if (!raw) return null;
+    try {
+      const u = new URL(raw, location.href);
+      const m = u.pathname.match(/^\/in\/([^/]+)\/recent-activity\/(?:posts|shares)\/?$/i);
+      return u.origin === location.origin && m && decodeURIComponent(m[1]!) === expectedPublicId
+        && !u.username && !u.password && !u.search && !u.hash ? u.href : null;
+    } catch { return null; }
+  };
+  const candidates = Array.from(root.querySelectorAll(
+    'a[href*="recent-activity"], nav a[href], nav button, [role="tablist"] [role="tab"], [role="tab"]',
+  )).filter((n) => isVisible(n) && matchLabel(n) &&
+    n.getAttribute('aria-disabled') !== 'true' &&
+    !(n instanceof HTMLButtonElement && n.disabled) &&
+    (safeHref(n) || !!n.closest('nav, [role="tablist"]') || n.getAttribute('role') === 'tab'));
+  if (!candidates.length) return { kind: 'UNAVAILABLE' };
+  const active = candidates.filter((n) =>
+    n.getAttribute('aria-selected') === 'true' || n.getAttribute('aria-current') === 'page');
+  if (active.length === 1) return { kind: 'ACTIVE' };
+  const urls = [...new Set(candidates.map(safeHref).filter((u): u is string => !!u))];
+  // Dois destinos diferentes para a mesma aba significam ambiguidade.
+  if (urls.length > 1) return { kind: 'UNAVAILABLE' };
+  if (urls.length === 1) return { kind: 'LINK', href: urls[0]! };
+  const buttons = candidates.filter((n) => n.matches('button, [role="tab"]') && !n.matches('a[href]'));
+  if (buttons.length !== 1) return { kind: 'UNAVAILABLE' };
+  const r = buttons[0]!.getBoundingClientRect();
+  return { kind: 'BUTTON', point: { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) } };
+}
+
+/** Verificacao atomica do filtro Posts antes de um clique de NAVEGACAO. */
+export function postsFilterClickGuard(expectedPublicId: string, x: number, y: number): boolean {
+  const route = location.pathname.match(/^\/in\/([^/]+)\/recent-activity\/all\/?$/i);
+  if (!route) return false;
+  try { if (decodeURIComponent(route[1]!) !== expectedPublicId) return false; }
+  catch { return false; }
+  const node = document.elementFromPoint(x, y)?.closest('button, [role="tab"]');
+  if (!node || node.matches('a[href]') || node.getAttribute('aria-disabled') === 'true' ||
+      (node instanceof HTMLButtonElement && node.disabled) ||
+      !(node.closest('nav, [role="tablist"]') || node.getAttribute('role') === 'tab')) return false;
+  const label = (node.getAttribute('aria-label') || (node as HTMLElement).innerText || node.textContent || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+  if (!/^(?:posts|publicacoes|postagens)(?:\s*\(\d+\))?$/.test(label)) return false;
+  const r = node.getBoundingClientRect();
+  return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+}
+
 export function llIsReact(el: Element): boolean {
   const lab = [el.getAttribute('aria-label'), el.getAttribute('title'), (el as HTMLElement).innerText,
     ...Array.from(el.querySelectorAll('[aria-label],[title],[data-test-icon],[type]')).map((x) => `${x.getAttribute('aria-label') ?? ''} ${x.getAttribute('title') ?? ''} ${x.getAttribute('data-test-icon') ?? ''} ${x.getAttribute('type') ?? ''}`)].join(' ');

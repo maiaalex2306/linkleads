@@ -73,6 +73,13 @@ export class PageDriver {
     this.emit?.('diagnostic_failure', { code, phase, ...extra });
   }
 
+  /** Observabilidade Fase 1: tipo de secao e prontidao, sem nomes/URLs dos perfis. */
+  recordPostSection(source: 'posts' | 'activity', status:
+    'POST_SECTION_READY' | 'POST_SECTION_EMPTY' | 'POST_SECTION_LOADING' | 'POST_SECTION_UNAVAILABLE',
+    method: 'ACTIVE' | 'LINK' | 'BUTTON' | 'FALLBACK'): void {
+    this.emit?.('post_section_state', { source, status, mode: method });
+  }
+
   /** A decisão normal da campanha deve ser observável, não apenas o diagnóstico manual.
    * Campos estritamente estruturais: nunca exportar dados do perfil/post.
    */
