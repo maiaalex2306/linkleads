@@ -18,11 +18,23 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fase 0: comparar com commit imutavel 0.5.13
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Fase 0 — verificar SHA-256, contratos protegidos e inbox manual
+        run: node scripts/verify-phase0-protected.mjs
+      - name: Anexar manifesto reproduzivel de integridade
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: LinkLeads-Fase0-Integridade-${{ github.run_id }}-${{ github.run_attempt }}
+          path: phase-evidence/fase0-manifest.json
+          if-no-files-found: warn
+          retention-days: 30
       # Dependências usadas no runtime: impedir distribuição com vulnerabilidade alta/crítica conhecida.
       - name: Auditar dependências de runtime
         run: npm audit --omit=dev --audit-level=high
@@ -57,7 +69,7 @@ jobs:
           - name: Prospecção e Sales Navigator
             suite: "prospecting salesnav salesnav-hash-resolution comment-duplicate profile-visit-scroll"
           - name: Curtir e comentar — ação única
-            suite: "post-recognition comment-editor-fase4 unified-engagement comment-unconfirmed-fase4 approval-pending-fase7 salesnav-unified-engagement engagement-scroll"
+            suite: "post-recognition post-section-fase1 comment-editor-fase4 unified-engagement comment-unconfirmed-fase4 approval-pending-fase7 salesnav-unified-engagement engagement-scroll"
           - name: Login e limites
             suite: "login limits"
           - name: Launcher e workspace por conta
