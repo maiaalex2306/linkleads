@@ -60,7 +60,7 @@ async function inboxView(a) {
   );
   if (!items.length) return h('div', { class: 'stack' }, head, h('p', { class: 'muted' }, 'Nenhuma resposta registrada. A caixa de entrada só será consultada quando você clicar em "Verificar inbox agora".'));
   return h('div', { class: 'stack' }, head,
-    h('p', { class: 'muted' }, 'Quem respondeu sai automaticamente de todas as sequências. Continue a conversa pelo LinkedIn.'),
+    h('p', { class: 'muted' }, 'As respostas são identificadas pela consulta manual ao Inbox ou pela verificação da conversa antes do envio de uma mensagem. Depois de identificadas, interrompem a sequência desse contato.'),
     ...items.map((it) => {
       const m = it.lastInbound;
       const thread = h('div', { class: 'thread' });
