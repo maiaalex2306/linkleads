@@ -36,6 +36,8 @@ import { checkProxy, validateProxy } from './proxy-check.js';
 import { advanceClock, now } from './clock.js';
 import { CrmRegistry } from './crm-registry.js';
 import { recognitionRetryCandidates56, reprocessRecognitionFailures56 } from './phase56-store.js';
+import { reliabilitySummary } from './reliability.js';
+import { PILOT_CHECKPOINTS, recordPilotObservation, pilotSummary, type PilotCheckpoint, type PilotOutcome } from './phase9-pilot.js';
 import { accountStats } from './stats.js';
 import { TeamSync } from './team-sync.js';
 import { setupUpdater } from './updater.js';
@@ -332,6 +334,32 @@ ipcMain.handle('campaigns:retryFailed', (_e, id: string, campaignId: string) => 
  * Fase 5: leitura da cadeia de efeitos, sem alterar estado.
  * Conta/campanha validadas; não expõe texto, credenciais ou cookie.
  */
+/** Fase 10: indicadores agregados locais. Não abre LinkedIn, não executa ações
+ * e não expõe membros, posts, URLs, nomes ou conteúdo.
+ */
+ipcMain.handle('reliability:summary', (_e, id: string) =>
+  reliabilitySummary(crms.get(account(id))));
+
+/** Fase 9: observações humanas somente leitura/registro append-only.
+ * Um resultado informado pelo operador NÃO confirma interações no ledger.
+ */
+ipcMain.handle('pilot:summary', (_e, id: string, campaignId: string) => {
+  const crm = crms.get(account(id));
+  if (!crm.loadCampaign(campaignId, id)) throw Error('Campanha não pertence a esta conta');
+  return pilotSummary(crm, campaignId);
+});
+ipcMain.handle('pilot:record', (_e, id: string, campaignId: string, caseNumber: number,
+  checkpoint: PilotCheckpoint, outcome: PilotOutcome) => {
+  const crm = crms.get(account(id));
+  if (!crm.loadCampaign(campaignId, id)) throw Error('Campanha não pertence a esta conta');
+  // Esta é uma observação do operador, NUNCA uma confirmação automática externa.
+  const rowId = recordPilotObservation(crm, campaignId, caseNumber, checkpoint, outcome);
+  trace.record('pilot', 'observation_recorded', {code:checkpoint,status:outcome},
+    {accountId:id,campaignId});
+  return {rowId, ...pilotSummary(crm, campaignId)};
+});
+void PILOT_CHECKPOINTS; // tipos compartilhados e reconhecidos no módulo de piloto.
+
 ipcMain.handle('campaigns:engagementEffects', (_e, id: string, campaignId: string, personId?: string) => {
   const a = account(id);
   const crm = crms.get(a);
