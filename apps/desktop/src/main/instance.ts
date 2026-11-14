@@ -121,6 +121,8 @@ export class AccountInstance {
   private loop?: NodeJS.Timeout;
   private initialCycle?: NodeJS.Timeout;
   private busy: Promise<unknown> = Promise.resolve();
+  /** Prontidao real da sessao + pagina inicial. Nenhuma acao usa o navegador antes dela. */
+  private startupReady: Promise<void> = Promise.resolve();
   private currentTick?: Promise<TickReport[]>;
   private activeRun?: AbortController;
   private lastInboxScan = 0;
@@ -261,7 +263,17 @@ export class AccountInstance {
 
     // o proxy precisa estar ativo ANTES da primeira requisição, senão ela sai pelo IP da máquina
     const proxyReady = account.proxy ? this.session.setProxy({ proxyRules: proxyRules(account.proxy) }) : this.session.setProxy({ mode: 'direct' });
-    void proxyReady.then(() => this.window.loadURL(START_PAGE));
+    // A versao anterior iniciava loadURL em background: "Abrir" seguido
+    // imediatamente de "Rodar agora" podia competir com a navegacao inicial.
+    // Essa corrida foi observada na release Windows apos a CI ter aprovado.
+    // A primeira operacao de navegador agora aguarda proxy e pagina prontos.
+    this.startupReady = proxyReady.then(async () => {
+      if (this.window.isDestroyed()) throw new Error('Janela da conta fechada antes de iniciar');
+      await this.window.loadURL(START_PAGE);
+    });
+    void this.startupReady.catch(() => {
+      this.log('Nao foi possivel iniciar a sessao desta conta; nenhuma campanha deve executar antes da pagina inicial carregar.');
+    });
     // caiu na página de login (ao abrir ou no meio do dia): entra sozinho com o e-mail e a senha salvos
     this.window.webContents.on('did-finish-load', () => {
       if (LOGIN_PAGE.test(this.window.webContents.getURL())) void this.withBrowser(() => this.ensureLoggedIn()).catch(() => undefined);
@@ -476,7 +488,14 @@ export class AccountInstance {
 
   /** Uma operação de navegador por vez. */
   private withBrowser<T>(fn: () => Promise<T>): Promise<T> {
-    const run = this.busy.then(fn, fn);
+    const readyRun = async (): Promise<T> => {
+      // Falha de proxy ou loadURL interrompe a acao; nao continuar numa aba
+      // vazia, carregando ou substituida pela pagina inicial.
+      await this.startupReady;
+      if (this.window.isDestroyed()) throw new Error('Janela da conta fechada');
+      return fn();
+    };
+    const run = this.busy.then(readyRun, readyRun);
     this.busy = run.catch(() => undefined);
     return run;
   }
