@@ -5,6 +5,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openAccountDb, IntegrationCrm, SCHEMA_VERSION } from '@linkleads/db';
+import { ensurePhase56Schema, savePostSelectionProof, postSelectionProof, saveCommentDraftOnce, recognitionRetryCandidates56 } from '../dist/main/phase56-store.js';
 import { buildPostSelectionContext, contextualAuthorAccepted } from '../dist/main/linkedin/post-identity.js';
 import { evaluatePost } from '../dist/main/linkedin/post-evaluation.js';
 import { cardDecision } from '../dist/main/linkedin/diagnostics-policy.js';
@@ -24,7 +25,10 @@ const original={
 };
 try {
   db=openAccountDb(file);
-  ok(SCHEMA_VERSION===15,'schema version 15 com migração exclusivamente aditiva');
+  ensurePhase56Schema(db);
+  ok(SCHEMA_VERSION===14,'contrato core schema versão 14 preservado');
+  ok(Number(db.prepare('SELECT version FROM phase56_schema').get().version)===1,
+    'extensão aditiva versionada separadamente');
   const crm=new IntegrationCrm(db,'America/Sao_Paulo');
   crm.upsertPerson({id:'leticia',publicId:'leticia',firstName:'Letícia'});
   crm.upsertPerson({id:'outro',publicId:'outro',firstName:'Outro'});
@@ -33,11 +37,11 @@ try {
   ok(contextualAuthorAccepted(context),'autoria contextual exclusiva da seção Posts');
   ok(evaluatePost(original,'leticia',{maxPostAgeDays:30},context).status==='ELIGIBLE',
     'Letícia elegível sem URL redundante');
-  ok(crm.savePostSelectionProof(urn,'leticia','leticia'),'prova contextual pode ser persistida');
-  ok(crm.postSelectionProof(urn)?.personId==='leticia','prova vinculada ao contato');
-  ok(!crm.savePostSelectionProof(urn,'outro','outro'),'prova não pode migrar para homônimo');
-  ok(crm.postSelectionProof(urn)?.publicId==='leticia','primeira prova permanece imutável');
-  ok(!crm.savePostSelectionProof('ll-idx-1','leticia','leticia'),'URN provisória rejeitada');
+  ok(savePostSelectionProof(crm,urn,'leticia','leticia'),'prova contextual pode ser persistida');
+  ok(postSelectionProof(crm,urn)?.personId==='leticia','prova vinculada ao contato');
+  ok(!savePostSelectionProof(crm,urn,'outro','outro'),'prova não pode migrar para homônimo');
+  ok(postSelectionProof(crm,urn)?.publicId==='leticia','primeira prova permanece imutável');
+  ok(!savePostSelectionProof(crm,'ll-idx-1','leticia','leticia'),'URN provisória rejeitada');
   ok(!contextualAuthorAccepted(buildPostSelectionContext(original,'leticia','leticia','activity')),
     'atividade genérica não comprova autoria');
   const other={...original,actorHref:'https://www.linkedin.com/in/outro/'};
@@ -58,13 +62,13 @@ try {
   }
   const first={kind:'comment',campaignId:'c1',actionId:'a1',personId:'leticia',
     postUrl:urn,comment:'Comentário originalmente aprovado',interpretation:{shouldComment:true}};
-  crm.saveDraft(first);
-  crm.saveDraft({...first,comment:'Tentativa automática de sobrescrever'});
+  saveCommentDraftOnce(crm,first);
+  saveCommentDraftOnce(crm,{...first,comment:'Tentativa automática de sobrescrever'});
   ok(crm.getDraft(crm.listDrafts()[0].id)?.comment===first.comment,
     'geração duplicada não sobrescreve rascunho pendente');
   const draft=crm.listDrafts()[0];
   crm.updateDraft(draft.id,{status:'posted'});
-  crm.saveDraft({...first,comment:'Novo comentário não autorizado'});
+  saveCommentDraftOnce(crm,{...first,comment:'Novo comentário não autorizado'});
   ok(crm.getDraft(draft.id)?.status==='posted' && crm.getDraft(draft.id)?.comment===first.comment,
     'novo processamento não reabre rascunho publicado');
   db.prepare("INSERT INTO campaigns(id,name) VALUES(?,?)").run('c1','Campanha de teste isolada');
@@ -76,20 +80,21 @@ try {
     crm.recordEngagementEffect({campaignId:'c1',actionId:'a1',personId:id,
       stage:'selection',status:'blocked',reason:code});
   }
-  const retry=crm.recognitionRetryCandidates('c1');
+  const retry=recognitionRetryCandidates56(crm,'c1');
   ok(retry.length===1 && retry[0].personId==='leticia',
     'códigos estruturados permitem retry de parser, não de URN conflitante');
   ok(crm.beginLikeAttempt(urn,'leticia','c1','a1'),'reserva sintética inserida');
-  ok(crm.recognitionRetryCandidates('c1').length===0,
+  ok(recognitionRetryCandidates56(crm,'c1').length===0,
     'ledger started bloqueia reprocessamento mesmo com código recuperável');
   // Nenhuma migração poderá apagar esse estado ou liberar segundo clique.
   const beforePeople=Number(db.prepare('SELECT COUNT(*) n FROM people').get().n);
   const beforePosts=Number(db.prepare('SELECT COUNT(*) n FROM posts').get().n);
   // Simular upgrade de uma base v14 preexistente, preservando todo seu conteúdo.
-  db.exec('DROP TABLE post_selection_proofs; UPDATE schema_version SET version=14');
-  db.close();db=openAccountDb(file);
-  ok(Number(db.prepare('SELECT version FROM schema_version').get().version)===15,
-    'upgrade v14 -> v15 em banco com pessoas, posts e rascunhos');
+  db.exec('DROP TABLE post_selection_proofs; DROP TABLE phase56_schema');
+  db.close();db=openAccountDb(file);ensurePhase56Schema(db);
+  ok(Number(db.prepare('SELECT version FROM schema_version').get().version)===14 &&
+     Number(db.prepare('SELECT version FROM phase56_schema').get().version)===1,
+    'core v14 intacto e extensão v1 recriada sobre banco preexistente');
   ok(Number(db.prepare('SELECT COUNT(*) n FROM people').get().n)===beforePeople &&
     Number(db.prepare('SELECT COUNT(*) n FROM posts').get().n)===beforePosts,
     'migração não perde pessoas nem posts');
@@ -98,10 +103,10 @@ try {
   ok(db.prepare('SELECT status FROM like_attempt_ledger WHERE post_url=?').get(urn).status==='started',
     'migração preserva tentativa incerta, sem habilitar segundo clique');
   const reopened=new IntegrationCrm(db,'America/Sao_Paulo');
-  ok(reopened.savePostSelectionProof(urn,'leticia','leticia'),
+  ok(savePostSelectionProof(reopened,urn,'leticia','leticia'),
     'a prova funciona após migração e reinício');
-  db.close();db=openAccountDb(file);
-  ok(new IntegrationCrm(db,'America/Sao_Paulo').postSelectionProof(urn)?.publicId==='leticia',
+  db.close();db=openAccountDb(file);ensurePhase56Schema(db);
+  ok(postSelectionProof(new IntegrationCrm(db,'America/Sao_Paulo'),urn)?.publicId==='leticia',
     'evidência contextual sobrevive a segundo reinício');
   const integrity=db.prepare('PRAGMA integrity_check').get();
   ok(Object.values(integrity)[0]==='ok','integridade SQLite aprovada');
