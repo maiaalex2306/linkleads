@@ -80,6 +80,8 @@ export interface DiagnosisReport {
   structure?: { hasMain: boolean; titleEndsWithLinkedIn: boolean; headings: Array<{ tag: string; classes: string; inMain: boolean; textLength: number; parents: string }> };
   /** posts: o que o app reconheceu e a estrutura em volta das DATAS dos posts (sem textos nem nomes) */
   posts?: { recognized: number; decisions: CardDecision[]; probes: unknown[]; canonical: number; provisional: number;
+    identityConflicts: number; missingCanonical: number;
+    recognition: Array<{ ordinal: number; state: 'CONFIRMED' | 'PROVISIONAL' | 'CONFLICT'; reason: string }>;
     dated: number; undated: number; reactionKnown: number; reactionUnknown: number;
     /** Somente metadados do PRIMEIRO cartão ainda não curtido na ordem da tela. */
     firstUnliked?: { ordinal: number; canonical: boolean; dated: boolean;
@@ -218,8 +220,19 @@ export async function diagnosePage(
   // Diferenciar ausência de URN, data e estado de reação no diagnóstico.
   const isActivity = page === 'atividade' || page === 'post' || page === 'feed';
   const extracted = isActivity ? await driver.read(extractPosts, sel, 150).catch(() => []) : [];
+  // Fase 2: motivo estruturado por cartão, sem texto, nome ou URL.
+  // Não confundir cartão descoberto com publicação canônica.
+  const recognition = extracted.slice(0, 150).map((post, index) => {
+    const state = post.cardIdentity?.identityStatus ?? 'PROVISIONAL';
+    const reason = state === 'CONFLICT' ? 'CONFLICTING_POST_IDENTITIES' :
+      state === 'PROVISIONAL' ? 'CANONICAL_URN_NOT_FOUND' :
+      'POST_RECOGNIZED';
+    return { ordinal: index + 1, state, reason };
+  });
   const postCounts = {
     recognized: extracted.length,
+    identityConflicts: recognition.filter((item) => item.state === 'CONFLICT').length,
+    missingCanonical: recognition.filter((item) => item.state === 'PROVISIONAL').length,
     canonical: extracted.filter((p) => isCanonicalPostUrn(p.urn)).length,
     provisional: extracted.filter((p) => !isCanonicalPostUrn(p.urn)).length,
     dated: extracted.filter((p) => p.age && parseRelativeAgeDays(p.age) !== undefined).length,
@@ -274,7 +287,7 @@ export async function diagnosePage(
     labels,
     buttons,
     structure,
-    posts: isActivity ? { ...postCounts, decisions, firstUnliked,
+    posts: isActivity ? { ...postCounts, recognition, decisions, firstUnliked,
       probes: await driver.read(postsProbe).catch(() => []) } : undefined,
   };
 }
