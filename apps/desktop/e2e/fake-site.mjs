@@ -300,7 +300,13 @@ export function startFakeSite(port = 0) {
         return html(`<div class="spacer"></div>${postHtml(false)}<div class="spacer" style="height:1400px"></div>
           <div id="older-feed"></div><div class="spacer"></div>`, likeScript + loader);
       }
-      return html(`${state.contextualPostMode ? "<nav><a href=\"/in/ana-silva/recent-activity/posts/\" aria-selected=\"true\">Posts</a></nav>" : ""}<div class="spacer"></div>${postHtml(false)}<div class="spacer"></div>`, likeScript);
+      return html(`${state.contextualPostMode ? "<nav><a href=\"/in/ana-silva/recent-activity/posts/\">Posts</a></nav>" : ""}<div class="spacer"></div>${postHtml(false)}<div class="spacer"></div>`, likeScript);
+    }
+    // Rota Posts DE FATO observada após clicar no link; rota all/ sozinha
+    // não pode alegar que o filtro Posts já está selecionado.
+    if (state.contextualPostMode && url === '/in/ana-silva/recent-activity/posts/') {
+      return html('<nav><a href="/in/ana-silva/recent-activity/posts/" aria-selected="true">Posts</a></nav>' +
+        '<div class="spacer"></div>' + postHtml(false) + '<div class="spacer"></div>', likeScript);
     }
     if (url === '/in/ana-silva/') return html(profileHtml(), profileScript);
     if (url === '/messaging/') { state.inboxVisits++; return html(inboxHtml(), inboxScript); }
