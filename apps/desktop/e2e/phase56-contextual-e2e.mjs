@@ -78,7 +78,14 @@ try {
   })();
   await browser.waitForURL((url) => url.origin === new URL(site.url).origin, { timeout: 20_000 });
   await browser.waitForLoadState('domcontentloaded');
-  await call('runNow', acc.id);
+  const attempt = await call('runNow', acc.id);
+  if (!site.state.liked) {
+    // Em erro, imprimir somente dados sintéticos da fixture e razões de decisão
+    // para diagnosticar o portão de elegibilidade sem afrouxar critérios.
+    const rows = (await call('listCampaigns', acc.id)).find(c => c.id === campaignId)?.people;
+    const effects = await call('engagementEffects', acc.id, campaignId);
+    console.error('FASE5_DIAGNOSTICO_SINTETICO', JSON.stringify({attempt,rows,effects}));
+  }
   check(site.state.liked === true, 'curtida simulada reconhecida na aba Posts sem URL do autor');
   check(site.state.comments.length === 1, 'a IA releu o mesmo permalink sem URL de autor e o comentário foi publicado uma vez', site.state.comments);
   check(site.state.moreExpansions === 1, 'conteúdo longo foi expandido e relido antes da IA', site.state.moreExpansions);
