@@ -373,7 +373,27 @@ export function llPostContainers(
       }
       return false;
     });
-    const candidates = specific.length ? specific : general.length ? general : adjacentToPostMetadata;
+    // SDUI usa componentkey e nao possui necessariamente <header> ou
+    // classes update-components. O link do autor pode estar JUNTO do
+    // carimbo temporal em um pequeno bloco semantico.
+    const sduiAge = /^(?:h[áa]\\s+)?\\d+\\s*(?:min(?:utos?)?|h(?:oras?)?|d(?:ias?)?|sem(?:anas?)?|w(?:eeks?)?|m[eê]s(?:es)?|mes(?:es)?|a(?:nos?)?|y(?:ears?)?)\\b/i;
+    const sduiAdjacent = card.closest('[data-sdui-screen]') ? authorLinks.filter((a) => {
+      let node: Element | null = a.parentElement;
+      for (let depth = 0; node && node !== card && depth < 6; depth++, node = node.parentElement) {
+        if (node.matches(COMMENT) ||
+            node.querySelector('[dir="ltr"], .update-components-text, [contenteditable="true"]') ||
+            node.querySelector('button, [role="button"]')) return false;
+        const small = Array.from(node.querySelectorAll('span, p, time, a')).filter((el) =>
+          el !== a && !a.contains(el) && el.children.length <= 2);
+        if (small.some((el) => {
+          const v = ((el as HTMLElement).innerText || el.textContent || '').replace(/\\s+/g, ' ').trim();
+          return v.length > 0 && v.length <= 42 && sduiAge.test(v);
+        })) return true;
+      }
+      return false;
+    }) : [];
+    const candidates = specific.length ? specific :
+      general.length ? general : adjacentToPostMetadata.length ? adjacentToPostMetadata : sduiAdjacent;
     const authors = new Map<string, HTMLAnchorElement>();
     for (const a of candidates) {
       const url = validProfile(a);
@@ -420,7 +440,26 @@ export function llPostContainers(
   // com data-urn não se torna uma segunda publicação independente.
   const classic = new Set<Element>();
   for (const selector of sel.postItem) {
-    for (const el of Array.from(root.querySelectorAll(selector))) classic.add(el);
+    let elements: Element[] = [];
+    try { elements = Array.from(root.querySelectorAll(selector)); }
+    catch { continue; }
+    for (const el of elements) {
+      // O envelope SDUI nao e necessariamente um post. So aceitar como
+      // candidato se ele possui UMA barra de reacoes, UM comentario e
+      // conteudo no mesmo card (sem agrupar varios posts).
+      if (el.hasAttribute('componentkey') && el.closest('[data-sdui-screen]')) {
+        const controls = Array.from(el.querySelectorAll('button, [role="button"]'));
+        const reactions = controls.filter((b) =>
+          (typeof __llIsReact === 'function' ? __llIsReact : llIsReact)(b));
+        const comments = controls.filter((b) =>
+          /^(?:comentar|comment)(?:\\s|$)/i.test(
+            (b.getAttribute('aria-label') || (b as HTMLElement).innerText || '').trim()));
+        if (reactions.length !== 1 || comments.length !== 1 ||
+            !el.querySelector('a[href*="/in/"]') ||
+            !el.querySelector('p, [dir="ltr"], [data-testid*="commentary"], [data-testid*="post-text"]')) continue;
+      }
+      classic.add(el);
+    }
   }
   const topLevel = [...classic].filter((el) => ![...classic].some(
     (outer) => outer !== el && outer.contains(el),
@@ -540,8 +579,12 @@ export function extractPosts(sel: Record<string, readonly string[]>, limit: numb
       '[contenteditable="true"]', '[role="toolbar"]', 'button', '[role="button"]',
     ].join(', ');
     const validTextNode = (node: Element) => {
-      if (inEmbedded(node) || node.closest(nonContent)) return false;
+      if (inEmbedded(node) || node.closest(nonContent) || node.closest('header, [data-testid*="actor"]')) return false;
       if (node.querySelector('button, [role="button"], time, [contenteditable]')) return false;
+      const value = ((node as HTMLElement).innerText || node.textContent || '').replace(/\\s+/g, ' ').trim();
+      // Tempo da publicação e etiquetas do autor nunca viram corpo de texto.
+      if (/^(?:h[áa]\\s+)?\\d+\\s*(?:min|h|d|dia|day|sem|week|m[eê]s|mes|ano|year)\\b/i.test(value) &&
+          value.length < 45) return false;
       return true;
     };
     // Um botão "ver mais" pode estar dentro da área oficial do texto.
