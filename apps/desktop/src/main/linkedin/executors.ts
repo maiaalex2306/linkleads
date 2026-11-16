@@ -6,13 +6,14 @@ import type { IntegrationCrm } from '@linkleads/db';
 import type { EnrichmentProvider } from '@linkleads/integrations';
 import { commentEditorPoint, commentSubmitPoint, commentEvidence, editorText, extractPosts, extractProfile, likeState, profileReady, type PostExtract } from './dom-scripts.js';
 import { BlockedError, type PageDriver } from './page-driver.js';
-import { isCanonicalPostUrn, provisionalPostFingerprint, type PostSelectionContext } from './post-identity.js';
+import { isCanonicalPostUrn, provisionalPostFingerprint, contextualAuthorAccepted, buildPostSelectionContext, type PostSelectionContext } from './post-identity.js';
 import { evaluatePost, firstUnlikedCandidate, profileSlug, sameConfirmedPublicId, type PostEvaluationCode } from './post-evaluation.js';
 export { evaluatePost, firstUnlikedCandidate, profileSlug, sameConfirmedPublicId } from './post-evaluation.js';
 export type { PostEvaluation, PostEvaluationStatus, PostEvaluationStage, PostEvaluationCode } from './post-evaluation.js';
 import type { DiagnosisContext } from './diagnostics.js';
 import { cardDecision } from './diagnostics-policy.js';
 import { openPostsSection } from './posts-section.js';
+import { savePostSelectionProof, postSelectionProof, saveCommentDraftOnce } from '../phase56-store.js';
 import { parseSalesSource, profileResolutionRoutes, samePersonCompany, samePersonName, type ProfileRoute } from './profile-resolver.js';
 
 /** LINKLEADS_TEST_BASE_URL aponta para o site falso dos testes e2e; nunca usar em produção. */
@@ -233,24 +234,11 @@ async function discoverUnlikedPost(
   ignoredUrns: ReadonlySet<string> = new Set(),
   sourceSection: 'posts' | 'activity' = 'activity',
   personId: string = publicId,
-): Promise<{ post?: PostExtract; posts: PostExtract[]; why: string; uncertain?: boolean }> {
+): Promise<{ post?: PostExtract; posts: PostExtract[]; why: string; uncertain?: boolean;
+  diagnosticCode?: PostEvaluationCode | 'CARD_NOT_FOUND' }> {
   const seen = new Map<string, PostExtract>();
-  const contextForPost = (post: PostExtract): PostSelectionContext => ({
-    personId,
-    confirmedPublicId: publicId,
-    sourceSection,
-    postUrn: isCanonicalPostUrn(post.urn) ? post.urn : null,
-    postKind: post.postKind === 'UNKNOWN' ? 'unknown' :
-      post.isReshare || post.postKind === 'RESHARE_PLAIN' || post.postKind === 'RESHARE_COMMENTED'
-        ? 'reshare' : 'original',
-    authorEvidence: post.actorHref ? 'explicit' :
-      sourceSection === 'posts' && !post.isReshare && post.postKind !== 'UNKNOWN'
-        ? 'contextual' : 'unknown',
-    authorConflict: post.cardIdentity?.identityStatus === 'CONFLICT' ||
-      (!post.isReshare && !!post.resharedByHref),
-    reactionState: post.liked === null ? 'unknown' : post.liked ? 'liked' : 'not_liked',
-    contentState: post.truncated ? 'truncated' : post.text || post.hasMedia ? 'complete' : 'unavailable',
-  });
+  const contextForPost = (post: PostExtract): PostSelectionContext =>
+    buildPostSelectionContext(post, personId, publicId, sourceSection);
   const start = Date.now();
   const ageLimit = Math.max(1, Math.min(365, settings.maxPostAgeDays ?? 365));
   // Publicações antigas podem exigir várias cargas da timeline.
@@ -300,7 +288,8 @@ async function discoverUnlikedPost(
       }
     }
     if (candidate.uncertain)
-      return { posts: ordered, why: candidate.why + '. Confirmação humana necessária.', uncertain: true };
+      return { posts: ordered, why: candidate.why + '. Confirmação humana necessária.',
+        uncertain: true, diagnosticCode: candidate.code };
     if (candidate.post) {
       const post = candidate.post;
       if (!isCanonicalPostUrn(post.urn))
@@ -361,6 +350,7 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
             expectedPublicId: ctx.person.publicId ?? ctx.person.id,
             includeReshares: s.includeReshares === true,
             maxPostAgeDays: s.maxPostAgeDays ?? 365,
+            personId: ctx.person.id,
           };
           const previous = d.crm.latestLikeAttempt(ctx.person.id, ctx.campaignId, ctx.action.id);
           if (previous?.status === 'confirmed') {
@@ -378,10 +368,15 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
               data: { post: previous.postUrl, likeAttempted: false, uncertainLike: true } };
           const open = await gotoProfile(d, ctx.person, 'recent-activity/all/');
           if (open !== 'ok') return openFailed(open);
-          const postSection = await openPostsSection(d, ctx.person.publicId ?? ctx.person.id);
+          // PATCH: sempre tentar recuperar rota Posts/shares no mesmo perfil.
+          // Em /recent-activity/all/ o fallback contextual de autor fica desligado
+          // (sourceSection !== 'posts') e AUTHOR_UNVERIFIED explode sem actorHref.
+          let postSection = await openPostsSection(
+            d, ctx.person.publicId ?? ctx.person.id, { recoverVerifiedPostsRoute: true });
           if (postSection.status === 'POST_SECTION_UNAVAILABLE')
             return { ok: false, reason: 'NO_REAL_EFFECT',
               message: 'A secao de publicacoes nao ficou pronta; carregamento, rota ou layout devem ser verificados. Nenhuma curtida enviada.' };
+          diagnosisContext.sourceSection = postSection.source;
           if (postSection.status === 'POST_SECTION_EMPTY')
             return { ok: false, reason: 'NO_POST',
               message: 'A secao de publicacoes informa explicitamente que nao ha publicacoes visiveis.' };
@@ -395,6 +390,22 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
               postSection.source, ctx.person.id);
             const post = found.post;
             if (!post) {
+              // Recuperar a rota de Publicacoes somente quando a primeira
+              // tentativa realmente falhou por falta de autoria no feed geral.
+              // Perfis com autor explicito continuam no caminho ja homologado.
+              if (found.diagnosticCode === 'AUTHOR_UNVERIFIED' &&
+                  postSection.source === 'activity') {
+                const recovered = await openPostsSection(
+                  d, ctx.person.publicId ?? ctx.person.id, { recoverVerifiedPostsRoute: true });
+                if (recovered.status === 'POST_SECTION_READY' && recovered.source === 'posts') {
+                  postSection = recovered;
+                  diagnosisContext.sourceSection = 'posts';
+                  if (d.preflightPostContract && !(await d.preflightPostContract(diagnosisContext)))
+                    return { ok: false, reason: 'NO_REAL_EFFECT',
+                      message: 'Layout da seção Publicações recuperada não homologado; nenhum clique executado' };
+                  continue;
+                }
+              }
               const empty = await d.driver.exists('emptyActivity').catch(() => false);
               // Só declarar ausência de post quando o LinkedIn mostra
               // estado vazio e o parser não observou nenhuma publicação.
@@ -403,8 +414,16 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
               const unreadable = !found.posts.length;
               const file = (unreadable || found.uncertain) ?
                 await d.reportUnrecognized?.(diagnosisContext).catch(() => undefined) : undefined;
-              if (unreadable || found.uncertain) return { ok: false, reason: 'NO_REAL_EFFECT',
-                message: found.why + (file ? '. Diagnóstico: ' + file : '') };
+              if (unreadable || found.uncertain) {
+                // Código de seleção pré-interação; o ledger é a última barreira contra retry.
+                const code = found.diagnosticCode ?? (unreadable ? 'CARD_NOT_FOUND' : undefined);
+                if (code) d.crm.recordEngagementEffect({
+                  campaignId: ctx.campaignId, actionId: ctx.action.id, personId: ctx.person.id,
+                  stage: 'selection', status: 'blocked', reason: code,
+                });
+                return { ok: false, reason: 'NO_REAL_EFFECT',
+                  message: found.why + (file ? '. Diagnóstico: ' + file : '') };
+              }
               return { ok: false, reason: 'NO_POST',
                 message: empty ? 'A pessoa não tem publicações' : found.why };
             }
@@ -428,6 +447,15 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
             d.crm.savePost(ctx.person.id, {
               url: post.urn, text: post.text, postedAt: post.age ?? undefined, hasMedia: post.hasMedia,
             });
+            // O feed Posts foi validado anteriormente; persistir a evidência
+            // contextual ANTES de mudar de rota. Ela permanece vinculada
+            // ao mesmo post e pessoa após reinício, sem autorizar conflitos.
+            const proof = buildPostSelectionContext(post, ctx.person.id,
+              ctx.person.publicId ?? ctx.person.id, postSection.source);
+            if (contextualAuthorAccepted(proof) &&
+                !savePostSelectionProof(d.crm, post.urn, ctx.person.id, proof.confirmedPublicId))
+              return { ok: false, reason: 'NO_REAL_EFFECT',
+                message: 'Prova contextual de autoria não pôde ser preservada; nenhuma curtida enviada' };
             d.crm.recordEngagementEffect({
               campaignId: ctx.campaignId, actionId: ctx.action.id, personId: ctx.person.id,
               postUrl: post.urn, stage: 'selection', status: 'confirmed',
@@ -546,8 +574,19 @@ async function hydratePostForComment(
         return failure('Texto integral do post indisponível; revisão necessária antes da IA');
       const owner = d.crm.getPerson(personId)?.publicId;
       const actorUrl = current.isReshare ? current.resharedByHref : current.actorHref;
-      if (!owner || !actorUrl || !sameConfirmedPublicId(profileSlug(actorUrl), owner))
-        return failure('Autoria do post no permalink não corresponde ao lead confirmado; IA bloqueada');
+      const explicit = Boolean(owner && actorUrl &&
+        sameConfirmedPublicId(profileSlug(actorUrl), owner));
+      const stored = !actorUrl ? postSelectionProof(d.crm, post.url) : undefined;
+      const contextual = Boolean(owner && stored &&
+        stored.personId === personId && stored.publicId === owner &&
+        stored.sourceSection === 'posts' && stored.postKind === 'original' &&
+        stored.authorEvidence === 'contextual' &&
+        !current.isReshare && !current.resharedByHref &&
+        (current.postKind === 'ORIGINAL' || current.postKind === 'ORIGINAL_WITH_ATTACHMENT') &&
+        current.cardIdentity?.identityStatus === 'CONFIRMED' &&
+        current.urn === post.url);
+      if (!explicit && !contextual)
+        return failure('Autoria do post no permalink não corresponde ao lead nem à prova contextual assinada na seleção; IA bloqueada');
       // Somente após reler uma publicação canônica sem truncamento e com autoria comprovada.
       d.crm.savePost(personId, {
         url: post.url, text: current.text,
@@ -709,7 +748,7 @@ export function commentWithAi(d: ExecutorDeps): ActionExecutor {
       effect('ai', 'confirmed');
 
       if ((s.mode ?? 'manual') === 'manual') {
-        d.crm.saveDraft({
+        const draftState = saveCommentDraftOnce(d.crm, {
           campaignId: ctx.campaignId,
           actionId: ctx.action.id,
           personId: ctx.person.id,
@@ -717,6 +756,11 @@ export function commentWithAi(d: ExecutorDeps): ActionExecutor {
           comment: interpretation.comment,
           interpretation,
         });
+        if (draftState === 'blocked') {
+          effect('approval', 'blocked', 'DRAFT_ALREADY_FINAL_OR_DIFFERENT_POST');
+          return { ok: false, reason: 'NO_REAL_EFFECT',
+            message: 'Já existe rascunho decidido ou vinculado a outra publicação; não reabrir aprovação automaticamente.' };
+        }
         effect('approval', 'pending', 'MANUAL_APPROVAL_REQUIRED');
         return { ok: false, reason: 'AWAITING_APPROVAL',
           message: 'Curtida confirmada. Comentário preparado pela IA aguardando aprovação humana.',

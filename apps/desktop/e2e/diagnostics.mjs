@@ -103,7 +103,13 @@ try {
 
   check(actions() === before, 'nenhuma ação no site (nada curtido, convidado ou enviado)');
 
-  const saved = await call('saveDiagnosis', [perfil, ativ, emp]);
+  const saved = await call('saveDiagnosis', acc.id, [perfil, ativ, emp]);
+  const isolated = JSON.parse(readFileSync(saved, 'utf8'));
+  check(isolated.scope === 'single-account', 'exportacao identifica escopo de uma unica conta');
+  let foreignRejected = false;
+  try { await call('saveDiagnosis', 'propria', [{ ...perfil, accountId: acc.id }]); }
+  catch { foreignRejected = true; }
+  check(foreignRejected, 'IPC impede exportar diagnostico marcado como pertencente a outra conta');
   const file = JSON.parse(readFileSync(saved, 'utf8'));
   check(file.reports.length === 3 && !readFileSync(saved, 'utf8').includes('Ana Silva'), 'relatório salvo, sem nomes');
 

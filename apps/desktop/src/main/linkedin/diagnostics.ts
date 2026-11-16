@@ -1,9 +1,9 @@
 import { DEFAULT_LABELS, selectorAudit, type SelectorAudit, type LabelKey, type SelectorKey } from './selectors.js';
-import { evaluatePost } from './executors.js';
+import { evaluatePost, profileSlug, sameConfirmedPublicId } from './post-evaluation.js';
 import { cardDecision, diagnosticPath, layoutHash, layoutShape, type CardDecision, type DiagnosticCode, type LayoutShape } from './diagnostics-policy.js';
 import type { BaselineResult } from './diagnostic-baselines.js';
 import { diagnoseKeys, visibleButtonLabels, extractPosts, type KeyDiagnosis } from './dom-scripts.js';
-import { isCanonicalPostUrn } from './post-identity.js';
+import { isCanonicalPostUrn, buildPostSelectionContext } from './post-identity.js';
 import { parseRelativeAgeDays } from '@linkleads/core';
 import type { PageDriver } from './page-driver.js';
 
@@ -55,6 +55,8 @@ export function pageKind(url: string): PageKind {
  */
 export interface DiagnosisContext {
   expectedPublicId?: string;
+  personId?: string;
+  sourceSection?: 'posts' | 'activity' | 'permalink';
   includeReshares?: boolean;
   maxPostAgeDays?: number;
 }
@@ -242,15 +244,22 @@ export async function diagnosePage(
   };
   // Cada cartão recebe o MESMO parecer que orienta a seleção de curtidas.
   // Identificadores, nome do ator, URL e texto do post não saem no relatório.
+  // O diagnóstico só aceita o contexto Posts quando a URL observada pertence
+  // efetivamente ao perfil confirmado. Não inferir autoria pelo nome do cartão.
+  const verifiedPosts = context.sourceSection === 'posts' && !!context.expectedPublicId &&
+    sameConfirmedPublicId(profileSlug(url), context.expectedPublicId);
   const decisions = extracted.slice(0, 100).map((post, index) => cardDecision(
     post, index + 1,
     context.expectedPublicId
       ? evaluatePost(post, context.expectedPublicId, {
           includeReshares: context.includeReshares === true,
           maxPostAgeDays: context.maxPostAgeDays ?? 365,
-        }) : undefined,
+        }, buildPostSelectionContext(post, context.personId ?? context.expectedPublicId,
+          context.expectedPublicId, verifiedPosts ? 'posts' : 'activity')) : undefined,
   ));
-  const firstUnlikedIndex = extracted.findIndex((post) => post.liked === false);
+  // Um cartao com reacao desconhecida ANTES de outro confirmado como nao
+  // curtido deve continuar sendo o primeiro candidato, sempre em revisao.
+  const firstUnlikedIndex = extracted.findIndex((post) => post.liked !== true);
   const firstControls = firstUnlikedIndex >= 0
     ? await driver.read(firstUnlikedControlProbe, sel, firstUnlikedIndex).catch(() => null)
     : null;

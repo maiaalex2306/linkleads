@@ -121,7 +121,8 @@ function diagReportCard(r, i) {
 }
 
 async function diagnosticsView(a) {
-  const done = new Set(diagReports.filter((r) => r.accountId === a.id).map((r) => r.page));
+  const accountReports = diagReports.filter((r) => r.accountId === a.id);
+  const done = new Set(accountReports.map((r) => r.page));
   return h('div', { class: 'stack' },
     h('div', { class: 'card stack' },
       h('strong', {}, 'Validar o app na sua conta, sem fazer nenhuma ação'),
@@ -139,7 +140,7 @@ async function diagnosticsView(a) {
           }
           renderView();
         } }, 'Diagnosticar página aberta'),
-        h('button', { disabled: !diagReports.length, onclick: () => safe(() => api.saveDiagnosis(diagReports.map(({ accountId, ...r }) => r))).then((p) => p && toast(`Relatório salvo em ${p}`, 7000)) }, `Salvar relatório (${diagReports.length})`),
+        h('button', { disabled: !accountReports.length, onclick: () => safe(() => api.saveDiagnosis(a.id, accountReports.map(({ accountId, ...r }) => r))).then((p) => p && toast(`Relatório salvo em ${p}`, 7000)) }, `Salvar relatório (${accountReports.length})`),
         !a.running && h('span', { class: 'muted' }, 'Inicie a conta para abrir a janela do LinkedIn.')),
     ),
     ...diagReports.map((r, i) => (r.accountId === a.id ? diagReportCard(r, i) : null)).filter(Boolean).reverse(),

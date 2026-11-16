@@ -488,6 +488,67 @@ try {
     posts[0].urn.startsWith('ll-idx-'),
     'Fase 2: divergência entre data-urn e permalink não promove identidade', posts);
 
+  // Layout SDUI observado em diagnósticos de 16/11: componentkey/lazy mount,
+  // sem feed-shared-update-v2, texto em [dir=ltr], autor ao lado do tempo.
+  const sdui = {
+    ...sel,
+    postItem: [
+      ...sel.postItem,
+      '[data-sdui-screen] [data-lazy-mount-id] [id][componentkey]:has(button[aria-label="Comentar"]):has(button[aria-label="Compartilhar"])',
+    ],
+    postText: [...sel.postText, '[dir="ltr"]'],
+  };
+  const scanSdui = () => page.evaluate(({ fns, selectors }) => {
+    const __llIsReact = eval('(' + fns.reaction + ')');
+    const llIsReact = __llIsReact;
+    const __llPostContainers = eval('(' + fns.containers + ')');
+    const __llReactionTarget = eval('(' + fns.reactionTarget + ')');
+    return eval('(' + fns.extract + ')')(selectors, 50);
+  }, { fns: functions, selectors: sdui });
+  const sduiCard = (profileLinks, id = '') =>
+    '<div id="card-01" componentkey="card-identifier-not-a-urn" ' + id + '>' +
+      '<div class="metadata">' + profileLinks + '<p>há 2 dias</p></div>' +
+      '<div dir="ltr">O projeto industrial ampliou a rastreabilidade de dados e reduziu custos.</div>' +
+      '<button aria-label="Like" aria-pressed="false">Like</button>' +
+      '<button aria-label="Comentar">Comentar</button>' +
+      '<button aria-label="Compartilhar">Compartilhar</button>' +
+      '</div>';
+  const fakeProfile = '<a href="https://www.linkedin.com/in/ana-silva/">Ana Silva</a>';
+  await page.setContent('<main><div data-sdui-screen><div data-testid="activity" data-component-type="activities" componentkey="screen">' +
+    '<div data-lazy-mount-id="x">' + sduiCard(fakeProfile) + '</div></div></div></main>');
+  let modern = await scanSdui();
+  check(modern.length === 1 && /\/ana-silva\/?$/.test(modern[0].actorHref ?? '') &&
+    modern[0].liked === false && modern[0].age?.includes('2 dias') && modern[0].text.includes('rastreabilidade') &&
+    modern[0].cardIdentity?.identityStatus === 'PROVISIONAL',
+    'SDUI: identifica card e autoria junto da data, mas componentkey NAO vira URN', modern);
+  await page.setContent('<main><div data-sdui-screen><div data-lazy-mount-id="x">' +
+    sduiCard(fakeProfile + '<a href="https://www.linkedin.com/in/terceiro/">Terceiro</a>') +
+    '</div></div></main>');
+  modern = await scanSdui();
+  check(modern.length === 1 && modern[0].actorHref === null,
+    'SDUI: dois perfis candidatos no mesmo cabecalho nao atribuem autoria', modern);
+  // Screenshot 16/11: autor principal acima do texto e um segundo perfil
+  // APENAS no cartao incorporado abaixo do conteudo da publicacao.
+  await page.setContent('<main><div data-sdui-screen><div data-lazy-mount-id="x">' +
+    '<div id="card-01" componentkey="sdui-random">' +
+      '<div class="metadata">' + fakeProfile + '<p>há 6 dias</p></div>' +
+      '<div dir="ltr">Publicação principal com link para outra pessoa</div>' +
+      '<section class="embedded"><a href="https://www.linkedin.com/in/leticia/">Letícia</a>' +
+        '<p>há 2 sem</p><p>Publicação citada</p></section>' +
+      '<button aria-label="Like" aria-pressed="false">Like</button>' +
+      '<button aria-label="Comentar">Comentar</button>' +
+      '<button aria-label="Compartilhar">Compartilhar</button>' +
+    '</div></div></div></main>');
+  modern = await scanSdui();
+  check(modern.length === 1 && /\/ana-silva\/?$/.test(modern[0].actorHref ?? '') &&
+    !/leticia/.test(modern[0].actorHref ?? ''),
+    'SDUI: perfil de publicacao incorporada nao substitui autor principal', modern);
+  await page.setContent('<main><div data-sdui-screen><div data-lazy-mount-id="x">' +
+    sduiCard('<span>Autor sem perfil explicito</span>') + '</div></div></main>');
+  modern = await scanSdui();
+  check(modern.length === 0 || modern.every(p => p.actorHref === null),
+    'SDUI: sem URL de autor nao presumir a identidade pela pagina', modern);
+
   console.log('E2E FASE 3/7 — MATRIZ DE RECONHECIMENTO OK');
 } catch (error) {
   console.error(error?.stack ?? error);

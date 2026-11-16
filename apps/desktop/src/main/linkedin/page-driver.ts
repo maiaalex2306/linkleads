@@ -76,7 +76,7 @@ export class PageDriver {
   /** Observabilidade Fase 1: tipo de secao e prontidao, sem nomes/URLs dos perfis. */
   recordPostSection(source: 'posts' | 'activity', status:
     'POST_SECTION_READY' | 'POST_SECTION_EMPTY' | 'POST_SECTION_LOADING' | 'POST_SECTION_UNAVAILABLE',
-    method: 'ACTIVE' | 'LINK' | 'BUTTON' | 'FALLBACK'): void {
+    method: 'ACTIVE' | 'LINK' | 'BUTTON' | 'FALLBACK' | 'ROUTE_RECOVERY'): void {
     this.emit?.('post_section_state', { source, status, mode: method });
   }
 

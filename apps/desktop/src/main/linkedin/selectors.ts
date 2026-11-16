@@ -12,7 +12,7 @@ import { applyVerifiedSelectorOverride, type SelectorIssue } from './selector-po
  * ATENÇÃO: estes seletores precisam ser validados numa conta real antes de uso em produção.
  */
 export const DEFAULT_SELECTORS = {
-  version: '2026.11.13-fase6',
+  version: '2026.11.16-sdui7',
   // perfil
   profileName: ['main h1', 'h1.text-heading-xlarge', 'h1'],
   profileHeadline: ['main .pv-text-details__left-panel .text-body-medium', 'main section .text-body-medium.break-words'],
@@ -22,10 +22,27 @@ export const DEFAULT_SELECTORS = {
   // só a página de erro inteira: perfis reais têm caixas "vazio" em seções sem conteúdo (ex.: Atividade)
   profileNotFound: ['.not-found__container', 'main.error-page', '.error-container .error-code'],
   // atividade / posts
-  postItem: ['[data-urn^="urn:li:activity:"]', 'div.feed-shared-update-v2[data-urn]'],
-  postText: ['.update-components-text', '.feed-shared-inline-show-more-text', '.feed-shared-text'],
-  postActorLink: ['.update-components-actor__meta-link', '.update-components-actor a[href*="/in/"]', 'a.app-aware-link[href*="/in/"]'],
-  postAge: ['.update-components-actor__sub-description', '.feed-shared-actor__sub-description'],
+  // SDUI: a ancora de layout nao e identificador do post. A validacao de
+  // autoria/URN continua em dom-scripts/post-evaluation, nunca aqui.
+  postItem: [
+    '[data-urn^="urn:li:activity:"]', 'div.feed-shared-update-v2[data-urn]',
+    '[data-urn^="urn:li:ugcPost:"]', '[data-urn^="urn:li:share:"]',
+    '[data-sdui-screen] [data-lazy-mount-id] [id][componentkey]:has(button[aria-label^="Comentar"],button[aria-label="Comment"]):has(button[aria-label^="Compartilhar"],button[aria-label="Share"])',
+  ],
+  postText: [
+    '.update-components-text', '.feed-shared-inline-show-more-text', '.feed-shared-text',
+    '[data-testid*="commentary"]', '[data-test-id*="commentary"]',
+    '[data-testid*="post-text"]', '[dir="ltr"]',
+  ],
+  // A existencia de um link /in/ e diagnostica. Nao atribuir autoria pelo
+  // primeiro link da pagina: o parser verifica posicao e conflito.
+  postActorLink: [
+    '.update-components-actor__meta-link', '.update-components-actor a[href*="/in/"]',
+    'a.app-aware-link[href*="/in/"]',
+    '[data-sdui-screen] [data-lazy-mount-id] [id][componentkey] a[href^="/in/"]',
+    '[data-sdui-screen] [data-lazy-mount-id] [id][componentkey] a[href*="linkedin.com/in/"]',
+  ],
+  postAge: ['.update-components-actor__sub-description', '.feed-shared-actor__sub-description', 'time[datetime]'],
   postMedia: ['.update-components-image, .update-components-linkedin-video, .update-components-document__container, .update-components-article'],
   postResharedHeader: ['.update-components-header', '.feed-shared-header'],
   // Preferir controles que exponham estado. O avaliador de DOM confirma
