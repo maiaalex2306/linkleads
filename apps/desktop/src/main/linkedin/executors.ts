@@ -368,7 +368,11 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
               data: { post: previous.postUrl, likeAttempted: false, uncertainLike: true } };
           const open = await gotoProfile(d, ctx.person, 'recent-activity/all/');
           if (open !== 'ok') return openFailed(open);
-          const postSection = await openPostsSection(d, ctx.person.publicId ?? ctx.person.id);
+          const postSection = await openPostsSection(d, ctx.person.publicId ?? ctx.person.id, {
+            // A origem "activity/all" nao e prova de autoria; recuperar primeiro
+            // a rota Publicacoes do proprio perfil, previamente validado.
+            recoverVerifiedPostsRoute: true,
+          });
           if (postSection.status === 'POST_SECTION_UNAVAILABLE')
             return { ok: false, reason: 'NO_REAL_EFFECT',
               message: 'A secao de publicacoes nao ficou pronta; carregamento, rota ou layout devem ser verificados. Nenhuma curtida enviada.' };
