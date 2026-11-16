@@ -540,7 +540,7 @@ try {
       '<button aria-label="Compartilhar">Compartilhar</button>' +
     '</div></div></div></main>');
   modern = await scanSdui();
-  check(modern.length === 1 && /\\/ana-silva\\/?$/.test(modern[0].actorHref ?? '') &&
+  check(modern.length === 1 && /\/ana-silva\/?$/.test(modern[0].actorHref ?? '') &&
     !/leticia/.test(modern[0].actorHref ?? ''),
     'SDUI: perfil de publicacao incorporada nao substitui autor principal', modern);
   await page.setContent('<main><div data-sdui-screen><div data-lazy-mount-id="x">' +
