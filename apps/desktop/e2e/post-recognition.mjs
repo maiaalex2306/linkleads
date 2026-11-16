@@ -527,6 +527,22 @@ try {
   modern = await scanSdui();
   check(modern.length === 1 && modern[0].actorHref === null,
     'SDUI: dois perfis candidatos no mesmo cabecalho nao atribuem autoria', modern);
+  // Screenshot 16/11: autor principal acima do texto e um segundo perfil
+  // APENAS no cartao incorporado abaixo do conteudo da publicacao.
+  await page.setContent('<main><div data-sdui-screen><div data-lazy-mount-id="x">' +
+    '<div id="card-01" componentkey="sdui-random">' +
+      '<div class="metadata">' + fakeProfile + '<p>há 6 dias</p></div>' +
+      '<div dir="ltr">Publicação principal com link para outra pessoa</div>' +
+      '<section class="embedded"><a href="https://www.linkedin.com/in/leticia/">Letícia</a>' +
+        '<p>há 2 sem</p><p>Publicação citada</p></section>' +
+      '<button aria-label="Like" aria-pressed="false">Like</button>' +
+      '<button aria-label="Comentar">Comentar</button>' +
+      '<button aria-label="Compartilhar">Compartilhar</button>' +
+    '</div></div></div></main>');
+  modern = await scanSdui();
+  check(modern.length === 1 && /\\/ana-silva\\/?$/.test(modern[0].actorHref ?? '') &&
+    !/leticia/.test(modern[0].actorHref ?? ''),
+    'SDUI: perfil de publicacao incorporada nao substitui autor principal', modern);
   await page.setContent('<main><div data-sdui-screen><div data-lazy-mount-id="x">' +
     sduiCard('<span>Autor sem perfil explicito</span>') + '</div></div></main>');
   modern = await scanSdui();
