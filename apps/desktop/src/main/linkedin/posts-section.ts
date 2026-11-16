@@ -1,4 +1,4 @@
-import type { PageDriver } from './page-driver.js';
+import { BlockedError, type PageDriver } from './page-driver.js';
 import { extractPosts, postsFilterProbe, postsFilterClickGuard } from './dom-scripts.js';
 
 export type PostSectionStatus =
@@ -82,8 +82,11 @@ export async function openPostsSection(
           decodeURIComponent(destination[1]!) === confirmedPublicId &&
           (await probe()).kind === 'ACTIVE';
         if (confirmedRoute) method = 'ROUTE_RECOVERY';
-      } catch {
-        // Checkpoint, erro de rede ou redirecionamento nunca autorizam autoria.
+      } catch (error) {
+        // Um checkpoint bloqueia o executor inteiro; jamais ignorar nem
+        // navegar de volta tentando contornar uma restricao de conta.
+        if (error instanceof BlockedError) throw error;
+        // Erro de rede ou redirecionamento nunca autorizam autoria.
       }
       if (method === 'FALLBACK') {
         // Nao continuar lendo um perfil diferente ou pagina de login.
