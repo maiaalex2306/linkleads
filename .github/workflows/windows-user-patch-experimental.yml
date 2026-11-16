@@ -1,0 +1,97 @@
+name: Windows - User Patch Experimental Isolated
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/windows-user-patch-experimental.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  isolated-evaluation:
+    name: Executavel de avaliacao sem homologacao de interacoes
+    runs-on: windows-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Compilar patch exato
+        shell: pwsh
+        run: |
+          npm ci
+          if ($LASTEXITCODE -ne 0) { throw 'npm ci falhou' }
+          npm run typecheck
+          if ($LASTEXITCODE -ne 0) { throw 'Typecheck falhou' }
+          npm run build
+          if ($LASTEXITCODE -ne 0) { throw 'Build falhou' }
+      - name: Bundle separado da instalacao operacional
+        shell: pwsh
+        env:
+          LINKLEADS_PREVIEW_BUILD: '1'
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: |
+          npm run bundle -w @linkleads/desktop
+          if ($LASTEXITCODE -ne 0) { throw 'Bundle falhou' }
+          $info=Get-Content 'apps/desktop/app-dist/build-info.json' -Raw | ConvertFrom-Json
+          if ($info.channel -ne 'evaluation') { throw 'Canal de teste ausente' }
+          Push-Location 'apps/desktop'
+          try {
+            npx electron-builder --win dir --x64 --publish never -c electron-builder.preview.yml
+            if ($LASTEXITCODE -ne 0) { throw 'Empacotamento Windows falhou' }
+          } finally { Pop-Location }
+      - name: Verificar abertura real em Windows com dados isolados
+        shell: pwsh
+        run: |
+          $src='apps/desktop/preview-release/win-unpacked'
+          $exe=@(Get-ChildItem $src -Filter '*.exe' -File | Where-Object Name -ne 'Uninstall.exe')
+          if ($exe.Count -ne 1) { throw "EXE inesperado: $($exe.Count)" }
+          npx playwright install chromium
+          if ($LASTEXITCODE -ne 0) { throw 'Chromium indisponivel' }
+          node apps/desktop/e2e/portable-first-window.mjs $exe[0].FullName
+          if ($LASTEXITCODE -ne 0) { throw 'EXE nao abriu em ambiente isolado' }
+      - name: Empacotar somente para teste manual
+        shell: pwsh
+        run: |
+          $dest='LINKLEADS-PATCH-EXPERIMENTAL-0.5.18'
+          New-Item -ItemType Directory -Path $dest -Force | Out-Null
+          Copy-Item 'apps/desktop/preview-release/win-unpacked' (Join-Path $dest 'APP') -Recurse
+          $exe=@(Get-ChildItem (Join-Path $dest 'APP') -Filter '*.exe' -File | Where-Object Name -ne 'Uninstall.exe')
+          if ($exe.Count -ne 1) { throw 'EXE de teste ausente' }
+          $launcher=@'
+@echo off
+setlocal
+set "LINKLEADS_PORTABLE_SMOKE=1"
+set "LINKLEADS_TEST_USER_DATA=D:\LINKLEADS\TESTES\PATCH-AUTHOR-UNVERIFIED\DADOS"
+set "LINKLEADS_DISABLE_UPDATES=1"
+if not exist "%LINKLEADS_TEST_USER_DATA%" mkdir "%LINKLEADS_TEST_USER_DATA%"
+start "" "%~dp0APP\LinkLeads Avaliacao.exe"
+exit /b 0
+'@
+          Set-Content (Join-Path $dest 'ABRIR-TESTE-ISOLADO.cmd') $launcher -Encoding ascii
+          $notes=@'
+LINKLEADS 0.5.18 - PATCH EXATO DO USUARIO - NAO HOMOLOGADO
+5 de 181 testes unitarios reprovaram, por selecao de post com URN provisoria ou idade ausente.
+Extrair em D:\LINKLEADS\TESTES\PATCH-AUTHOR-UNVERIFIED\
+Executar ABRIR-TESTE-ISOLADO.cmd. Dados isolados em D:\LINKLEADS\TESTES\PATCH-AUTHOR-UNVERIFIED\DADOS.
+NAO sobrepor D:\LINKLEADS\APP; NAO importar sessoes nem contas produtivas.
+APENAS inspecionar interface e diagnosticos, sem curtir/comentar ou rodar campanhas reais.
+Este pacote e unsigned, nao homologado e nao e um instalador de producao.
+'@
+          Set-Content (Join-Path $dest 'LEIA-ME-ANTES.txt') $notes -Encoding utf8
+          Compress-Archive -Path "$dest\*" -DestinationPath 'LINKLEADS-0.5.18-EXPERIMENTAL-TESTE-ISOLADO.zip' -CompressionLevel Optimal
+          (Get-FileHash 'LINKLEADS-0.5.18-EXPERIMENTAL-TESTE-ISOLADO.zip' -Algorithm SHA256).Hash |
+            Set-Content 'LINKLEADS-0.5.18-EXPERIMENTAL-TESTE-ISOLADO.sha256.txt'
+          Write-Host 'BUILD_EXPERIMENTAL_ONLY: EXE e ZIP gerados; homologacao de interacoes REPROVADA'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LINKLEADS-USER-PATCH-EXPERIMENTAL-${{ github.sha }}
+          path: |
+            LINKLEADS-0.5.18-EXPERIMENTAL-TESTE-ISOLADO.zip
+            LINKLEADS-0.5.18-EXPERIMENTAL-TESTE-ISOLADO.sha256.txt
+          if-no-files-found: error
+          retention-days: 14
