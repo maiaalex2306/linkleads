@@ -71,23 +71,37 @@ export async function openPostsSection(
     catch { /* identificador invalido */ }
     if (original && originalSlug && sameProfile && (production || testOrigin) &&
         !original.username && !original.password && !original.search && !original.hash) {
-      const targetUrl = new URL('/in/' + encodeURIComponent(confirmedPublicId) +
-        '/recent-activity/shares/', original.origin).href;
-      try {
-        await d.driver.goto(targetUrl);
-        await d.driver.assertNotBlocked();
-        const navigated = new URL(d.driver.wc.getURL());
-        const destination = navigated.pathname.match(/^\/in\/([^/]+)\/recent-activity\/(shares|posts)\/?$/i);
-        const confirmedRoute = navigated.origin === original.origin && !!destination &&
-          decodeURIComponent(destination[1]!) === confirmedPublicId &&
-          (await probe()).kind === 'ACTIVE';
-        if (confirmedRoute) method = 'ROUTE_RECOVERY';
-      } catch (error) {
-        // Um checkpoint bloqueia o executor inteiro; jamais ignorar nem
-        // navegar de volta tentando contornar uma restricao de conta.
-        if (typeof error === 'object' && error !== null && 'kind' in error &&
-          (error.kind === 'checkpoint' || error.kind === 'logged_out')) throw error;
-        // Erro de rede ou redirecionamento nunca autorizam autoria.
+      for (const suffix of ['posts', 'shares'] as const) {
+        const targetUrl = new URL('/in/' + encodeURIComponent(confirmedPublicId) +
+          '/recent-activity/' + suffix + '/', original.origin).href;
+        try {
+          await d.driver.goto(targetUrl);
+          await d.driver.assertNotBlocked();
+          const navigated = new URL(d.driver.wc.getURL());
+          const destination = navigated.pathname.match(/^\/in\/([^/]+)\/recent-activity\/(shares|posts)\/?$/i);
+          const confirmedRoute = navigated.origin === original.origin && !!destination &&
+            destination[2] === suffix &&
+            decodeURIComponent(destination[1]!) === confirmedPublicId &&
+            (await probe()).kind === 'ACTIVE';
+          if (!confirmedRoute) continue;
+          // Nao tomar uma URL que retornou pagina de erro/404 como prova:
+          // exigir a presenca de um cartao legivel ou estado vazio explicito.
+          const ready = await d.driver.waitUntil(async () => {
+            const posts = await d.driver.read(extractPosts,
+              d.driver.sel as unknown as Record<string, readonly string[]>, 1)
+              .catch(() => []);
+            if (posts.length) return true;
+            return await d.driver.exists('emptyActivity').catch(() => false);
+          }, 5_000, 400);
+          if (ready) {
+            method = 'ROUTE_RECOVERY';
+            break;
+          }
+        } catch (error) {
+          // Checkpoint exige pausa. Jamais tentar outra rota ou contornar login.
+          if (typeof error === 'object' && error !== null && 'kind' in error &&
+              (error.kind === 'checkpoint' || error.kind === 'logged_out')) throw error;
+        }
       }
       if (method === 'FALLBACK') {
         // Nao continuar lendo um perfil diferente ou pagina de login.
