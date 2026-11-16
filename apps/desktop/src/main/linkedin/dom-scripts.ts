@@ -482,20 +482,11 @@ export function llPostContainers(
       const url = validProfile(a);
       if (url) authors.set(url, a);
     }
-    // Se ainda houver 2+ URLs distintas, preferir a primeira na ordem do DOM
-    // (cabeçalho) em vez de descartar todas (author=null) — causa raiz do AUTHOR_UNVERIFIED.
-    let author: HTMLAnchorElement | null = authors.size === 1 ? [...authors.values()][0]! : null;
-    if (!author && authors.size > 1) {
-      for (const a of authorCandidates) {
-        const url = validProfile(a);
-        if (url && authors.has(url)) { author = a; break; }
-      }
-    }
-    if (!author && authorLinks.length) {
-      for (const a of authorLinks) {
-        if (validProfile(a) && !a.closest('button, [role="button"]')) { author = a; break; }
-      }
-    }
+    // Duas URLs de perfis distintas no conjunto de candidatos =
+    // autoria ambígua; nunca selecionar automaticamente a primeira.
+    // Manter o fallback SDUI acima somente para localizar candidatos.
+    const author: HTMLAnchorElement | null =
+      authors.size === 1 ? [...authors.values()][0]! : null;
     const embedRoot = nested.find((el) => el.matches(EMBED) || !!parseUrn(el.getAttribute('data-urn')))
       ?? null;
     const embedActor = embedRoot?.querySelector('a[href*="/in/"]') as HTMLAnchorElement | null;
