@@ -15,7 +15,8 @@ const csv = join(temp, 'leads.csv');
 writeFileSync(csv, 'firstName,lastName,profileUrl\nAna,Silva,https://www.linkedin.com/in/ana-silva/\n');
 const site = await startFakeSite();
 site.state.unrelatedEditor = false;
-site.state.contextualPostMode = true; // aba Posts validada e autor sem URL no cartão/permalink
+site.state.contextualPostMode = true; // autor sem URL no cartão/permalink
+site.state.hidePostsFilter = true; // reproduz activity/all sem aba Posts visível (AUTHOR_UNVERIFIED)
 site.state.modernReaction = false; // data-urn canônica; nenhum link de autor
 site.state.modernTimeLabels = false; // marcador '2d •'
 site.state.longPost = true; // comentário exige expansão e a prova contextual persistida
@@ -86,7 +87,7 @@ try {
     const effects = await call('engagementEffects', acc.id, campaignId);
     console.error('FASE5_DIAGNOSTICO_SINTETICO', JSON.stringify({attempt,rows,effects}));
   }
-  check(site.state.liked === true, 'curtida simulada reconhecida na aba Posts sem URL do autor');
+  check(site.state.liked === true, 'curtida simulada apos recuperar rota Posts mesmo sem filtro visivel ou URL de autor');
   check(site.state.comments.length === 1, 'a IA releu o mesmo permalink sem URL de autor e o comentário foi publicado uma vez', site.state.comments);
   check(site.state.moreExpansions === 1, 'conteúdo longo foi expandido e relido antes da IA', site.state.moreExpansions);
   const rows = (await call('listCampaigns', acc.id)).find((c) => c.id === campaignId).people;
