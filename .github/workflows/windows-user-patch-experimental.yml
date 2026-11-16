@@ -64,24 +64,24 @@ jobs:
           if ($exe.Count -ne 1) { throw 'EXE de teste ausente' }
           $launcher=@'
 @echo off
-setlocal
-set "LINKLEADS_PORTABLE_SMOKE=1"
-set "LINKLEADS_TEST_USER_DATA=D:\LINKLEADS\TESTES\PATCH-AUTHOR-UNVERIFIED\DADOS"
-set "LINKLEADS_DISABLE_UPDATES=1"
-if not exist "%LINKLEADS_TEST_USER_DATA%" mkdir "%LINKLEADS_TEST_USER_DATA%"
-start "" "%~dp0APP\LinkLeads Avaliacao.exe"
-exit /b 0
-'@
+          setlocal
+          set "LINKLEADS_PORTABLE_SMOKE=1"
+          set "LINKLEADS_TEST_USER_DATA=D:\LINKLEADS\TESTES\PATCH-AUTHOR-UNVERIFIED\DADOS"
+          set "LINKLEADS_DISABLE_UPDATES=1"
+          if not exist "%LINKLEADS_TEST_USER_DATA%" mkdir "%LINKLEADS_TEST_USER_DATA%"
+          start "" "%~dp0APP\LinkLeads Avaliacao.exe"
+          exit /b 0
+          '@
           Set-Content (Join-Path $dest 'ABRIR-TESTE-ISOLADO.cmd') $launcher -Encoding ascii
           $notes=@'
 LINKLEADS 0.5.18 - PATCH EXATO DO USUARIO - NAO HOMOLOGADO
-5 de 181 testes unitarios reprovaram, por selecao de post com URN provisoria ou idade ausente.
-Extrair em D:\LINKLEADS\TESTES\PATCH-AUTHOR-UNVERIFIED\
-Executar ABRIR-TESTE-ISOLADO.cmd. Dados isolados em D:\LINKLEADS\TESTES\PATCH-AUTHOR-UNVERIFIED\DADOS.
-NAO sobrepor D:\LINKLEADS\APP; NAO importar sessoes nem contas produtivas.
-APENAS inspecionar interface e diagnosticos, sem curtir/comentar ou rodar campanhas reais.
-Este pacote e unsigned, nao homologado e nao e um instalador de producao.
-'@
+          5 de 181 testes unitarios reprovaram, por selecao de post com URN provisoria ou idade ausente.
+          Extrair em D:\LINKLEADS\TESTES\PATCH-AUTHOR-UNVERIFIED\
+          Executar ABRIR-TESTE-ISOLADO.cmd. Dados isolados em D:\LINKLEADS\TESTES\PATCH-AUTHOR-UNVERIFIED\DADOS.
+          NAO sobrepor D:\LINKLEADS\APP; NAO importar sessoes nem contas produtivas.
+          APENAS inspecionar interface e diagnosticos, sem curtir/comentar ou rodar campanhas reais.
+          Este pacote e unsigned, nao homologado e nao e um instalador de producao.
+          '@
           Set-Content (Join-Path $dest 'LEIA-ME-ANTES.txt') $notes -Encoding utf8
           Compress-Archive -Path "$dest\*" -DestinationPath 'LINKLEADS-0.5.18-EXPERIMENTAL-TESTE-ISOLADO.zip' -CompressionLevel Optimal
           (Get-FileHash 'LINKLEADS-0.5.18-EXPERIMENTAL-TESTE-ISOLADO.zip' -Algorithm SHA256).Hash |
