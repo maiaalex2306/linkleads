@@ -55,7 +55,7 @@ function fixture(slug, mode, path, extra = {}) {
     body = posts ? post : '<article data-post-fixture="true">Atividade existente</article><div class="third-party">Outro tipo de atividade</div>';
   }
   return '<!doctype html><html><head><meta charset="UTF-8"></head><body><main>' +
-    (posts ? '' : filter + delayedTab) + body + '</main></body></html>';
+    ((path.endsWith('/shares/') || path.endsWith('/posts/')) ? '' : filter + delayedTab) + body + '</main></body></html>';
 }
 async function trial(name, mode, expected, extra = {}, slug = 'ana-silva', options = {}) {
   const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
