@@ -226,6 +226,26 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      - name: Montar ZIP completo do codigo-fonte dessa revisao
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $expected = $env:SOURCE_SHA
+          $actual = (git rev-parse HEAD).Trim()
+          if ($expected -ne $actual) { throw "Source divergiu: $actual vs $expected" }
+          git archive --format=zip --output=LINKLEADS-CODIGO-FONTE-COMPLETO.zip HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'git archive falhou' }
+          $archive = Get-Item LINKLEADS-CODIGO-FONTE-COMPLETO.zip
+          if ($archive.Length -lt 10000) { throw 'Arquivo de codigo fonte vazio' }
+          Write-Host "CODIGO_FONTE_ZIP_OK: $($archive.Length) bytes; SHA $actual"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LINKLEADS-CODIGO-FONTE-COMPLETO-${{ env.SOURCE_SHA }}
+          path: LINKLEADS-CODIGO-FONTE-COMPLETO.zip
+          if-no-files-found: error
+          retention-days: 30
+
   publish-owner-candidate:
     name: Publicar pacote Windows acessivel em Releases (main)
     if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository
