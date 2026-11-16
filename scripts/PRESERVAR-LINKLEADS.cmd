@@ -14,8 +14,8 @@ if not exist "%~dp0BASELINE-LINKLEADS.ps1" (
   exit /b 1
 )
 if exist "D:\" (
-  set "LL_REPORT_DIR=D:\LinkLeads-Seguro\Relatorios"
-  set "LL_BACKUP_ROOT=D:\LinkLeads-Seguro\Backups"
+  set "LL_REPORT_DIR=D:\LINKLEADS\RELATORIOS"
+  set "LL_BACKUP_ROOT=D:\LINKLEADS\BACKUPS"
 ) else (
   set "LL_REPORT_DIR=%USERPROFILE%\Documents\LinkLeads-Seguro\Relatorios"
   set "LL_BACKUP_ROOT=%USERPROFILE%\Documents\LinkLeads-Seguro\Backups"
