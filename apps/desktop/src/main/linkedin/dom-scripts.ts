@@ -376,7 +376,7 @@ export function llPostContainers(
     // SDUI usa componentkey e nao possui necessariamente <header> ou
     // classes update-components. O link do autor pode estar JUNTO do
     // carimbo temporal em um pequeno bloco semantico.
-    const sduiAge = /^(?:h[áa]\\s+)?\\d+\\s*(?:min(?:utos?)?|h(?:oras?)?|d(?:ias?)?|sem(?:anas?)?|w(?:eeks?)?|m[eê]s(?:es)?|mes(?:es)?|a(?:nos?)?|y(?:ears?)?)\\b/i;
+    const sduiAge = /^(?:h[áa]\s+)?\d+\s*(?:min(?:utos?)?|h(?:oras?)?|d(?:ias?)?|sem(?:anas?)?|w(?:eeks?)?|m[eê]s(?:es)?|mes(?:es)?|a(?:nos?)?|y(?:ears?)?)\b/i;
     const sduiAdjacent = card.closest('[data-sdui-screen]') ? authorLinks.filter((a) => {
       let node: Element | null = a.parentElement;
       for (let depth = 0; node && node !== card && depth < 6; depth++, node = node.parentElement) {
@@ -386,7 +386,7 @@ export function llPostContainers(
         const small = Array.from(node.querySelectorAll('span, p, time, a')).filter((el) =>
           el !== a && !a.contains(el) && el.children.length <= 2);
         if (small.some((el) => {
-          const v = ((el as HTMLElement).innerText || el.textContent || '').replace(/\\s+/g, ' ').trim();
+          const v = ((el as HTMLElement).innerText || el.textContent || '').replace(/\s+/g, ' ').trim();
           return v.length > 0 && v.length <= 42 && sduiAge.test(v);
         })) return true;
       }
@@ -452,7 +452,7 @@ export function llPostContainers(
         const reactions = controls.filter((b) =>
           (typeof __llIsReact === 'function' ? __llIsReact : llIsReact)(b));
         const comments = controls.filter((b) =>
-          /^(?:comentar|comment)(?:\\s|$)/i.test(
+          /^(?:comentar|comment)(?:\s|$)/i.test(
             (b.getAttribute('aria-label') || (b as HTMLElement).innerText || '').trim()));
         if (reactions.length !== 1 || comments.length !== 1 ||
             !el.querySelector('a[href*="/in/"]') ||
@@ -581,9 +581,9 @@ export function extractPosts(sel: Record<string, readonly string[]>, limit: numb
     const validTextNode = (node: Element) => {
       if (inEmbedded(node) || node.closest(nonContent) || node.closest('header, [data-testid*="actor"]')) return false;
       if (node.querySelector('button, [role="button"], time, [contenteditable]')) return false;
-      const value = ((node as HTMLElement).innerText || node.textContent || '').replace(/\\s+/g, ' ').trim();
+      const value = ((node as HTMLElement).innerText || node.textContent || '').replace(/\s+/g, ' ').trim();
       // Tempo da publicação e etiquetas do autor nunca viram corpo de texto.
-      if (/^(?:h[áa]\\s+)?\\d+\\s*(?:min|h|d|dia|day|sem|week|m[eê]s|mes|ano|year)\\b/i.test(value) &&
+      if (/^(?:h[áa]\s+)?\d+\s*(?:min|h|d|dia|day|sem|week|m[eê]s|mes|ano|year)\b/i.test(value) &&
           value.length < 45) return false;
       return true;
     };
