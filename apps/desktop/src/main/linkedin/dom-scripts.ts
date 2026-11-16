@@ -638,8 +638,29 @@ export function extractPosts(sel: Record<string, readonly string[]>, limit: numb
       .filter((a) => !inEmbedded(a))
       .map((a) => (a.innerText || '').replace(/\s+/g, ' ').trim())
       .find((v) => v && v.length < 60 && AGE.test(v)) ?? null;
+    // SDUI: a legenda temporal pode ser <p>/<span>, sem classes legadas.
+    // Só ler se estiver no mesmo envelope pequeno do autor JA verificado;
+    // jamais deduzir idade a partir de números escritos no corpo do post.
+    const sduiAgeLabel = (() => {
+      if (!identity.primaryActorUrl || !it.closest('[data-sdui-screen]')) return null;
+      const links = Array.from(it.querySelectorAll('a[href*="/in/"]')) as HTMLAnchorElement[];
+      const owner = links.find((a) =>
+        a.href.replace(/\/$/, '') === identity.primaryActorUrl?.replace(/\/$/, ''));
+      if (!owner) return null;
+      for (let node = owner.parentElement, depth = 0; node && node !== it && depth < 5;
+        node = node.parentElement, depth++) {
+        if (node.querySelector('button, [role="button"], [dir="ltr"], [contenteditable]')) break;
+        const labels = Array.from(node.querySelectorAll('span, p, time, a'))
+          .filter((item) => item !== owner && item.children.length < 3);
+        const found = labels.map((item) =>
+          ((item as HTMLElement).innerText || item.textContent || '').replace(/\s+/g, ' ').trim())
+          .find((value) => value.length > 0 && value.length < 45 && AGE.test(value));
+        if (found) return found;
+      }
+      return null;
+    })();
     const ageTxt = (labelled && /(?:^|\s)(?:h[áa]\s+)?\d+\s*(?:min|h|d|dia|day|sem|w|week|m[oêe]|mes|a|ano|y|year)\b/i.test(labelled)
-      ? labelled : null) || absolute || permalinkAge || null;
+      ? labelled : null) || absolute || permalinkAge || sduiAgeLabel || null;
     // A única fonte de autoria é a identidade do contêiner principal.
     // Fallback por nome, por menção ou por autor incorporado é proibido.
     const media = !!firstOwn(sel.postMedia!) ||
