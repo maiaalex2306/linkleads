@@ -517,7 +517,7 @@ try {
   await page.setContent('<main><div data-sdui-screen><div data-testid="activity" data-component-type="activities" componentkey="screen">' +
     '<div data-lazy-mount-id="x">' + sduiCard(fakeProfile) + '</div></div></div></main>');
   let modern = await scanSdui();
-  check(modern.length === 1 && modern[0].actorHref?.endsWith('/ana-silva') &&
+  check(modern.length === 1 && /\/ana-silva\/?$/.test(modern[0].actorHref ?? '') &&
     modern[0].liked === false && modern[0].age?.includes('2 dias') && modern[0].text.includes('rastreabilidade') &&
     modern[0].cardIdentity?.identityStatus === 'PROVISIONAL',
     'SDUI: identifica card e autoria junto da data, mas componentkey NAO vira URN', modern);
