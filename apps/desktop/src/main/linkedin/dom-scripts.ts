@@ -459,13 +459,43 @@ export function llPostContainers(
       !!bodyBoundary && a !== bodyBoundary &&
       !!(a.compareDocumentPosition(bodyBoundary) & Node.DOCUMENT_POSITION_FOLLOWING);
     const topAuthors = candidates.filter(beforeBody);
-    const authorCandidates = topAuthors.length === 1 ? topAuthors : candidates;
+    let authorCandidates = topAuthors.length === 1 ? topAuthors : candidates;
+    // PATCH LinkLeads AUTHOR_UNVERIFIED (2026-11-16):
+    // No SDUI atual (classes k4**** / componentkey) os filtros acima frequentemente
+    // zeravam authorCandidates mesmo com links member-profile no card.
+    // Fallback: primeiro /in/ válido no topo do card, antes da action bar,
+    // excluindo links dentro de botão e área de comentário.
+    if (!authorCandidates.length && card.closest('[data-sdui-screen]')) {
+      const actionBarBtn = Array.from(card.querySelectorAll('button, [role="button"]'))
+        .find((b) => /coment|comment|compart|share|repost/i.test(
+          ((b.getAttribute('aria-label') || '') + ' ' + (b.textContent || '')).toLowerCase()));
+      authorCandidates = authorLinks.filter((a) => {
+        if (!validProfile(a)) return false;
+        if (a.closest('button, [role="button"]')) return false;
+        if (actionBarBtn && (a.compareDocumentPosition(actionBarBtn) & Node.DOCUMENT_POSITION_FOLLOWING) === 0)
+          return false; // link depois da action bar
+        return true;
+      }).slice(0, 3);
+    }
     const authors = new Map<string, HTMLAnchorElement>();
     for (const a of authorCandidates) {
       const url = validProfile(a);
       if (url) authors.set(url, a);
     }
-    const author = authors.size === 1 ? [...authors.values()][0]! : null;
+    // Se ainda houver 2+ URLs distintas, preferir a primeira na ordem do DOM
+    // (cabeçalho) em vez de descartar todas (author=null) — causa raiz do AUTHOR_UNVERIFIED.
+    let author: HTMLAnchorElement | null = authors.size === 1 ? [...authors.values()][0]! : null;
+    if (!author && authors.size > 1) {
+      for (const a of authorCandidates) {
+        const url = validProfile(a);
+        if (url && authors.has(url)) { author = a; break; }
+      }
+    }
+    if (!author && authorLinks.length) {
+      for (const a of authorLinks) {
+        if (validProfile(a) && !a.closest('button, [role="button"]')) { author = a; break; }
+      }
+    }
     const embedRoot = nested.find((el) => el.matches(EMBED) || !!parseUrn(el.getAttribute('data-urn')))
       ?? null;
     const embedActor = embedRoot?.querySelector('a[href*="/in/"]') as HTMLAnchorElement | null;
