@@ -109,27 +109,18 @@ export function evaluatePost(
         'Identificador opaco do autor ou compartilhador diferente do perfil confirmado')
       : result('NOT_ELIGIBLE', 'POST_FOUND', 'AUTHOR_MISMATCH', 'Publicação de outro autor');
   passedStages.push('AUTHOR_CONFIRMED', 'POST_CLASSIFIED');
-  // PATCH: com autor EXPLÍCITO (URL /in/ == publicId do lead), permitir seguir
-  // mesmo com URN provisória no layout SDUI. Sem autor explícito, mantém o gate.
-  if (!isCanonicalPostUrn(post.urn)) {
-    if (!(actor && sameConfirmedPublicId(actor, publicId)))
-      return result('REVIEW_REQUIRED', 'POST_CLASSIFIED', 'POST_ID_PROVISIONAL',
-        'Publicação com URN provisória; identidade do alvo não comprovada');
-  }
+  if (!isCanonicalPostUrn(post.urn))
+    return result('REVIEW_REQUIRED', 'POST_CLASSIFIED', 'POST_ID_PROVISIONAL',
+      'Publicação com URN provisória; identidade do alvo não comprovada');
   passedStages.push('POST_ID_CONFIRMED');
   const days = post.age ? parseRelativeAgeDays(post.age) : undefined;
-  // PATCH: se autor explícito confirmado e idade ausente no SDUI, não bloquear
-  // para REVIEW — trata como elegível quanto à idade (maxAge não aplicado).
-  if (days === undefined || !Number.isFinite(days) || days < 0) {
-    if (!(actor && sameConfirmedPublicId(actor, publicId)))
-      return result('REVIEW_REQUIRED', 'POST_ID_CONFIRMED', 'POST_AGE_UNVERIFIED',
-        'Publicação com data não verificável');
-  } else {
+  if (days === undefined || !Number.isFinite(days) || days < 0)
+    return result('REVIEW_REQUIRED', 'POST_ID_CONFIRMED', 'POST_AGE_UNVERIFIED',
+      'Publicação com data não verificável');
   const maxAge = Math.max(1, Math.min(365, settings.maxPostAgeDays ?? 365));
-  if (days !== undefined && Number.isFinite(days) && days >= 0 && days > maxAge)
+  if (days > maxAge)
     return result('NOT_ELIGIBLE', 'POST_ID_CONFIRMED', 'POST_TOO_OLD',
       'Publicação com mais de ' + maxAge + ' dias');
-  } // fim else idade verificável
   if (post.liked === null)
     return result('REVIEW_REQUIRED', 'POST_ID_CONFIRMED', 'REACTION_UNKNOWN',
       'Primeiro possível post não curtido, mas estado de reação desconhecido');
