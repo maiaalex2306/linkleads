@@ -104,7 +104,7 @@ async function trial(name, mode, expected, extra = {}, slug = 'ana-silva', optio
       check(navigations.length === 0, name + ': sem navegacao indevida');
     if (expected.method === 'ROUTE_RECOVERY')
       check(navigations.length === 1 &&
-        navigations[0].endsWith('/in/' + slug + '/recent-activity/shares/'),
+        navigations[0].endsWith('/in/' + slug + '/recent-activity/posts/'),
         name + ': recuperou Posts no mesmo perfil verificado');
     if (expected.source === 'posts' && expected.status === 'POST_SECTION_READY')
       check((await page.locator('.third-party').count()) === 0, name + ': aba nao mistura atividade de terceiros');
