@@ -6,7 +6,12 @@ export type PostSectionStatus =
 export interface PostSectionOpenResult {
   status: PostSectionStatus;
   source: 'posts' | 'activity';
-  method: 'ACTIVE' | 'LINK' | 'BUTTON' | 'FALLBACK';
+  method: 'ACTIVE' | 'LINK' | 'BUTTON' | 'FALLBACK' | 'ROUTE_RECOVERY';
+}
+
+export interface PostSectionOptions {
+  /** Opt-in somente após gotoProfile verificar a identidade do lead. */
+  recoverVerifiedPostsRoute?: boolean;
 }
 
 /** Fase 1: filtra publicacoes via aba realmente observada na UI.
@@ -15,6 +20,7 @@ export interface PostSectionOpenResult {
  */
 export async function openPostsSection(
   d: { driver: PageDriver }, confirmedPublicId: string,
+  options: PostSectionOptions = {},
 ): Promise<PostSectionOpenResult> {
   const probe = () => d.driver.read(postsFilterProbe, confirmedPublicId);
   let target = await probe();
@@ -45,6 +51,48 @@ export async function openPostsSection(
         }
       }, 4_000, 300);
       if (active) method = 'BUTTON';
+    }
+  }
+  // Recuperacao opt-in: nao concluir que "Todas" comprova autoria.
+  // A rota /shares/ ja e usada pelos filtros reconhecidos da interface;
+  // so tentar no MESMO perfil confirmado e no MESMO dominio, uma unica vez.
+  if (method === 'FALLBACK' && options.recoverVerifiedPostsRoute === true) {
+    const originalUrl = d.driver.wc.getURL();
+    let original: URL | null = null;
+    try { original = new URL(originalUrl); } catch { /* URL invalida */ }
+    const originalSlug = original?.pathname.match(/^\/in\/([^/]+)\/recent-activity\/all\/?$/i);
+    const production = original?.protocol === 'https:' &&
+      (original.hostname === 'linkedin.com' || original.hostname.endsWith('.linkedin.com'));
+    const testOrigin = process.env.LINKLEADS_TEST_BASE_URL &&
+      original?.origin === new URL(process.env.LINKLEADS_TEST_BASE_URL).origin;
+    let sameProfile = false;
+    try { sameProfile = !!originalSlug &&
+      decodeURIComponent(originalSlug[1]!) === confirmedPublicId; }
+    catch { /* identificador invalido */ }
+    if (original && originalSlug && sameProfile && (production || testOrigin) &&
+        !original.username && !original.password && !original.search && !original.hash) {
+      const targetUrl = new URL('/in/' + encodeURIComponent(confirmedPublicId) +
+        '/recent-activity/shares/', original.origin).href;
+      try {
+        await d.driver.goto(targetUrl);
+        await d.driver.assertNotBlocked();
+        const navigated = new URL(d.driver.wc.getURL());
+        const destination = navigated.pathname.match(/^\/in\/([^/]+)\/recent-activity\/(shares|posts)\/?$/i);
+        const confirmedRoute = navigated.origin === original.origin && !!destination &&
+          decodeURIComponent(destination[1]!) === confirmedPublicId &&
+          (await probe()).kind === 'ACTIVE';
+        if (confirmedRoute) method = 'ROUTE_RECOVERY';
+      } catch {
+        // Checkpoint, erro de rede ou redirecionamento nunca autorizam autoria.
+      }
+      if (method === 'FALLBACK') {
+        // Nao continuar lendo um perfil diferente ou pagina de login.
+        try { await d.driver.goto(originalUrl); }
+        catch {
+          d.driver.recordPostSection('activity', 'POST_SECTION_UNAVAILABLE', 'FALLBACK');
+          return { status: 'POST_SECTION_UNAVAILABLE', source: 'activity', method: 'FALLBACK' };
+        }
+      }
     }
   }
   const observed = await probe();
