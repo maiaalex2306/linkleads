@@ -113,15 +113,66 @@ export function postsFilterProbe(expectedPublicId: string): PostsFilterProbe {
         && !u.username && !u.password && !u.search && !u.hash ? u.href : null;
     } catch { return null; }
   };
+  // SDUI 2026: os filtros podem ser chips <button> sob um <div>
+  // comum, sem role=tab e SEM mudar /recent-activity/all/.
+  // Reconhecer apenas grupos com outras opcoes de filtro verificaveis.
+  const normalized = (v: string) => v.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ').trim().toLowerCase();
+  const chipLabel = (n: Element) => normalized(
+    n.getAttribute('aria-label') || (n as HTMLElement).innerText || n.textContent || '');
+  const allowedChip = /^(?:posts|publicacoes|postagens|comentarios|comments|videos|imagens|images|reacoes|reactions)$/;
+  const isFilterGroup = (n: Element): boolean => {
+    if (n.closest('nav, [role="tablist"]')) return true;
+    let ancestor = n.parentElement;
+    for (let depth = 0; depth < 3 && ancestor && ancestor !== root; depth++, ancestor = ancestor.parentElement) {
+      const chips = Array.from(ancestor.querySelectorAll('a,button,[role="tab"],[role="button"]'))
+        .filter((x) => isVisible(x) && allowedChip.test(chipLabel(x)));
+      if (new Set(chips.map(chipLabel)).size >= 3) return true;
+    }
+    return false;
+  };
   const candidates = Array.from(root.querySelectorAll(
-    'a[href*="recent-activity"], nav a[href], nav button, [role="tablist"] [role="tab"], [role="tab"]',
+    'a[href*="recent-activity"], nav a[href], nav button, [role="tablist"] [role="tab"], [role="tab"], button, [role="button"]',
   )).filter((n) => isVisible(n) && matchLabel(n) &&
     n.getAttribute('aria-disabled') !== 'true' &&
     !(n instanceof HTMLButtonElement && n.disabled) &&
-    (safeHref(n) || !!n.closest('nav, [role="tablist"]') || n.getAttribute('role') === 'tab'));
+    isFilterGroup(n) &&
+    (safeHref(n) || n.matches('button,[role="button"],[role="tab"]') ||
+      !!n.closest('nav,[role="tablist"]')));
   if (!candidates.length) return { kind: 'UNAVAILABLE' };
+  const visuallySelected = (n: Element): boolean => {
+    if (!n.matches('button,[role="button"],[role="tab"]')) return false;
+    const bg = getComputedStyle(n).backgroundColor;
+    const fg = getComputedStyle(n).color;
+    const rgb = (value: string): number[] | null => {
+      const m = value.match(/^rgba?\((\d+)[,\s]+(\d+)[,\s]+(\d+)/i);
+      return m ? [Number(m[1]),Number(m[2]),Number(m[3])] : null;
+    };
+    const b = rgb(bg), c = rgb(fg);
+    if (!b || !c) return false;
+    const dark = b.reduce((a,x) => a+x,0)/3 < 175;
+    const lightText = c.reduce((a,x) => a+x,0)/3 > 195;
+    if (!dark || !lightText) return false;
+    let group: Element | null = n.parentElement;
+    for (let i=0;group && i<3;i++,group=group.parentElement) {
+      const siblings=Array.from(group.querySelectorAll('button,[role="button"],[role="tab"]'))
+        .filter((x)=>x!==n && allowedChip.test(chipLabel(x)) && isVisible(x));
+      if (siblings.length < 2) continue;
+      const lightAlternatives = siblings.filter((x) => {
+        const sb=rgb(getComputedStyle(x).backgroundColor);
+        return sb && sb.reduce((a,y)=>a+y,0)/3 > 215;
+      });
+      return lightAlternatives.length>=2;
+    }
+    return false;
+  };
   const active = candidates.filter((n) =>
-    n.getAttribute('aria-selected') === 'true' || n.getAttribute('aria-current') === 'page');
+    n.getAttribute('aria-selected') === 'true' ||
+    n.getAttribute('aria-pressed') === 'true' ||
+    n.getAttribute('data-state') === 'active' ||
+    n.getAttribute('data-selected') === 'true' ||
+    n.getAttribute('aria-current') === 'page' ||
+    visuallySelected(n));
   if (active.length === 1) return { kind: 'ACTIVE' };
   const urls = [...new Set(candidates.map(safeHref).filter((u): u is string => !!u))];
   // Dois destinos diferentes para a mesma aba significam ambiguidade.
