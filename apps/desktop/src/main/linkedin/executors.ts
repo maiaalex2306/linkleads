@@ -368,7 +368,11 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
               data: { post: previous.postUrl, likeAttempted: false, uncertainLike: true } };
           const open = await gotoProfile(d, ctx.person, 'recent-activity/all/');
           if (open !== 'ok') return openFailed(open);
-          let postSection = await openPostsSection(d, ctx.person.publicId ?? ctx.person.id);
+          // PATCH: sempre tentar recuperar rota Posts/shares no mesmo perfil.
+          // Em /recent-activity/all/ o fallback contextual de autor fica desligado
+          // (sourceSection !== 'posts') e AUTHOR_UNVERIFIED explode sem actorHref.
+          let postSection = await openPostsSection(
+            d, ctx.person.publicId ?? ctx.person.id, { recoverVerifiedPostsRoute: true });
           if (postSection.status === 'POST_SECTION_UNAVAILABLE')
             return { ok: false, reason: 'NO_REAL_EFFECT',
               message: 'A secao de publicacoes nao ficou pronta; carregamento, rota ou layout devem ser verificados. Nenhuma curtida enviada.' };
