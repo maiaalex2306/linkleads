@@ -436,12 +436,29 @@ ipcMain.handle('instance:live', (_e, id: string) => {
 ipcMain.handle('instance:runNow', (_e, id: string, opts?: { ignoreHours?: boolean }) =>
   instances.require(id).tickAll({ waitIfBusy: true, ignoreHours: !!opts?.ignoreHours }));
 ipcMain.handle('instance:diagnose', (_e, id: string) => instances.require(id).diagnose());
-ipcMain.handle('instance:saveDiagnosis', async (_e, reports: unknown[]) => {
+ipcMain.handle('instance:saveDiagnosis', async (_e, id: string, reports: unknown[]) => {
+  // Nunca exportar relatorios de outras contas. A UI ja filtra os seus
+  // registros, mas a fronteira IPC tambem deve validar seu escopo.
+  account(id);
+  const acceptedPages = new Set(['perfil','atividade','post','mensagens',
+    'empresa_pessoas','empresa_vagas','contato','feed','outra']);
+  if (!Array.isArray(reports) || reports.length < 1 || reports.length > 100 ||
+    reports.some((entry) => {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return true;
+      const r = entry as Record<string,unknown>;
+      return typeof r.page !== 'string' || !acceptedPages.has(r.page) ||
+        typeof r.path !== 'string' || typeof r.at !== 'string' ||
+        (r.accountId !== undefined && r.accountId !== id);
+    })) throw new Error('Relatorio invalido ou pertence a outra conta');
+  const stripped = reports.map((entry) => {
+    const { accountId: _scope, ...report } = entry as Record<string,unknown>;
+    return report;
+  });
   const pick = process.env.LINKLEADS_TEST_EXPORT_PATH
     ? { canceled: false, filePath: process.env.LINKLEADS_TEST_EXPORT_PATH }
     : await dialog.showSaveDialog(launcher!, { title: 'Salvar relatório de diagnóstico', defaultPath: `linkleads-diagnostico-${new Date().toISOString().slice(0, 10)}.json`, filters: [{ name: 'JSON', extensions: ['json'] }] });
   if (pick.canceled || !pick.filePath) return null;
-  writeFileSync(pick.filePath, JSON.stringify({ generatedAt: new Date().toISOString(), platform: process.platform, reports }, null, 2));
+  writeFileSync(pick.filePath, JSON.stringify({ generatedAt: new Date().toISOString(), platform: process.platform, scope: 'single-account', reports: stripped }, null, 2));
   return pick.filePath;
 });
 ipcMain.handle('instance:saveCurrentProfile', async (_e, id: string) => {
