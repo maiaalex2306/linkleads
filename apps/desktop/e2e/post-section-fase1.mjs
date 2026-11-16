@@ -15,7 +15,7 @@ function check(ok, message, detail) {
 }
 const post = '<article data-post-fixture="true">Publicacao propria simulada</article>';
 function fixture(slug, mode, path, extra = {}) {
-  const posts = path.endsWith('/shares/') || path.endsWith('/posts/');
+  const posts = path.endsWith('/shares/') || path.endsWith('/posts/') || mode === 'sduiSelected';
   const filter = mode === 'link'
     ? '<nav aria-label="Filtros de atividades"><a role="tab" href="/in/' + slug + '/recent-activity/shares/">Posts</a></nav>'
     : mode === 'button'
@@ -26,7 +26,17 @@ function fixture(slug, mode, path, extra = {}) {
           ? '<nav><a role="tab" href="https://external.example/posts">Posts</a></nav>'
           : mode === 'ambiguous'
             ? '<nav><a role="tab" href="/in/' + slug + '/recent-activity/shares/">Posts</a><a role="tab" href="/in/' + slug + '/recent-activity/posts/">Posts</a></nav>'
-            : '';
+            : mode === 'sduiSelected' || mode === 'sduiUnselected'
+              ? '<div class="activity-filters">' +
+                '<button style="' + (mode === 'sduiSelected'
+                  ? 'background-color:rgb(4,129,90);color:rgb(255,255,255)'
+                  : 'background-color:rgb(255,255,255);color:rgb(20,20,20)') +
+                '">Publicações</button>' +
+                '<button style="background:white;color:black">Comentários</button>' +
+                '<button style="background:white;color:black">Vídeos</button>' +
+                '<button style="background:white;color:black">Imagens</button>' +
+                '<button style="background:white;color:black">Reações</button></div>'
+              : '';
   const delayedTab = mode === 'delayed' && !posts
     ? '<nav id="tabs"></nav><script>setTimeout(()=>{document.getElementById("tabs").innerHTML=' +
       JSON.stringify('<a role="tab" href="/in/' + slug + '/recent-activity/shares/">Posts</a>') + '},500)</script>'
@@ -113,6 +123,10 @@ async function trial(name, mode, expected, extra = {}, slug = 'ana-silva', optio
 try {
   await trial('link Publicacoes', 'link', { status:'POST_SECTION_READY', source:'posts', method:'LINK' });
   await trial('botao Publicacoes', 'button', { status:'POST_SECTION_READY', source:'posts', method:'BUTTON' });
+  await trial('SDUI: aba Publicacoes verde sem mudar rota all', 'sduiSelected',
+    { status:'POST_SECTION_READY', source:'posts', method:'ACTIVE' });
+  await trial('SDUI: aba Publicacoes visivel mas nao selecionada', 'sduiUnselected',
+    { status:'POST_SECTION_READY', source:'activity', method:'FALLBACK' });
   await trial('filtro hidratado atrasado', 'delayed', { status:'POST_SECTION_READY', source:'posts', method:'LINK' });
   await trial('fallback controlado', 'none', { status:'POST_SECTION_READY', source:'activity', method:'FALLBACK' });
   await trial('filtro aponta para terceiro', 'wrong', { status:'POST_SECTION_READY', source:'activity', method:'FALLBACK' });
@@ -130,7 +144,7 @@ try {
   await trial('redirect apos filtro para outro perfil', 'link', { status:'POST_SECTION_UNAVAILABLE', source:'activity', method:'LINK' }, {redirectToOther:true});
   const opaque='ACoAAA8BYqEBCGLg_vT_ca6mMEqkpp9nVffJ3hc';
   await trial('perfil opaco preserva caixa', 'link', { status:'POST_SECTION_READY', source:'posts', method:'LINK' }, {}, opaque);
-  check(count >= 45, 'cobertura minima de casos e verificacoes');
+  check(count >= 52, 'cobertura minima de casos e verificacoes');
   console.log('FASE 1 APROVADA EM CHROMIUM SIMULADO:', count, 'assercoes');
 } finally {
   await browser.close();
