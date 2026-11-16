@@ -368,11 +368,7 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
               data: { post: previous.postUrl, likeAttempted: false, uncertainLike: true } };
           const open = await gotoProfile(d, ctx.person, 'recent-activity/all/');
           if (open !== 'ok') return openFailed(open);
-          const postSection = await openPostsSection(d, ctx.person.publicId ?? ctx.person.id, {
-            // A origem "activity/all" nao e prova de autoria; recuperar primeiro
-            // a rota Publicacoes do proprio perfil, previamente validado.
-            recoverVerifiedPostsRoute: true,
-          });
+          let postSection = await openPostsSection(d, ctx.person.publicId ?? ctx.person.id);
           if (postSection.status === 'POST_SECTION_UNAVAILABLE')
             return { ok: false, reason: 'NO_REAL_EFFECT',
               message: 'A secao de publicacoes nao ficou pronta; carregamento, rota ou layout devem ser verificados. Nenhuma curtida enviada.' };
@@ -390,6 +386,22 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
               postSection.source, ctx.person.id);
             const post = found.post;
             if (!post) {
+              // Recuperar a rota de Publicacoes somente quando a primeira
+              // tentativa realmente falhou por falta de autoria no feed geral.
+              // Perfis com autor explicito continuam no caminho ja homologado.
+              if (found.diagnosticCode === 'AUTHOR_UNVERIFIED' &&
+                  postSection.source === 'activity') {
+                const recovered = await openPostsSection(
+                  d, ctx.person.publicId ?? ctx.person.id, { recoverVerifiedPostsRoute: true });
+                if (recovered.status === 'POST_SECTION_READY' && recovered.source === 'posts') {
+                  postSection = recovered;
+                  diagnosisContext.sourceSection = 'posts';
+                  if (d.preflightPostContract && !(await d.preflightPostContract(diagnosisContext)))
+                    return { ok: false, reason: 'NO_REAL_EFFECT',
+                      message: 'Layout da seção Publicações recuperada não homologado; nenhum clique executado' };
+                  continue;
+                }
+              }
               const empty = await d.driver.exists('emptyActivity').catch(() => false);
               // Só declarar ausência de post quando o LinkedIn mostra
               // estado vazio e o parser não observou nenhuma publicação.
