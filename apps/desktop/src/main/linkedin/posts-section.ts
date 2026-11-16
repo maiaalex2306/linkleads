@@ -1,4 +1,4 @@
-import { BlockedError, type PageDriver } from './page-driver.js';
+import type { PageDriver } from './page-driver.js';
 import { extractPosts, postsFilterProbe, postsFilterClickGuard } from './dom-scripts.js';
 
 export type PostSectionStatus =
@@ -85,7 +85,8 @@ export async function openPostsSection(
       } catch (error) {
         // Um checkpoint bloqueia o executor inteiro; jamais ignorar nem
         // navegar de volta tentando contornar uma restricao de conta.
-        if (error instanceof BlockedError) throw error;
+        if (typeof error === 'object' && error !== null && 'kind' in error &&
+          (error.kind === 'checkpoint' || error.kind === 'logged_out')) throw error;
         // Erro de rede ou redirecionamento nunca autorizam autoria.
       }
       if (method === 'FALLBACK') {
