@@ -6,7 +6,7 @@ const state = {
   anaHeadline: 'Diretora de Operações na Águas do Vale', companyVisits: 0, inboxVisits: 0,
   // sessão do LinkedIn falso: loggedOut força a página de login; logins guarda as tentativas (e-mail, senha)
   unrelatedEditor: false, longPost: false, moreExpansions: 0, noCommentRender: false,
-  contextualPostMode: false,
+  contextualPostMode: false, hidePostsFilter: false,
   loggedOut: false, logins: [], loginEmail: 'ana@empresa.com.br', loginPassword: 'senha-certa',
   activityDeepPosts: false, modernReaction: false, modernTimeLabels: false, mixedPostLayout: false, deepAge: '1 a', deepLiked: false, deepLikes: 0, likes: 0,
   loginHydrationDelayMs: 0, loginSocialButtons: false, requireSessionCookie: false,
@@ -300,7 +300,7 @@ export function startFakeSite(port = 0) {
         return html(`<div class="spacer"></div>${postHtml(false)}<div class="spacer" style="height:1400px"></div>
           <div id="older-feed"></div><div class="spacer"></div>`, likeScript + loader);
       }
-      return html(`${state.contextualPostMode ? "<nav><a href=\"/in/ana-silva/recent-activity/posts/\">Posts</a></nav>" : ""}<div class="spacer"></div>${postHtml(false)}<div class="spacer"></div>`, likeScript);
+      return html(`${state.contextualPostMode && !state.hidePostsFilter ? "<nav><a href=\"/in/ana-silva/recent-activity/posts/\">Posts</a></nav>" : ""}<div class="spacer"></div>${postHtml(false)}<div class="spacer"></div>`, likeScript);
     }
     // Rota Posts DE FATO observada após clicar no link; rota all/ sozinha
     // não pode alegar que o filtro Posts já está selecionado.
