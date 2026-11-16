@@ -59,8 +59,10 @@ export interface PostSelectionContext {
  * navegação foi validada; não valida reshare, URL conflitante ou URN incerta.
  */
 export function contextualAuthorAccepted(context: PostSelectionContext | undefined): boolean {
+  // PATCH: além de sourceSection==='posts', aceitar 'activity' somente quando
+  // há URN canônica + post original + sem conflito (ainda exige evidence contextual).
   return Boolean(context &&
-    context.sourceSection === 'posts' &&
+    (context.sourceSection === 'posts' || context.sourceSection === 'activity') &&
     context.authorEvidence === 'contextual' &&
     !context.authorConflict &&
     context.postKind === 'original' &&
