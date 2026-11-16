@@ -257,7 +257,9 @@ export async function diagnosePage(
         }, buildPostSelectionContext(post, context.personId ?? context.expectedPublicId,
           context.expectedPublicId, verifiedPosts ? 'posts' : 'activity')) : undefined,
   ));
-  const firstUnlikedIndex = extracted.findIndex((post) => post.liked === false);
+  // Um cartao com reacao desconhecida ANTES de outro confirmado como nao
+  // curtido deve continuar sendo o primeiro candidato, sempre em revisao.
+  const firstUnlikedIndex = extracted.findIndex((post) => post.liked !== true);
   const firstControls = firstUnlikedIndex >= 0
     ? await driver.read(firstUnlikedControlProbe, sel, firstUnlikedIndex).catch(() => null)
     : null;
