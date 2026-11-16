@@ -63,7 +63,7 @@ jobs:
           $exe=@(Get-ChildItem (Join-Path $dest 'APP') -Filter '*.exe' -File | Where-Object Name -ne 'Uninstall.exe')
           if ($exe.Count -ne 1) { throw 'EXE de teste ausente' }
           $launcher=@'
-@echo off
+          @echo off
           setlocal
           set "LINKLEADS_PORTABLE_SMOKE=1"
           set "LINKLEADS_TEST_USER_DATA=D:\LINKLEADS\TESTES\PATCH-AUTHOR-UNVERIFIED\DADOS"
@@ -74,7 +74,7 @@ jobs:
           '@
           Set-Content (Join-Path $dest 'ABRIR-TESTE-ISOLADO.cmd') $launcher -Encoding ascii
           $notes=@'
-LINKLEADS 0.5.18 - PATCH EXATO DO USUARIO - NAO HOMOLOGADO
+          LINKLEADS 0.5.18 - PATCH EXATO DO USUARIO - NAO HOMOLOGADO
           5 de 181 testes unitarios reprovaram, por selecao de post com URN provisoria ou idade ausente.
           Extrair em D:\LINKLEADS\TESTES\PATCH-AUTHOR-UNVERIFIED\
           Executar ABRIR-TESTE-ISOLADO.cmd. Dados isolados em D:\LINKLEADS\TESTES\PATCH-AUTHOR-UNVERIFIED\DADOS.
