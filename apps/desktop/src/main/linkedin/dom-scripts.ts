@@ -445,8 +445,23 @@ export function llPostContainers(
     }) : [];
     const candidates = specific.length ? specific :
       general.length ? general : adjacentToPostMetadata.length ? adjacentToPostMetadata : sduiAdjacent;
+    // O SDUI tambem pode incorporar a publicacao de OUTRA pessoa dentro
+    // do mesmo cartao. No print do proprietario o cabecalho de Alexandre
+    // vem antes do texto, e a citacao de Leticia aparece DEPOIS dele.
+    // Links de perfil dentro da citacao nao concorrem com o autor principal.
+    // Se nao houver uma separacao visivel, conservar autoria ambigua.
+    const bodyBoundary = card.closest('[data-sdui-screen]') ? card.querySelector([
+      '.update-components-text', '.feed-shared-text',
+      '[data-testid*="post-text"]', '[data-test-id*="commentary"]',
+      '[dir="ltr"]', 'a[href*="lnkd.in/"]',
+    ].join(', ')) : null;
+    const beforeBody = (a: Element): boolean =>
+      !!bodyBoundary && a !== bodyBoundary &&
+      !!(a.compareDocumentPosition(bodyBoundary) & Node.DOCUMENT_POSITION_FOLLOWING);
+    const topAuthors = candidates.filter(beforeBody);
+    const authorCandidates = topAuthors.length === 1 ? topAuthors : candidates;
     const authors = new Map<string, HTMLAnchorElement>();
-    for (const a of candidates) {
+    for (const a of authorCandidates) {
       const url = validProfile(a);
       if (url) authors.set(url, a);
     }
