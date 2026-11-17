@@ -602,7 +602,7 @@ export function llPostContainers(
     // participa da chave visual. Se há expansão e menos de 64 caracteres,
     // manter provisório em vez de gerar chave instável.
     const hasExpand = Array.from(card.querySelectorAll('button,[role="button"],a,span[tabindex="0"]'))
-      .some((n) => /^(?:…|\.\.\.)?\s*(?:ver mais|see more|mostrar mais|more)\s*$/i.test(
+      .some((n) => /^(?:…|\.\.\.)?\s*(?:ver mais|mais|see more|mostrar mais|more)\s*$/i.test(
         (n.getAttribute('aria-label') || n.textContent || '').replace(/\s+/g, ' ').trim()));
     const minFingerprintLength = hasExpand ? 64 : 24;
     let source = [author?.href ?? '', visibleBody.slice(0, 64)].join('|');
@@ -837,7 +837,7 @@ export function extractPosts(sel: Record<string, readonly string[]>, limit: numb
       'button, a, [role="button"], .feed-shared-inline-show-more-text__see-more-less-toggle',
     )).filter((node) => !inEmbedded(node) &&
       !node.closest('.comments-comment-entity, .comments-comment-item') &&
-      /^(?:…|\.\.\.)?\s*(?:ver mais|see more|mostrar mais|more)\s*$/i.test(
+      /^(?:…|\.\.\.)?\s*(?:ver mais|mais|see more|mostrar mais|more)\s*$/i.test(
         (node.getAttribute('aria-label') || node.textContent || '').replace(/\s+/g, ' ').trim()));
     const truncated = moreControls.length > 0 ||
       /(?:…|\.\.\.)\s*(?:mais|more)$/i.test(text);
@@ -1208,6 +1208,8 @@ export function postExpandPoint(
     '.feed-shared-inline-show-more-text button',
     '.feed-shared-inline-show-more-text__see-more-less-toggle',
     '[data-testid="post-text"] button', '[data-test-id="post-text"] button',
+    '[dir="ltr"] span[role="button"]', '[dir="ltr"] span[tabindex="0"]',
+    'p span[role="button"]', 'p span[tabindex="0"]',
   ];
   const candidates = [...new Set(selectors.flatMap((selector) => {
     try { return Array.from(root.querySelectorAll(selector)); }
@@ -1222,7 +1224,7 @@ export function postExpandPoint(
     }
     const label = (node.getAttribute('aria-label') || node.textContent || '').replace(/\s+/g, ' ').trim();
     const r = node.getBoundingClientRect();
-    return /^(?:…|\.\.\.)?\s*(?:ver mais|see more|mostrar mais|more)\s*$/i.test(label) &&
+    return /^(?:…|\.\.\.)?\s*(?:ver mais|mais|see more|mostrar mais|more)\s*$/i.test(label) &&
       r.width > 0 && r.height > 0;
   });
   if (controls.length !== 1) return null;
@@ -1240,9 +1242,9 @@ export function postExpandGuard(
   if (!point || Math.abs(point.x - x) > 20 || Math.abs(point.y - y) > 20) return false;
   const hit = document.elementFromPoint(x, y);
   if (!hit) return false;
-  const candidates = ['button', '[role="button"]', 'a'];
+  const candidates = ['button', '[role="button"]', 'a', 'span[tabindex="0"]'];
   const el = hit.closest(candidates.join(', '));
-  return !!el && /^(?:…|\.\.\.)?\s*(?:ver mais|see more|mostrar mais|more)\s*$/i.test(
+  return !!el && /^(?:…|\.\.\.)?\s*(?:ver mais|mais|see more|mostrar mais|more)\s*$/i.test(
     (el.getAttribute('aria-label') || el.textContent || '').replace(/\s+/g, ' ').trim());
 }
 
