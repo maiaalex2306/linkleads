@@ -522,6 +522,14 @@ try {
     modern[0].cardIdentity?.identityStatus === 'PROVISIONAL',
     'SDUI: identifica card e autoria junto da data, mas componentkey NAO vira URN', modern);
   await page.setContent('<main><div data-sdui-screen><div data-lazy-mount-id="x">' +
+    sduiCard(fakeProfile).replace('há 2 dias', 'há 8 m') +
+    '</div></div></main>');
+  modern = await scanSdui();
+  check(modern.length === 1 && modern[0].age === 'há 8 m' &&
+    modern[0].liked === false && modern[0].cardIdentity?.identityStatus === 'PROVISIONAL',
+    'SDUI: idade de oito meses em pt-BR reconhecida sem promover URN provisoria', modern);
+
+  await page.setContent('<main><div data-sdui-screen><div data-lazy-mount-id="x">' +
     sduiCard(fakeProfile + '<a href="https://www.linkedin.com/in/terceiro/">Terceiro</a>') +
     '</div></div></main>');
   modern = await scanSdui();
