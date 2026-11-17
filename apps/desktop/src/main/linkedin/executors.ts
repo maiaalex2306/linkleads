@@ -6,7 +6,7 @@ import type { IntegrationCrm } from '@linkleads/db';
 import type { EnrichmentProvider } from '@linkleads/integrations';
 import { commentEditorPoint, commentSubmitPoint, commentEvidence, editorText, extractPosts, extractProfile, likeState, profileReady, type PostExtract } from './dom-scripts.js';
 import { BlockedError, type PageDriver } from './page-driver.js';
-import { isCanonicalPostUrn, provisionalPostFingerprint, contextualAuthorAccepted, buildPostSelectionContext, matchHydratedPost, type PostSelectionContext } from './post-identity.js';
+import { isCanonicalPostUrn, isVisualPostKey, provisionalPostFingerprint, contextualAuthorAccepted, buildPostSelectionContext, matchHydratedPost, type PostSelectionContext } from './post-identity.js';
 import { evaluatePost, firstUnlikedCandidate, profileSlug, sameConfirmedPublicId, type PostEvaluationCode } from './post-evaluation.js';
 export { evaluatePost, firstUnlikedCandidate, profileSlug, sameConfirmedPublicId } from './post-evaluation.js';
 export type { PostEvaluation, PostEvaluationStatus, PostEvaluationStage, PostEvaluationCode } from './post-evaluation.js';
@@ -220,7 +220,7 @@ export function choosePost(
 
 /** Progresso só é demonstrável por URNs canônicas novas. Índices ll-idx-* se repetem. */
 export function hasNewVerifiedPost(seen: ReadonlyMap<string, PostExtract>, batch: readonly PostExtract[]): boolean {
-  return batch.some((post) => isCanonicalPostUrn(post.urn) && !seen.has(post.urn));
+  return batch.some((post) => (isCanonicalPostUrn(post.urn) || isVisualPostKey(post.urn)) && !seen.has(post.urn));
 }
 
 /**
@@ -251,7 +251,8 @@ async function discoverUnlikedPost(
     // cartão provisório recebe uma chave de observação estável e não vira "novo"
     // em cada leitura do mesmo conteúdo.
     for (const p of batch) {
-      const key = isCanonicalPostUrn(p.urn) ? p.urn : 'unresolved:' + provisionalPostFingerprint(p);
+      const key = isCanonicalPostUrn(p.urn) || isVisualPostKey(p.urn)
+        ? p.urn : 'unresolved:' + provisionalPostFingerprint(p);
       if (!seen.has(key)) {
         seen.set(key, p);
         // Telemetria de TODA nova decisão em uma campanha, inclusive elegíveis.
@@ -297,7 +298,7 @@ async function discoverUnlikedPost(
     }
     if (candidate.post) {
       const post = candidate.post;
-      if (!isCanonicalPostUrn(post.urn))
+      if (!isCanonicalPostUrn(post.urn) && !isVisualPostKey(post.urn))
         return { posts: ordered,
           why: 'Primeira publicacao nao curtida identificada na ordem da tela, mas seu ID e provisório. ' +
             'A selecao esta correta; o vinculo com o post ainda deve ser resolvido antes de qualquer interacao.',
@@ -335,7 +336,8 @@ async function discoverUnlikedPost(
   const posts = [...seen.values()];
   const verdict = choosePost(posts.filter((p) => !ignoredUrns.has(p.urn)), publicId,
     { ...settings, maxPostAgeDays: ageLimit, allowAlreadyLiked: false }, personName, contextForPost);
-  const unknown = posts.some((p) => p.liked === null || !isCanonicalPostUrn(p.urn) ||
+  const unknown = posts.some((p) => p.liked === null ||
+    !(isCanonicalPostUrn(p.urn) || isVisualPostKey(p.urn)) ||
     !p.age || parseRelativeAgeDays(p.age) === undefined);
   return {
     posts, why: verdict.why || 'Nenhuma publicação elegível, não curtida e verificável encontrada no intervalo percorrido',
@@ -556,7 +558,39 @@ async function hydratePostForComment(
   d: ExecutorDeps, personId: string, post: PostSnapshot,
 ): Promise<ExecutionResult> {
   const failure = (message: string): ExecutionResult => ({ ok: false, reason: 'NO_REAL_EFFECT', message });
-  if (!isCanonicalPostUrn(post.url)) return failure('Post sem URN canônica; não gerar comentário');
+  if (isVisualPostKey(post.url)) {
+    return d.withBrowser(() => guard(async () => {
+      const owner = d.crm.getPerson(personId);
+      if (!owner?.publicId) return failure('Perfil do cartão visual não disponível no CRM');
+      const navigated = await gotoProfile(d, owner, 'recent-activity/all/');
+      if (navigated !== 'ok') return openFailed(navigated);
+      const section = await openPostsSection(d, owner.publicId);
+      if (section.status !== 'POST_SECTION_READY' || section.source !== 'posts')
+        return failure('Não foi possível validar Publicações no mesmo perfil para reler o texto');
+      if (d.preflightPostContract && !(await d.preflightPostContract()))
+        return failure('Pré-validação da seção Publicações bloqueada');
+      const proofs = postSelectionProof(d.crm, post.url);
+      if (!proofs || proofs.personId !== personId || proofs.publicId !== owner.publicId)
+        return failure('Prova contextual do cartão visual não coincide com o contato');
+      const selectorMap = d.driver.sel as unknown as Record<string, readonly string[]>;
+      const cards = await d.driver.read(extractPosts, selectorMap, 150);
+      const matches = cards.filter((p) => p.urn === post.url &&
+        p.cardIdentity?.identityStatus === 'PROVISIONAL' &&
+        p.cardIdentity.cardId === post.url && !p.isReshare);
+      if (matches.length !== 1)
+        return failure('Cartão visual mudou, desapareceu ou ficou ambíguo: IA não acionada');
+      const current = matches[0]!;
+      if (current.actorHref &&
+          !sameConfirmedPublicId(profileSlug(current.actorHref), owner.publicId))
+        return failure('Autor explícito contradiz o perfil selecionado');
+      if (current.truncated || current.text.trim().length < 24)
+        return failure('Texto visual incompleto: expandir e revisar antes de gerar IA');
+      d.crm.savePost(personId, {url:post.url,text:current.text,
+        postedAt:current.age ?? post.postedAt,hasMedia:current.hasMedia});
+      return {ok:true,data:{text:current.text}};
+    }));
+  }
+  if (!isCanonicalPostUrn(post.url)) return failure('Post sem vínculo canônico ou visual verificável');
   return d.withBrowser(() => guard(async () => {
       await d.driver.goto(postUrl(post.url));
       const selectors = d.driver.sel as unknown as Record<string, readonly string[]>;
@@ -608,22 +642,42 @@ async function hydratePostForComment(
 }
 
 /** Publica um comentário num post e confirma que ele aparece. */
-export async function publishComment(d: ExecutorDeps, urn: string, text: string): Promise<ExecutionResult> {
-  if (!isCanonicalPostUrn(urn)) return {
+export async function publishComment(
+  d: ExecutorDeps, urn: string, text: string, personId?: string,
+): Promise<ExecutionResult> {
+  if (!isCanonicalPostUrn(urn) && !isVisualPostKey(urn)) return {
     ok: false, reason: 'NO_REAL_EFFECT',
-    message: 'Publicação sem identificador canônico: comentário não enviado',
+    message: 'Publicação sem identificador canônico ou vínculo visual: comentário não enviado',
   };
   return guard(async () => {
-    // O permalink pode renderizar um cartão moderno sem o seletor legado
-    // postItem. A prontidão real exige que o URN canônico esteja visível.
-    await d.driver.goto(postUrl(urn));
+    const visual = isVisualPostKey(urn);
+    if (visual) {
+      const owner = personId ? d.crm.getPerson(personId) : undefined;
+      if (!owner?.publicId) return { ok: false, reason: 'NO_REAL_EFFECT',
+        message: 'Comentário visual exige pessoa confirmada da campanha' };
+      const opened = await gotoProfile(d, owner, 'recent-activity/all/');
+      if (opened !== 'ok') return openFailed(opened);
+      const section = await openPostsSection(d, owner.publicId);
+      if (section.status !== 'POST_SECTION_READY' || section.source !== 'posts')
+        return {ok:false,reason:'NO_REAL_EFFECT',
+          message:'Seção Publicações não confirmada para comentário visual'};
+      const proof = postSelectionProof(d.crm, urn);
+      if (!proof || proof.personId !== personId || proof.publicId !== owner.publicId)
+        return {ok:false,reason:'NO_REAL_EFFECT',
+          message:'Prova contextual do comentário não corresponde ao contato'};
+    } else {
+      await d.driver.goto(postUrl(urn));
+    }
     const selectorMap = d.driver.sel as unknown as Record<string, readonly string[]>;
     if (d.preflightPostContract && !(await d.preflightPostContract()))
       return { ok: false, reason: 'NO_REAL_EFFECT',
         message: 'Contrato visual do post não homologado; comentário bloqueado antes do editor' };
     const postReady = await d.driver.waitUntil(async () => {
       const posts = await d.driver.read(extractPosts, selectorMap, 80);
-      return posts.some((p) => p.urn === urn && p.cardIdentity?.identityStatus === 'CONFIRMED');
+      return posts.filter((p) => p.urn === urn &&
+        (p.cardIdentity?.identityStatus === 'CONFIRMED' ||
+          (visual && p.cardIdentity?.identityStatus === 'PROVISIONAL' &&
+           p.cardIdentity.cardId === urn)) && !p.isReshare).length === 1;
     }, 20_000);
     if (!postReady) return { ok: false, reason: 'NO_REAL_EFFECT',
       message: 'Identidade canônica do post não confirmada no permalink; comentário não preparado' };
@@ -779,7 +833,7 @@ export function commentWithAi(d: ExecutorDeps): ActionExecutor {
       }
 
       effect('approval', 'confirmed', 'AUTO_MODE_CONFIGURED');
-      const result = await d.withBrowser(() => publishComment(d, post.url, interpretation.comment));
+      const result = await d.withBrowser(() => publishComment(d, post.url, interpretation.comment, ctx.person.id));
       effect('comment', result.ok ? 'confirmed'
         : result.data?.commentAttempted === true ? 'uncertain' : 'blocked',
       result.ok ? undefined : result.reason);

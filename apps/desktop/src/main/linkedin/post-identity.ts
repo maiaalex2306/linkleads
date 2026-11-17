@@ -7,6 +7,13 @@ export function isCanonicalPostUrn(value: unknown): value is string {
   return typeof value === 'string' &&
     /^urn:li:(?:activity|ugcPost|share):[0-9]+$/.test(value);
 }
+/** Alvo visual temporário, gerado exclusivamente no cartão do filtro Posts.
+ * Nunca representa um permalink e somente vale no perfil da seleção.
+ */
+export function isVisualPostKey(value: unknown): value is string {
+  return typeof value === 'string' && /^ll-vcard:[^:]+:[a-f0-9]{16}$/.test(value);
+}
+
 
 
 /**
@@ -64,7 +71,7 @@ export function contextualAuthorAccepted(context: PostSelectionContext | undefin
     context.authorEvidence === 'contextual' &&
     !context.authorConflict &&
     context.postKind === 'original' &&
-    isCanonicalPostUrn(context.postUrn) &&
+    (isCanonicalPostUrn(context.postUrn) || isVisualPostKey(context.postUrn)) &&
     context.confirmedPublicId.trim().length > 0 &&
     context.personId.trim().length > 0);
 }
@@ -83,7 +90,7 @@ export function buildPostSelectionContext(
     truncated?: boolean;
     text: string;
     hasMedia: boolean;
-    cardIdentity?: { identityStatus: 'CONFIRMED' | 'PROVISIONAL' | 'CONFLICT' };
+    cardIdentity?: { cardId: string; identityStatus: 'CONFIRMED' | 'PROVISIONAL' | 'CONFLICT' };
   },
   personId: string,
   confirmedPublicId: string,
@@ -94,14 +101,16 @@ export function buildPostSelectionContext(
     post.postKind === 'RESHARE_COMMENTED' ? 'reshare' : 'original';
   const authorConflict = post.cardIdentity?.identityStatus === 'CONFLICT' ||
     (postKind === 'original' && Boolean(post.resharedByHref));
-  const cardConfirmed = post.cardIdentity?.identityStatus === 'CONFIRMED';
+  const cardBound = post.cardIdentity?.identityStatus === 'CONFIRMED' ||
+    (post.cardIdentity?.identityStatus === 'PROVISIONAL' &&
+      isVisualPostKey(post.urn) && post.cardIdentity.cardId === post.urn);
   return {
     personId, confirmedPublicId, sourceSection,
-    postUrn: isCanonicalPostUrn(post.urn) ? post.urn : null,
+    postUrn: isCanonicalPostUrn(post.urn) || isVisualPostKey(post.urn) ? post.urn : null,
     postKind,
     authorEvidence: post.actorHref ? 'explicit' :
       sourceSection === 'posts' && postKind === 'original' &&
-      cardConfirmed && !authorConflict
+      cardBound && !authorConflict
         ? 'contextual' : 'unknown',
     authorConflict,
     reactionState: post.liked === null ? 'unknown' : post.liked ? 'liked' : 'not_liked',

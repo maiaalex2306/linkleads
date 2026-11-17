@@ -184,6 +184,21 @@ export function postsFilterProbe(expectedPublicId: string): PostsFilterProbe {
   return { kind: 'BUTTON', point: { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) } };
 }
 
+/** Identidade operacional: chave de conteúdo vinculada ao perfil e ao filtro
+ * Publicações ATIVO. Não substitui URN canônica nem permite agir em "Todas".
+ * O texto pode ser repetido: nesse caso os guardas bloqueiam por ambiguidade.
+ */
+export function llVisualPostScopeValid(key: string): boolean {
+  const m = key.match(/^ll-vcard:([^:]+):[a-f0-9]{16}$/);
+  const route = location.pathname.match(/^\/in\/([^/]+)\/recent-activity\/(?:all|posts|shares)\/?$/i);
+  if (!m || !route || m[1] !== route[1]) return false;
+  let slug = '';
+  try { slug = decodeURIComponent(route[1]!); } catch { return false; }
+  return __llPostsFilterProbe(slug).kind === 'ACTIVE';
+}
+declare function __llPostsFilterProbe(slug: string): PostsFilterProbe;
+declare function __llVisualPostScopeValid(key: string): boolean;
+
 /** Verificacao atomica do filtro Posts antes de um clique de NAVEGACAO. */
 export function postsFilterClickGuard(expectedPublicId: string, x: number, y: number): boolean {
   const route = location.pathname.match(/^\/in\/([^/]+)\/recent-activity\/all\/?$/i);
@@ -321,9 +336,13 @@ declare function __llReactionTarget(card: Element, configured: readonly string[]
 export function llReactionClickGuard(
   sel: Record<string, readonly string[]>, urn: string, x: number, y: number,
 ): boolean {
-  if (!/^urn:li:(?:activity|ugcPost|share):\d{1,25}$/.test(urn)) return false;
+  const visual = /^ll-vcard:[^:]+:[a-f0-9]{16}$/.test(urn);
+  if (!visual && !/^urn:li:(?:activity|ugcPost|share):\d{1,25}$/.test(urn)) return false;
   const matches = __llPostContainers({ postItem: sel.postItem!, likeButton: sel.likeButton! })
-    .filter((entry) => entry.urn === urn && entry.identity.identityStatus === 'CONFIRMED');
+    .filter((entry) => entry.urn === urn &&
+      (entry.identity.identityStatus === 'CONFIRMED' ||
+       (visual && entry.identity.identityStatus === 'PROVISIONAL' &&
+        entry.identity.cardId === urn)));
   if (matches.length !== 1) return false;
   const target = __llReactionTarget(matches[0]!.el, sel.likeButton!);
   if (!target.element || target.state !== false) return false;
@@ -513,18 +532,44 @@ export function llPostContainers(
 
     // Cartões sem URN canônica são identificáveis SOMENTE durante a leitura.
     // Hash estável por conteúdo/links, sem usar índice de scroll como identidade.
-    const source = [
+    // Chave visual de uma publicação SEM URN, somente enquanto o filtro
+    // Publicações está selecionado no perfil. O texto vem do corpo PRÓPRIO,
+    // não do rodapé (contadores mudam após Curtir/Comentar) nem de citações.
+    const visibleBody = Array.from(card.querySelectorAll(
+      '.update-components-text, .feed-shared-text, [data-testid*="post-text"], [data-test-id*="commentary"], [dir="ltr"], p',
+    )).filter((node) => !embeddedWithin(node, card) &&
+      !node.closest(COMMENT) && !node.closest(AUTHOR_HEADER) &&
+      !node.closest('button, [role="button"], [role="toolbar"]') &&
+      !node.querySelector('button, [role="button"], [contenteditable]'))
+      .map((node) => (node as HTMLElement).innerText || node.textContent || '')
+      .map((s) => s.normalize('NFC').replace(/\s+/g, ' ').trim())
+      .find((s) => s.length >= 24 && s.length <= 6000) ?? '';
+    let source = [author?.href ?? '', visibleBody.slice(0, 128)].join('|');
+    const visualEligible = !primary && !conflicting && visibleBody.length >= 24;
+    if (!visualEligible) source = [
       [...direct].sort().join(','), [...primaryPermalinks].sort().join(','),
       [...nestedUrns].sort().join(','), author?.href ?? '',
       (card.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 512),
     ].join('|');
-    let hash = 2166136261;
+    let h1 = 2166136261, h2 = 0x811c9dc5;
     for (let i = 0; i < source.length; i++) {
-      hash ^= source.charCodeAt(i);
-      hash = Math.imul(hash, 16777619);
+      h1 = Math.imul(h1 ^ source.charCodeAt(i), 16777619);
+      h2 = Math.imul(h2 ^ (source.charCodeAt(i) + i), 16777619);
     }
+    const digest = (h1>>>0).toString(16).padStart(8,'0') +
+      (h2>>>0).toString(16).padStart(8,'0');
+    const route = location.pathname.match(/^\/in\/([^/]+)\/recent-activity\/(?:all|posts|shares)\/?$/i);
+    const profile = route ? route[1] : null;
+    const visualKey = visualEligible && profile
+      ? 'll-vcard:' + profile + ':' + digest : null;
+    // Só classificar como VISUAL quando o filtro Publicações está ATIVO.
+    // Fora desse contexto, manter o antigo identificador diagnóstico ll-card
+    // para não promover cartões na aba genérica ou páginas de outro perfil.
+    const visualVerified = !!visualKey &&
+      typeof __llVisualPostScopeValid === 'function' &&
+      __llVisualPostScopeValid(visualKey);
     return {
-      cardId: primary ?? 'll-card-' + (hash >>> 0).toString(16).padStart(8, '0'),
+      cardId: primary ?? (visualVerified ? visualKey! : 'll-card-' + digest.slice(0,8)),
       postUrn: primary,
       permalink,
       primaryActorUrl: author?.href ?? null,
@@ -537,9 +582,13 @@ export function llPostContainers(
   const add = (el: Element): void => {
     const identity = identityOf(el);
     const key = identity.postUrn ?? identity.cardId;
-    if (used.has(key)) return;
+    // Colisões entre cartões visuais NÃO são deduplicadas: o guard exige
+    // exatamente um alvo correspondente e falha fechado quando há dois.
+    if (used.has(key) && !key.startsWith('ll-vcard:')) return;
     used.add(key);
-    out.push({ el, urn: identity.postUrn ?? 'll-idx-' + provisional++, identity });
+    const visual = key.startsWith('ll-vcard:') &&
+      typeof __llVisualPostScopeValid === 'function' && __llVisualPostScopeValid(key);
+    out.push({ el, urn: identity.postUrn ?? (visual ? key : 'll-idx-' + provisional++), identity });
   };
 
   // Primeiro, os contêineres clássicos de nível superior. Um post incorporado
@@ -748,22 +797,28 @@ export function extractPosts(sel: Record<string, readonly string[]>, limit: numb
     // Só ler se estiver no mesmo envelope pequeno do autor JA verificado;
     // jamais deduzir idade a partir de números escritos no corpo do post.
     const sduiAgeLabel = (() => {
-      if (!identity.primaryActorUrl || !it.closest('[data-sdui-screen]')) return null;
-      const links = Array.from(it.querySelectorAll('a[href*="/in/"]')) as HTMLAnchorElement[];
-      const owner = links.find((a) =>
-        a.href.replace(/\/$/, '') === identity.primaryActorUrl?.replace(/\/$/, ''));
-      if (!owner) return null;
-      for (let node = owner.parentElement, depth = 0; node && node !== it && depth < 5;
-        node = node.parentElement, depth++) {
-        if (node.querySelector('button, [role="button"], [dir="ltr"], [contenteditable]')) break;
-        const labels = Array.from(node.querySelectorAll('span, p, time, a'))
-          .filter((item) => item !== owner && item.children.length < 3);
-        const found = labels.map((item) =>
-          ((item as HTMLElement).innerText || item.textContent || '').replace(/\s+/g, ' ').trim())
-          .find((value) => value.length > 0 && value.length < 45 && AGE.test(value));
-        if (found) return found;
-      }
-      return null;
+      if (!it.closest('[data-sdui-screen]')) return null;
+      // A versão anterior condicionava a leitura da data à URL do autor.
+      // Esta dependência circular causou 37/38 posts "sem data" nos traces.
+      const reactionNode = reaction.element;
+      if (!reactionNode) return null;
+      const labels = Array.from(it.querySelectorAll('span, p, time, a, div'))
+        .filter((node) => !inEmbedded(node) &&
+          !node.closest('.comments-comment-entity, .comments-comment-item, [contenteditable]') &&
+          node.children.length <= 2 &&
+          !!(node.compareDocumentPosition(reactionNode) & Node.DOCUMENT_POSITION_FOLLOWING))
+        .slice(0, 100)
+        .map((node) =>
+          ((node as HTMLElement).innerText || node.textContent || '').replace(/\s+/g, ' ').trim())
+        .filter((value) => value.length > 0 && value.length <= 42 &&
+          /^(?:h[áa]\s+)?\d+\s*(?:min(?:utos?)?|h(?:oras?|rs?)?|d(?:ias?)?|sem(?:anas?)?|w(?:eeks?)?|mo(?:nths?)?|m[eê]s(?:es)?|mes(?:es)?|m|a(?:nos?)?|y(?:ears?)?)\b/i.test(value));
+      // A faixa pai também pode incluir o nome do autor. Não tomar a data
+      // agregada como segunda prova independente de um <span> temporal.
+      // Aceitar apenas texto que COMEÇA pelo carimbo, sem inferir do corpo.
+      // Aceitar somente UMA legenda temporal distinta ANTES do botão de reação.
+      // Duas datas significam conteúdo incorporado/ambíguo => revisão.
+      const unique = [...new Set(labels)];
+      return unique.length === 1 ? unique[0]! : null;
     })();
     const ageTxt = (labelled && /(?:^|\s)(?:h[áa]\s+)?\d+\s*(?:min|h|d|dia|day|sem|w|week|m[oêe]|mes|a|ano|y|year)\b/i.test(labelled)
       ? labelled : null) || absolute || permalinkAge || sduiAgeLabel || null;
@@ -832,7 +887,7 @@ export function extractPosts(sel: Record<string, readonly string[]>, limit: numb
 
 export function likeState(sel: Record<string, readonly string[]>, urn: string): boolean | null {
   const matches = __llPostContainers({ postItem: sel.postItem!, likeButton: sel.likeButton! })
-    .filter((entry) => entry.urn === urn && entry.identity.identityStatus === 'CONFIRMED');
+    .filter((entry) => entry.urn === urn && (entry.identity.identityStatus === 'CONFIRMED' || (urn.startsWith('ll-vcard:') && entry.identity.identityStatus === 'PROVISIONAL' && entry.identity.cardId === urn)));
   if (matches.length !== 1) return null;
   return __llReactionTarget(matches[0]!.el, sel.likeButton!).state;
 }
@@ -845,7 +900,7 @@ export function llCommentControls(
   sel: Record<string, readonly string[]>, urn: string,
 ): { root: Element | null; editor: HTMLElement | null; submit: HTMLButtonElement | null; reason: string } {
   const cards = __llPostContainers({ postItem: sel.postItem!, likeButton: sel.likeButton! })
-    .filter((c) => c.urn === urn && c.identity.identityStatus === 'CONFIRMED');
+    .filter((c) => c.urn === urn && (c.identity.identityStatus === 'CONFIRMED' || (urn.startsWith('ll-vcard:') && c.identity.identityStatus === 'PROVISIONAL' && c.identity.cardId === urn)));
   if (cards.length !== 1) return { root: null, editor: null, submit: null, reason: 'CARD_UNVERIFIED' };
   const root = cards[0]!.el;
   const embedded = '.feed-shared-mini-update-v2, .update-components-mini-update-v2, .feed-shared-article, .update-components-article, [data-testid*="quoted"], [data-test-id*="reshared"]';
@@ -974,7 +1029,7 @@ export function commentEvidence(
   const norm = (s: string): string => s.replace(/\s+/g, ' ').trim().toLocaleLowerCase();
   const expected = norm(commentText);
   const cards = __llPostContainers({ postItem: sel.postItem!, likeButton: sel.likeButton! })
-    .filter((c) => c.urn === urn && c.identity.identityStatus === 'CONFIRMED');
+    .filter((c) => c.urn === urn && (c.identity.identityStatus === 'CONFIRMED' || (urn.startsWith('ll-vcard:') && c.identity.identityStatus === 'PROVISIONAL' && c.identity.cardId === urn)));
   if (!expected || cards.length !== 1)
     return { count: 0, ownedCount: 0, editorEmpty: false, cardConfirmed: false };
   const root = cards[0]!.el;
@@ -1047,7 +1102,7 @@ export function commentOpenGuard(
   sel: Record<string, readonly string[]>, urn: string, x: number, y: number,
 ): boolean {
   const cards = __llPostContainers({ postItem: sel.postItem!, likeButton: sel.likeButton! })
-    .filter((card) => card.urn === urn && card.identity.identityStatus === 'CONFIRMED');
+    .filter((card) => card.urn === urn && (card.identity.identityStatus === 'CONFIRMED' || (urn.startsWith('ll-vcard:') && card.identity.identityStatus === 'PROVISIONAL' && card.identity.cardId === urn)));
   if (cards.length !== 1) return false;
   const root = cards[0]!.el;
   const elements = new Set<HTMLElement>();
@@ -1083,7 +1138,7 @@ export function postExpandPoint(
   sel: Record<string, readonly string[]>, urn: string,
 ): { x: number; y: number } | null {
   const cards = __llPostContainers({ postItem: sel.postItem!, likeButton: sel.likeButton! })
-    .filter((c) => c.urn === urn && c.identity.identityStatus === 'CONFIRMED');
+    .filter((c) => c.urn === urn && (c.identity.identityStatus === 'CONFIRMED' || (urn.startsWith('ll-vcard:') && c.identity.identityStatus === 'PROVISIONAL' && c.identity.cardId === urn)));
   if (cards.length !== 1) return null;
   const root = cards[0]!.el;
   const selectors = [

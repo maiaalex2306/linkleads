@@ -43,8 +43,15 @@ export interface PostSelectionProof {
 
 /** Primeira prova vence: não permitir que o post seja atribuído a outro perfil. */
 export function savePostSelectionProof(crm: IntegrationCrm, urn: string, personId: string, publicId: string): boolean {
-  if (!/^urn:li:(?:activity|ugcPost|share):\d+$/.test(urn) ||
-      !personId.trim() || !publicId.trim()) return false;
+  const canonical = /^urn:li:(?:activity|ugcPost|share):\d+$/.test(urn);
+  const visual = urn.match(/^ll-vcard:([^:]+):[a-f0-9]{16}$/);
+  // A prova visual só vale para o MESMO perfil cujo filtro Publicações
+  // foi verificado. Não transformar o token local em permalink público.
+  let sameProfile = false;
+  try { sameProfile = !!visual && decodeURIComponent(visual[1]!) === publicId; }
+  catch { /* identificador inválido */ }
+  if ((!canonical && !sameProfile) || !personId.trim() || !publicId.trim())
+    return false;
   crm.db.prepare(
     "INSERT OR IGNORE INTO post_selection_proofs(post_url,person_id,public_id,source_section,post_kind,author_evidence) VALUES(?,?,?,'posts','original','contextual')",
   ).run(urn, personId, publicId);

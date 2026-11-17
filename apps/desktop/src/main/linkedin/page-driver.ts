@@ -1,5 +1,6 @@
 import {
   llIsReact, llPostContainers, llReactionTarget, llReactionClickGuard,
+  postsFilterProbe, llVisualPostScopeValid,
   llCommentControls, commentEvidence, commentEditorPoint, commentSubmitPoint,
   commentClickGuard, commentOpenGuard, postExpandPoint, postExpandGuard,
 } from './dom-scripts.js';
@@ -94,7 +95,7 @@ export class PageDriver {
   /** Executa uma função pura no mundo isolado. A função não pode usar closures. */
   async read<T, A extends unknown[]>(fn: (...args: A) => T, ...args: A): Promise<T> {
     // cada leitura num escopo próprio (o ajudante de posts não pode ser redeclarado no mesmo mundo isolado)
-    const code = `(() => { const __llIsReact = ${llIsReact.toString()};\nconst llIsReact = __llIsReact;\nconst __llPostContainers = ${llPostContainers.toString()};\nconst __llReactionTarget = ${llReactionTarget.toString()};\nconst __llCommentControls = ${llCommentControls.toString()};\nconst __llCommentEvidence = ${commentEvidence.toString()};\nconst __llPostExpandPoint = ${postExpandPoint.toString()};\nreturn (${fn.toString()})(...${JSON.stringify(args)}); })()`;
+    const code = `(() => { const __llIsReact = ${llIsReact.toString()};\nconst llIsReact = __llIsReact;\nconst __llPostsFilterProbe = ${postsFilterProbe.toString()};\nconst __llVisualPostScopeValid = ${llVisualPostScopeValid.toString()};\nconst __llPostContainers = ${llPostContainers.toString()};\nconst __llReactionTarget = ${llReactionTarget.toString()};\nconst __llCommentControls = ${llCommentControls.toString()};\nconst __llCommentEvidence = ${commentEvidence.toString()};\nconst __llPostExpandPoint = ${postExpandPoint.toString()};\nreturn (${fn.toString()})(...${JSON.stringify(args)}); })()`;
     const started = Date.now();
     try {
       const result = (await this.wc.executeJavaScriptInIsolatedWorld(ISOLATED_WORLD, [{ code }])) as T;
@@ -195,7 +196,10 @@ export class PageDriver {
         let root: ParentNode = document;
         if (urn && containerCands) {
           const containers = __llPostContainers({ postItem: containerCands, likeButton: likeCands })
-            .filter((c) => c.urn === urn && c.identity.identityStatus === 'CONFIRMED');
+            .filter((c) => c.urn === urn &&
+              (c.identity.identityStatus === 'CONFIRMED' ||
+              (urn.startsWith('ll-vcard:') &&
+               c.identity.identityStatus === 'PROVISIONAL')));
           if (containers.length !== 1) return null;
           root = containers[0]!.el;
         }

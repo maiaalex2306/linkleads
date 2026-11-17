@@ -2,6 +2,7 @@
 import { createRequire } from 'node:module';
 import {
   llIsReact, llPostContainers, llReactionTarget, llCommentControls,
+  postsFilterProbe, llVisualPostScopeValid,
   commentEditorPoint, commentSubmitPoint, commentEvidence, matchingCommentCount,
   editorText, commentClickGuard, commentOpenGuard, postExpandPoint, postExpandGuard, extractPosts,
 } from '../dist/main/linkedin/dom-scripts.js';
@@ -28,6 +29,7 @@ const selectors = {
 const functions = {
   reaction: llIsReact.toString(), containers: llPostContainers.toString(),
   reactionTarget: llReactionTarget.toString(),
+  filterProbe: postsFilterProbe.toString(), visualScope: llVisualPostScopeValid.toString(),
   controls: llCommentControls.toString(), evidence: commentEvidence.toString(),
   expansion: postExpandPoint.toString(),
   editorPoint: commentEditorPoint.toString(), submitPoint: commentSubmitPoint.toString(),
@@ -42,6 +44,8 @@ const assert = (value, explanation) => {
 const run = (fn, args = []) => page.evaluate(({ fns, fn, args, selectors }) => {
   const __llIsReact = eval('(' + fns.reaction + ')');
   const llIsReact = __llIsReact;
+  const __llPostsFilterProbe = eval('(' + fns.filterProbe + ')');
+  const __llVisualPostScopeValid = eval('(' + fns.visualScope + ')');
   const __llPostContainers = eval('(' + fns.containers + ')');
   const __llReactionTarget = eval('(' + fns.reactionTarget + ')');
   const __llCommentControls = eval('(' + fns.controls + ')');
@@ -202,6 +206,47 @@ try {
     form.replace('type="submit"', 'type="submit" aria-disabled="true"')) + '</main>');
   assert((await run('submitPoint', [urn])) === null,
     'Fase 7: botão Publicar aria-disabled não autoriza envio');
+
+  // FASE 0.5.20: envio de comentário no cartão SEM URN, diretamente
+  // na aba Publicações do perfil, sem navegar para permalink inventado.
+  const visualCard = '<section class="sdui-card">' +
+    '<div class="author"><a href="https://www.linkedin.com/in/ana-silva/">Ana Silva</a>' +
+    '<span>há 2 d</span></div>' +
+    '<div class="update-components-text">Esta publicação apresenta melhorias comerciais relevantes e resultados sustentáveis.</div>' +
+    '<button aria-label="Like" aria-pressed="true">Like</button>' +
+    '<button aria-label="Comment">Comment</button>' + form + '</section>';
+  const pageHtml = '<html><head><meta charset="utf-8"></head><body><main>' +
+    '<h2>Todas as atividades</h2><div class="chips">' +
+    '<button style="background:rgb(0,119,86);color:white">Publicações</button>' +
+    '<button style="background:rgb(245,245,245)">Comentários</button>' +
+    '<button style="background:rgb(245,245,245)">Vídeos</button></div>' +
+    '<div data-sdui-screen>' + visualCard + '</div></main></body></html>';
+  await page.route('**/in/ana-silva/recent-activity/all/', route =>
+    route.fulfill({status:200,contentType:'text/html',body:pageHtml}));
+  await page.goto('https://www.linkedin.com/in/ana-silva/recent-activity/all/');
+  const visual = await run('extract',[50]);
+  assert(visual.length===1 && visual[0].urn.startsWith('ll-vcard:ana-silva:'),
+    'SDUI: comentário encontra cartão próprio único sem URN na seção Publicações');
+  const visualId = visual[0].urn;
+  const visualEditor = await run('editorPoint',[visualId]);
+  const visualSubmit = await run('submitPoint',[visualId]);
+  assert(!!visualEditor && !!visualSubmit,
+    'SDUI: editor e envio são vinculados ao mesmo cartão visual');
+  await page.locator('.sdui-card [data-testid="comment-editor"]').fill(text);
+  assert(await run('clickGuard',[visualId,'submit',visualSubmit.x,visualSubmit.y,text]),
+    'SDUI: texto aprovado autoriza somente o envio do cartão visual');
+  assert(!(await run('clickGuard',[visualId,'submit',visualSubmit.x,visualSubmit.y,'Texto alterado'])),
+    'SDUI: texto divergente bloqueia o envio visual');
+  await page.locator('.sdui-card').evaluate((node,t)=>{
+    node.insertAdjacentHTML('beforeend',
+      '<article class="comments-comment-entity comments-comment-entity--mine" data-author-self="true">' +
+      '<span class="comments-comment-item__main-content"></span></article>');
+    node.querySelector('.comments-comment-item__main-content').textContent=t;
+    node.querySelector('[data-testid="comment-editor"]').textContent='';
+  },text);
+  const visualEvidence = await run('evidence',[visualId,text]);
+  assert(visualEvidence.cardConfirmed && visualEvidence.ownedCount===1 &&
+    visualEvidence.editorEmpty, 'SDUI: confirmação visual exige autoria da conta e editor limpo');
 
   console.log('E2E FASE 4/7 — EDITOR, ENVIO E PROVA OK');
 } catch (e) {

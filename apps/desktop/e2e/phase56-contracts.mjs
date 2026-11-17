@@ -81,6 +81,21 @@ try {
   ok(!savePostSelectionProof(crm,urn,'outro','outro'),'prova não pode migrar para homônimo');
   ok(postSelectionProof(crm,urn)?.publicId==='leticia','primeira prova permanece imutável');
   ok(!savePostSelectionProof(crm,'ll-idx-1','leticia','leticia'),'URN provisória rejeitada');
+  const visualKey = 'll-vcard:leticia:12345678abcdef01';
+  const visual = {...original,urn:visualKey,cardIdentity:{...original.cardIdentity,
+    cardId:visualKey,postUrn:null,identityStatus:'PROVISIONAL'}};
+  const visualProof = buildPostSelectionContext(visual,'leticia','leticia','posts');
+  ok(contextualAuthorAccepted(visualProof),
+    'autoria contextual de post original visual não requer URN canônica');
+  ok(evaluatePost(visual,'leticia',{maxPostAgeDays:365},visualProof).status==='ELIGIBLE',
+    'post visual do mesmo perfil/filtro passa seleção sem URN');
+  ok(savePostSelectionProof(crm,visualKey,'leticia','leticia'),
+    'prova visual fica vinculada ao perfil da seção Publicações');
+  ok(!savePostSelectionProof(crm,visualKey,'outro','outro'),
+    'outro perfil não apropria prova visual');
+  ok(!savePostSelectionProof(crm,'ll-vcard:outro:12345678abcdef01','leticia','leticia'),
+    'chave visual de outro perfil não pode ser guardada');
+
   ok(!contextualAuthorAccepted(buildPostSelectionContext(original,'leticia','leticia','activity')),
     'atividade genérica não comprova autoria');
   const other={...original,actorHref:'https://www.linkedin.com/in/outro/'};

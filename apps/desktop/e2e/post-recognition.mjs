@@ -1,6 +1,6 @@
 // Fase 3: fixtures Chromium totalmente isoladas, sem rede externa/LinkedIn.
 import { createRequire } from 'node:module';
-import { extractPosts, likeState, llPostContainers, llIsReact, llReactionTarget, llReactionClickGuard } from '../dist/main/linkedin/dom-scripts.js';
+import { extractPosts, likeState, llPostContainers, llIsReact, llReactionTarget, llReactionClickGuard, postsFilterProbe, llVisualPostScopeValid } from '../dist/main/linkedin/dom-scripts.js';
 const require = createRequire(import.meta.url);
 const { chromium } = require('playwright');
 const browser = await chromium.launch({ headless: true });
@@ -18,6 +18,7 @@ const functions = {
   reaction: llIsReact.toString(), containers: llPostContainers.toString(),
   reactionTarget: llReactionTarget.toString(), extract: extractPosts.toString(),
   likeState: likeState.toString(), clickGuard: llReactionClickGuard.toString(),
+  filterProbe: postsFilterProbe.toString(), visualScope: llVisualPostScopeValid.toString(),
 };
 const check = (ok, message, evidence) => {
   if (!ok) throw Error('FALHOU: ' + message + (evidence === undefined ? '' : ' ' + JSON.stringify(evidence)));
@@ -26,6 +27,8 @@ const check = (ok, message, evidence) => {
 const scan = () => page.evaluate(({ fns, selectors }) => {
   const __llIsReact = eval('(' + fns.reaction + ')');
   const llIsReact = __llIsReact;
+  const __llPostsFilterProbe = eval('(' + fns.filterProbe + ')');
+  const __llVisualPostScopeValid = eval('(' + fns.visualScope + ')');
   const __llPostContainers = eval('(' + fns.containers + ')');
   const __llReactionTarget = eval('(' + fns.reactionTarget + ')');
   const extract = eval('(' + fns.extract + ')');
@@ -34,6 +37,8 @@ const scan = () => page.evaluate(({ fns, selectors }) => {
 const probe = (urn, clickPoint = null) => page.evaluate(({ fns, selectors, urn, clickPoint }) => {
   const __llIsReact = eval('(' + fns.reaction + ')');
   const llIsReact = __llIsReact;
+  const __llPostsFilterProbe = eval('(' + fns.filterProbe + ')');
+  const __llVisualPostScopeValid = eval('(' + fns.visualScope + ')');
   const __llPostContainers = eval('(' + fns.containers + ')');
   const __llReactionTarget = eval('(' + fns.reactionTarget + ')');
   const read = eval('(' + fns.likeState + ')');
@@ -87,6 +92,58 @@ try {
   check(sduiRead.length === 1 && sduiRead[0].cardIdentity?.identityStatus === 'CONFLICT' &&
     sduiRead[0].urn.startsWith('ll-idx-'),
     'SDUI: dois metadados primários conflitantes continuam bloqueados',sduiRead.map(p=>p.cardIdentity));
+
+  // FASE 0.5.20: página que permanece /all/ com Publicações em verde.
+  const fixtureCard = () => '<section class="sdui-card">' +
+    '<div class="author"><a href="https://www.linkedin.com/in/jana/">Jana Barbosa</a>' +
+    '<span>há 4 m · Editado</span></div>' +
+    '<p dir="ltr">Esta semana pausamos para compartilhar uma reflexão sobre desenvolvimento profissional.</p>' +
+    '<button aria-label="Curtir" aria-pressed="false">Curtir</button>' +
+    '<button aria-label="Comentar">Comentar</button></section>';
+  const fixtureHtml = (tab = 'Publicações', repeat = 1) =>
+    '<html><head><meta charset="utf-8"></head><body><main><h2>Todas as atividades</h2>' +
+    '<div class="chips">' + ['Publicações','Comentários','Vídeos','Imagens']
+      .map(label => '<button style="background:' + (label === tab ? 'rgb(0,119,86)' : 'rgb(245,245,245)') +
+        ';color:' + (label === tab ? 'white' : 'black') + '">' + label + '</button>').join('') + '</div>' +
+    '<div data-sdui-screen>' + fixtureCard().repeat(repeat) + '</div></main></body></html>';
+  await page.route('**/in/jana/recent-activity/all/', route =>
+    route.fulfill({status:200,contentType:'text/html',body:fixtureHtml()}));
+  await page.goto('https://www.linkedin.com/in/jana/recent-activity/all/');
+  let visualPosts = await scan();
+  const visualDebug = await page.evaluate(() => ({
+    location: location.pathname, htmlLength: document.body?.innerHTML.length,
+    cards: document.querySelectorAll('.sdui-card').length,
+    spans: Array.from(document.querySelectorAll('span')).map(x => x.textContent),
+    buttons: Array.from(document.querySelectorAll('button')).map(x => x.textContent),
+    cardText: document.querySelector('.sdui-card')?.textContent?.slice(0,130),
+  }));
+  check(visualPosts.length === 1 && visualPosts[0].urn.startsWith('ll-vcard:jana:') &&
+    visualPosts[0].cardIdentity.identityStatus === 'PROVISIONAL' &&
+    visualPosts[0].age?.includes('4 m') && visualPosts[0].liked === false,
+    'SDUI /all/ filtro Publicações: cartão sem URN vinculado por conteúdo/perfil e data',
+    {observed:visualPosts.map(p=>({urn:p.urn,age:p.age,liked:p.liked})),dom:visualDebug});
+  let visualGuard = await probe(visualPosts[0].urn);
+  check(visualGuard.guard && visualGuard.state === false,
+    'SDUI sem URN: guard valida o botão original não curtido na mesma viewport');
+  await page.locator('.sdui-card button[aria-label="Curtir"]').evaluate(el=>el.setAttribute('aria-pressed','true'));
+  visualGuard = await probe(visualPosts[0].urn);
+  check(visualGuard.state === true && visualGuard.guard === false,
+    'SDUI: confirmação da curtida impede clicar novamente');
+  await page.unroute('**/in/jana/recent-activity/all/');
+  await page.route('**/in/jana/recent-activity/all/', route =>
+    route.fulfill({status:200,contentType:'text/html',body:fixtureHtml('Publicações',2)}));
+  await page.reload();
+  visualPosts = await scan();
+  visualGuard = await probe(visualPosts[0].urn);
+  check(visualPosts.length === 2 && visualGuard.state === null && !visualGuard.guard,
+    'SDUI: posts de mesmo conteúdo são ambíguos e bloqueados');
+  await page.unroute('**/in/jana/recent-activity/all/');
+  await page.route('**/in/jana/recent-activity/all/', route =>
+    route.fulfill({status:200,contentType:'text/html',body:fixtureHtml('Comentários')}));
+  await page.reload();
+  visualPosts = await scan();
+  check(!visualPosts.some(p=>p.urn.startsWith('ll-vcard:')),
+    'SDUI: filtro Comentários selecionado jamais autoriza cartão visual');
 
   await page.setContent(
     '<main><div class="feed-shared-update-v2" data-urn="urn:li:activity:7001">' +
@@ -535,7 +592,9 @@ try {
   const scanSdui = () => page.evaluate(({ fns, selectors }) => {
     const __llIsReact = eval('(' + fns.reaction + ')');
     const llIsReact = __llIsReact;
-    const __llPostContainers = eval('(' + fns.containers + ')');
+    const __llPostsFilterProbe = eval('(' + fns.filterProbe + ')');
+  const __llVisualPostScopeValid = eval('(' + fns.visualScope + ')');
+  const __llPostContainers = eval('(' + fns.containers + ')');
     const __llReactionTarget = eval('(' + fns.reactionTarget + ')');
     return eval('(' + fns.extract + ')')(selectors, 50);
   }, { fns: functions, selectors: sdui });
