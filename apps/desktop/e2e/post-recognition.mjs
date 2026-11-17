@@ -101,7 +101,7 @@ try {
     '<button aria-label="Curtir" aria-pressed="false">Curtir</button>' +
     '<button aria-label="Comentar">Comentar</button></section>';
   const fixtureHtml = (tab = 'Publicações', repeat = 1) =>
-    '<html><body><main><h2>Todas as atividades</h2>' +
+    '<html><head><meta charset="utf-8"></head><body><main><h2>Todas as atividades</h2>' +
     '<div class="chips">' + ['Publicações','Comentários','Vídeos','Imagens']
       .map(label => '<button style="background:' + (label === tab ? 'rgb(0,119,86)' : 'rgb(245,245,245)') +
         ';color:' + (label === tab ? 'white' : 'black') + '">' + label + '</button>').join('') + '</div>' +
