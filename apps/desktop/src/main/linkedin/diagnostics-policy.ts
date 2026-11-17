@@ -21,7 +21,7 @@ export function diagnosticPath(rawUrl: string): string {
 }
 
 export type DiagnosticCode =
-  | 'CARD_NOT_FOUND' | 'CARD_ID_CONFLICT' | 'CARD_ID_PROVISIONAL'
+  | 'CARD_NOT_FOUND' | 'DOM_EXTRACTION_ERROR' | 'CARD_ID_CONFLICT' | 'CARD_ID_PROVISIONAL'
   | 'RESHARE_CLASSIFICATION_ERROR' | 'RESHARE_EXCLUDED'
   | 'AUTHOR_UNVERIFIED' | 'AUTHOR_MISMATCH'
   | 'REACTION_UNKNOWN' | 'LIKE_NOT_CONFIRMED'
@@ -29,6 +29,22 @@ export type DiagnosticCode =
   | 'AI_NOT_READY' | 'UI_CHANGED'
   | 'POST_AGE_UNVERIFIED' | 'POST_TOO_OLD'
   | 'ALREADY_LIKED' | 'POST_EMPTY' | 'POST_ELIGIBLE';
+
+/**
+ * Uma falha na leitura do DOM não equivale à ausência de publicações.
+ * Não exporta mensagens de exceção, URLs ou conteúdo sensível.
+ */
+export function postInventoryPrimaryCode(input: {
+  isActivity: boolean;
+  extractionFailed: boolean;
+  recognized: number;
+  reviewCodes: readonly DiagnosticCode[];
+}): DiagnosticCode | 'OK' {
+  if (!input.isActivity) return 'OK';
+  if (input.extractionFailed) return 'DOM_EXTRACTION_ERROR';
+  if (input.recognized === 0) return 'CARD_NOT_FOUND';
+  return input.reviewCodes[0] ?? 'OK';
+}
 
 export interface CardDecision {
   ordinal: number;
