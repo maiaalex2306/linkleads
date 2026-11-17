@@ -6,7 +6,7 @@ import type { IntegrationCrm } from '@linkleads/db';
 import type { EnrichmentProvider } from '@linkleads/integrations';
 import { commentEditorPoint, commentSubmitPoint, commentEvidence, editorText, extractPosts, extractProfile, likeState, profileReady, type PostExtract } from './dom-scripts.js';
 import { BlockedError, type PageDriver } from './page-driver.js';
-import { isCanonicalPostUrn, provisionalPostFingerprint, contextualAuthorAccepted, buildPostSelectionContext, matchHydratedPost, type PostSelectionContext } from './post-identity.js';
+import { isCanonicalPostUrn, isVisualPostKey, provisionalPostFingerprint, contextualAuthorAccepted, buildPostSelectionContext, matchHydratedPost, type PostSelectionContext } from './post-identity.js';
 import { evaluatePost, firstUnlikedCandidate, profileSlug, sameConfirmedPublicId, type PostEvaluationCode } from './post-evaluation.js';
 export { evaluatePost, firstUnlikedCandidate, profileSlug, sameConfirmedPublicId } from './post-evaluation.js';
 export type { PostEvaluation, PostEvaluationStatus, PostEvaluationStage, PostEvaluationCode } from './post-evaluation.js';
@@ -220,7 +220,7 @@ export function choosePost(
 
 /** Progresso só é demonstrável por URNs canônicas novas. Índices ll-idx-* se repetem. */
 export function hasNewVerifiedPost(seen: ReadonlyMap<string, PostExtract>, batch: readonly PostExtract[]): boolean {
-  return batch.some((post) => isCanonicalPostUrn(post.urn) && !seen.has(post.urn));
+  return batch.some((post) => (isCanonicalPostUrn(post.urn) || isVisualPostKey(post.urn)) && !seen.has(post.urn));
 }
 
 /**
@@ -251,7 +251,8 @@ async function discoverUnlikedPost(
     // cartão provisório recebe uma chave de observação estável e não vira "novo"
     // em cada leitura do mesmo conteúdo.
     for (const p of batch) {
-      const key = isCanonicalPostUrn(p.urn) ? p.urn : 'unresolved:' + provisionalPostFingerprint(p);
+      const key = isCanonicalPostUrn(p.urn) || isVisualPostKey(p.urn)
+        ? p.urn : 'unresolved:' + provisionalPostFingerprint(p);
       if (!seen.has(key)) {
         seen.set(key, p);
         // Telemetria de TODA nova decisão em uma campanha, inclusive elegíveis.
@@ -297,7 +298,7 @@ async function discoverUnlikedPost(
     }
     if (candidate.post) {
       const post = candidate.post;
-      if (!isCanonicalPostUrn(post.urn))
+      if (!isCanonicalPostUrn(post.urn) && !isVisualPostKey(post.urn))
         return { posts: ordered,
           why: 'Primeira publicacao nao curtida identificada na ordem da tela, mas seu ID e provisório. ' +
             'A selecao esta correta; o vinculo com o post ainda deve ser resolvido antes de qualquer interacao.',
@@ -335,7 +336,8 @@ async function discoverUnlikedPost(
   const posts = [...seen.values()];
   const verdict = choosePost(posts.filter((p) => !ignoredUrns.has(p.urn)), publicId,
     { ...settings, maxPostAgeDays: ageLimit, allowAlreadyLiked: false }, personName, contextForPost);
-  const unknown = posts.some((p) => p.liked === null || !isCanonicalPostUrn(p.urn) ||
+  const unknown = posts.some((p) => p.liked === null ||
+    !(isCanonicalPostUrn(p.urn) || isVisualPostKey(p.urn)) ||
     !p.age || parseRelativeAgeDays(p.age) === undefined);
   return {
     posts, why: verdict.why || 'Nenhuma publicação elegível, não curtida e verificável encontrada no intervalo percorrido',
