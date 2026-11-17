@@ -802,7 +802,7 @@ export function extractPosts(sel: Record<string, readonly string[]>, limit: numb
           !!(node.compareDocumentPosition(reactionNode) & Node.DOCUMENT_POSITION_FOLLOWING))
         .slice(0, 100)
         .map((node) =>
-          ((node as HTMLElement).innerText || node.textContent || '').replace(/\\s+/g, ' ').trim())
+          ((node as HTMLElement).innerText || node.textContent || '').replace(/\s+/g, ' ').trim())
         .filter((value) => value.length > 0 && value.length <= 42 && AGE.test(value));
       // Aceitar somente UMA legenda temporal distinta ANTES do botão de reação.
       // Duas datas significam conteúdo incorporado/ambíguo => revisão.
