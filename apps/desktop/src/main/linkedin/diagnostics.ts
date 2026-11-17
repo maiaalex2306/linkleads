@@ -60,7 +60,7 @@ export interface DiagnosisContext {
   includeReshares?: boolean;
   maxPostAgeDays?: number;
   /** Erro da TENTATIVA já observado pelo executor, não inferido de outra leitura. */
-  attempt?: { code: string; stage: 'selection'; ordinal: number | null };
+  attempt?: { code: string; stage: 'selection'; ordinal: number | null; evidence?: CardDecision['evidence'] };
 }
 
 export interface DiagnosisReport {
@@ -72,7 +72,7 @@ export interface DiagnosisReport {
   layout: { shape: LayoutShape; hash: string; comparison?: BaselineResult };
   primaryCode: DiagnosticCode | 'OK';
   /** Evidência da seleção real, distinta do diagnóstico agregado da página. */
-  attempt?: { code: string; stage: 'selection'; ordinal: number | null };
+  attempt?: { code: string; stage: 'selection'; ordinal: number | null; evidence?: CardDecision['evidence'] };
   /** Sem slug, texto, URN, nome nem URL; só estado e método de inspeção. */
   postsFilter?: { kind: PostsFilterProbe['kind']; verification: string; expectedProfileMatched: boolean };
   /** Etapa bloqueada e componente proprietário; nunca contém PII. */
@@ -320,22 +320,28 @@ export async function diagnosePage(
     primaryCode: priority,
     attempt: context.attempt,
     postsFilter,
-    primaryBlocker: priority !== 'OK' && decisions.length > 0
+    primaryBlocker: priority !== 'OK'
       ? (() => {
+          // Snapshot do cartão ANTES da re-hidratação: não misturar outra
+          // publicação detectada durante o diagnóstico de página.
+          const snapshot = context.attempt?.evidence && context.attempt.ordinal
+            ? {code: attemptCode ?? priority, stage: context.attempt.stage,
+                ordinal: context.attempt.ordinal, evidence: context.attempt.evidence}
+            : undefined;
           const item = context.attempt
-            ? decisions.find((d) => d.ordinal === context.attempt!.ordinal &&
-                d.code === attemptCode)
+            ? undefined
             : decisions.find((d) => d.status === 'REVIEW_REQUIRED');
-          if (!item) return undefined;
-          const code = attemptCode ?? item.code;
+          const selected = snapshot ?? item;
+          if (!selected) return undefined;
+          const code = selected.code;
           const module = code === 'CARD_ID_PROVISIONAL' || code === 'CARD_ID_CONFLICT'
             ? 'dom-scripts.ts / post-identity.ts'
             : code === 'AUTHOR_UNVERIFIED' || code === 'AUTHOR_MISMATCH'
               ? 'dom-scripts.ts / post-evaluation.ts'
             : code === 'POST_AGE_UNVERIFIED' ? 'relative-time.ts / post-evaluation.ts'
             : 'post-evaluation.ts / executors.ts';
-          return { code, stage: context.attempt?.stage ?? item.stage, module,
-            ordinal: item.ordinal, evidence: item.evidence };
+          return { code, stage: selected.stage, module,
+            ordinal: selected.ordinal, evidence: selected.evidence };
         })() : undefined,
     page,
     path: diagnosticPath(url),
