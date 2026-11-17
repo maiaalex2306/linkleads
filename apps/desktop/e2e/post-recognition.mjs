@@ -57,7 +57,7 @@ try {
   // Caso SDUI observado em 17/11/2026: metadado de publicação em wrapper
   // interno, autor em faixa compacta com botão Seguir e data 'há 11 m'.
   const sduiUrn = 'urn:li:activity:7381234567890128988';
-  const sduiCard = (metadata) => '<div class="new-card">' +
+  const sduiOwnCard = (metadata) => '<div class="new-card">' +
     '<div class="sdui-author-meta"><a href="https://www.linkedin.com/in/erika-rod/">Erika Rodrigues</a>' +
     '<span>há 11 m · Editado</span><button>Seguir</button></div>' +
     metadata +
@@ -65,7 +65,7 @@ try {
     '<button aria-label="Gostei" aria-pressed="false">Gostei</button>' +
     '<button aria-label="Comentar">Comentar</button></div>';
   await page.setContent('<main><div data-sdui-screen>' +
-    sduiCard('<div data-activity-urn="' + sduiUrn + '"></div>') +
+    sduiOwnCard('<div data-activity-urn="' + sduiUrn + '"></div>') +
     '</div></main>');
   let sduiRead = await scan();
   check(sduiRead.length === 1 && sduiRead[0].urn === sduiUrn &&
@@ -73,14 +73,14 @@ try {
     'SDUI: URN do próprio wrapper, autor com Seguir e reação não curtida',
     sduiRead.map(p=>({urn:p.urn,author:p.actorHref,liked:p.liked})));
   await page.setContent('<main><div data-sdui-screen>' +
-    sduiCard('<div data-activity-urn="' + sduiUrn + '"></div>' +
+    sduiOwnCard('<div data-activity-urn="' + sduiUrn + '"></div>' +
       '<section class="update-components-article" data-activity-urn="urn:li:activity:7381234567890128999"></section>') +
     '</div></main>');
   sduiRead = await scan();
   check(sduiRead.length === 1 && sduiRead[0].urn === sduiUrn,
     'SDUI: metadados de artigo incorporado não substituem o post principal',sduiRead.map(p=>p.urn));
   await page.setContent('<main><div data-sdui-screen>' +
-    sduiCard('<div data-activity-urn="' + sduiUrn + '"></div>' +
+    sduiOwnCard('<div data-activity-urn="' + sduiUrn + '"></div>' +
       '<div data-activity-urn="urn:li:activity:7381234567890128999"></div>') +
     '</div></main>');
   sduiRead = await scan();
