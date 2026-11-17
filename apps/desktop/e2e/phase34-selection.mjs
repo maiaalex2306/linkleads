@@ -1,7 +1,7 @@
 // Fases 3 e 4: unit/contract regression without external LinkedIn interactions.
 import assert from 'node:assert/strict';
 import { evaluatePost, firstUnlikedCandidate } from '../dist/main/linkedin/post-evaluation.js';
-import { contextualAuthorAccepted } from '../dist/main/linkedin/post-identity.js';
+import { contextualAuthorAccepted, matchHydratedPost } from '../dist/main/linkedin/post-identity.js';
 import { parseRelativeAgeDays } from '@linkleads/core';
 let checks = 0;
 const check = (condition, message) => { assert.ok(condition, message); checks++; console.log('ok -', message); };
@@ -61,6 +61,23 @@ check(selected.post?.urn === own.urn, 'primeira publicação elegível na ordem 
 const blocked = firstUnlikedCandidate([uncertain,own], 'leticia','',settings,p=>context(p));
 check(blocked.uncertain && blocked.post?.urn === uncertain.urn,
   'primeira publicação incerta não é saltada');
+const provisionalBeforeHydration = make({urn:'ll-idx-0', age:'há 11 m'});
+const hydratedCorrect = make({age:'há 11 m'});
+const hydratedOther = make({urn:'urn:li:activity:7381234567890129005',
+  text:'Outra publicação inserida acima da original pelo feed virtualizado',age:'há 1 d'});
+check(matchHydratedPost(provisionalBeforeHydration, [hydratedOther, hydratedCorrect])?.urn === hydratedCorrect.urn,
+  'reidratação encontra o mesmo cartão após mudança de índice no feed');
+check(matchHydratedPost(provisionalBeforeHydration, [hydratedCorrect, {...hydratedCorrect}]) === undefined,
+  'dois cartões com conteúdo equivalente continuam ambíguos');
+check(matchHydratedPost(make({urn:'ll-idx-0',text:'post curto'}),[hydratedCorrect]) === undefined,
+  'cartão provisório sem conteúdo distintivo não vira alvo');
+check(matchHydratedPost(provisionalBeforeHydration, [make({
+  urn:'urn:li:activity:7381234567890129006',
+  actorHref:'https://www.linkedin.com/in/pessoa-a/', age:'há 11 m'}),
+  make({urn:'urn:li:activity:7381234567890129007',
+    actorHref:'https://www.linkedin.com/in/pessoa-b/', age:'há 11 m'})]) === undefined,
+  'post ambíguo entre dois autores não é recuperado');
+
 const dateCases = [
   ['2 d',2],['2d •',2],['há 3 dias',3],['1 sem',7],['2 weeks',14],['5 min',0],
   ['5 m',150],['5m',0],['2 meses',60],['2 anos',730],['há 2 d · Editado',2],
