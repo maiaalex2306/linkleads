@@ -192,8 +192,31 @@ export function postsFilterClickGuard(expectedPublicId: string, x: number, y: nu
   catch { return false; }
   const node = document.elementFromPoint(x, y)?.closest('button, [role="tab"]');
   if (!node || node.matches('a[href]') || node.getAttribute('aria-disabled') === 'true' ||
-      (node instanceof HTMLButtonElement && node.disabled) ||
-      !(node.closest('nav, [role="tablist"]') || node.getAttribute('role') === 'tab')) return false;
+      (node instanceof HTMLButtonElement && node.disabled)) return false;
+  // O probe já aceita chips SDUI sem nav/role=tab. O guard deve validar
+  // o MESMO contrato, ou bloqueará sozinho o clique de navegação para
+  // Publicações e deixará a leitura presa em "Todas as atividades".
+  const isVerifiedFilter = (() => {
+    if (node.closest('nav, [role="tablist"]') || node.getAttribute('role') === 'tab')
+      return true;
+    const labelOf = (n: Element) => (n.getAttribute('aria-label') ||
+      (n as HTMLElement).innerText || n.textContent || '')
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/\s+/g, ' ').trim().toLowerCase();
+    const allowed = /^(?:posts|publicacoes|postagens|comentarios|comments|videos|imagens|images|reacoes|reactions)$/;
+    let parent = node.parentElement;
+    for (let depth = 0; parent && depth < 3; depth++, parent = parent.parentElement) {
+      const siblings = Array.from(parent.querySelectorAll('button,[role="tab"],[role="button"]'))
+        .filter((b) => { const r=b.getBoundingClientRect(); return r.width>0 && r.height>0 &&
+          b.getAttribute('aria-disabled') !== 'true' && allowed.test(labelOf(b)); });
+      const names = [...new Set(siblings.map(labelOf))];
+      if (siblings.includes(node) && names.length >= 3 &&
+          siblings.filter((b) => /^(?:posts|publicacoes|postagens)$/.test(labelOf(b))).length === 1)
+        return true;
+    }
+    return false;
+  })();
+  if (!isVerifiedFilter) return false;
   const label = (node.getAttribute('aria-label') || (node as HTMLElement).innerText || node.textContent || '')
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
   if (!/^(?:posts|publicacoes|postagens)(?:\s*\(\d+\))?$/.test(label)) return false;
