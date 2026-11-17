@@ -560,9 +560,16 @@ export function llPostContainers(
       (h2>>>0).toString(16).padStart(8,'0');
     const route = location.pathname.match(/^\/in\/([^/]+)\/recent-activity\/(?:all|posts|shares)\/?$/i);
     const profile = route ? route[1] : null;
+    const visualKey = visualEligible && profile
+      ? 'll-vcard:' + profile + ':' + digest : null;
+    // Só classificar como VISUAL quando o filtro Publicações está ATIVO.
+    // Fora desse contexto, manter o antigo identificador diagnóstico ll-card
+    // para não promover cartões na aba genérica ou páginas de outro perfil.
+    const visualVerified = !!visualKey &&
+      typeof __llVisualPostScopeValid === 'function' &&
+      __llVisualPostScopeValid(visualKey);
     return {
-      cardId: primary ?? (visualEligible && profile
-        ? 'll-vcard:' + profile + ':' + digest : 'll-card-' + digest),
+      cardId: primary ?? (visualVerified ? visualKey! : 'll-card-' + digest),
       postUrn: primary,
       permalink,
       primaryActorUrl: author?.href ?? null,
