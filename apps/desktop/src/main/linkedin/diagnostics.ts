@@ -325,7 +325,7 @@ export async function diagnosePage(
           // Snapshot do cartão ANTES da re-hidratação: não misturar outra
           // publicação detectada durante o diagnóstico de página.
           const snapshot = context.attempt?.evidence && context.attempt.ordinal
-            ? {code: attemptCode ?? priority, stage: context.attempt.stage,
+            ? {code: (attemptCode ?? priority) as DiagnosticCode, stage: context.attempt.stage,
                 ordinal: context.attempt.ordinal, evidence: context.attempt.evidence}
             : undefined;
           const item = context.attempt
