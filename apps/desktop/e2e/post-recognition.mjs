@@ -110,6 +110,14 @@ try {
     mentionResult[0].liked === false,
     'SDUI: link mencionado no corpo não substitui autora do cabeçalho',
     mentionResult.map(p => ({actor:p.actorHref,urn:p.urn})));
+  await page.setContent('<main><div data-sdui-screen>' + mentionCard(
+    '<div class="header-area"><a href="https://www.linkedin.com/in/lucia-fernandes/">' +
+    'Lucia Fernandes</a><span>há 2 d</span><button>Conectar</button></div>') +
+    '</div></main>');
+  mentionResult = await scan();
+  check(mentionResult.length === 1 &&
+    mentionResult[0].actorHref?.endsWith('/lucia-fernandes/'),
+    'SDUI: Conectar no cabeçalho não elimina autoria da publicação');
   await page.setContent('<main><div data-sdui-screen>' +
     mentionCard('<div class="header-area"><span>há 2 d</span></div>') +
     '</div></main>');
@@ -154,6 +162,25 @@ try {
   visualGuard = await probe(visualPosts[0].urn);
   check(visualGuard.state === true && visualGuard.guard === false,
     'SDUI: confirmação da curtida impede clicar novamente');
+  // Prefixo de 64 caracteres: expansão da descrição NÃO muda a chave
+  // do cartão, contanto que o trecho inicial seja suficientemente estável.
+  const prefix = 'Este post apresenta uma melhoria operacional importante com resultados de produtividade e eficiência. ';
+  const fixtureLong = (expanded) => '<section class="sdui-card">' +
+    '<div class="author"><a href="https://www.linkedin.com/in/jana/">Jana Barbosa</a>' +
+    '<span>há 4 m · Editado</span></div>' +
+    '<p dir="ltr">' + prefix + (expanded ? 'Mais detalhes sobre a implantação no setor automotivo.' : '') + '</p>' +
+    (expanded ? '' : '<button type="button">…mais</button>') +
+    '<button aria-label="Curtir" aria-pressed="false">Curtir</button>' +
+    '<button aria-label="Comentar">Comentar</button></section>';
+  await page.setContent(fixtureHtml().replace(fixtureCard(), fixtureLong(false)));
+  const beforeMore = await scan();
+  check(beforeMore.length === 1 && beforeMore[0].urn.startsWith('ll-vcard:'),
+    'SDUI: post longo antes de expandir tem vínculo visual único',beforeMore.map(p=>p.urn));
+  await page.setContent(fixtureHtml().replace(fixtureCard(), fixtureLong(true)));
+  const afterMore = await scan();
+  check(afterMore.length === 1 && afterMore[0].urn === beforeMore[0].urn,
+    'SDUI: expansão do conteúdo preserva chave visual do mesmo cartão',afterMore.map(p=>p.urn));
+
   await page.unroute('**/in/jana/recent-activity/all/');
   await page.route('**/in/jana/recent-activity/all/', route =>
     route.fulfill({status:200,contentType:'text/html',body:fixtureHtml('Publicações',2)}));
