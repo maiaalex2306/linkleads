@@ -16,15 +16,20 @@ function check(ok, message, detail) {
 const post = '<article data-post-fixture="true">Publicacao propria simulada</article>';
 function fixture(slug, mode, path, extra = {}) {
   const sdui = ['sduiSelected','sduiClickable','sduiUnselected',
-    'sduiDarkSelected','sduiNestedSelected','sduiCommentsSelected'].includes(mode);
+    'sduiDarkSelected','sduiNestedSelected','sduiCommentsSelected',
+    'sduiTransparentSelected','sduiTransparentUnselected'].includes(mode);
   const posts = path.endsWith('/shares/') || path.endsWith('/posts/') ||
-    ['sduiSelected','sduiClickable','sduiDarkSelected','sduiNestedSelected'].includes(mode);
+    ['sduiSelected','sduiClickable','sduiDarkSelected','sduiNestedSelected',
+      'sduiTransparentSelected'].includes(mode);
   const selected = mode === 'sduiCommentsSelected' ? 'Comentários' : 'Publicações';
   const darkMode = mode === 'sduiDarkSelected';
   const sduiMarkup = ['Publicações','Comentários','Vídeos','Imagens','Reações'].map(label => {
-    const active = label === selected && mode !== 'sduiUnselected' && mode !== 'sduiClickable';
+    const active = label === selected && mode !== 'sduiUnselected' &&
+      mode !== 'sduiClickable' && mode !== 'sduiTransparentUnselected';
+    const transparent = mode === 'sduiTransparentSelected' || mode === 'sduiTransparentUnselected';
     const bg = active ? (darkMode ? 'rgb(0,110,72)' : 'rgb(4,129,90)') :
-      (darkMode ? 'rgb(36,36,36)' : 'rgb(245,245,245)');
+      (transparent ? 'rgba(0,0,0,0)' :
+        darkMode ? 'rgb(36,36,36)' : 'rgb(245,245,245)');
     const fg = darkMode || active ? 'rgb(255,255,255)' : 'rgb(20,20,20)';
     const click = mode === 'sduiClickable' && label === 'Publicações'
       ? ' onclick="this.setAttribute(\'aria-selected\',\'true\')"' : '';
@@ -142,6 +147,10 @@ try {
     { status:'POST_SECTION_READY', source:'posts', method:'ACTIVE' });
   await trial('SDUI: destaque pintado em span filho', 'sduiNestedSelected',
     { status:'POST_SECTION_READY', source:'posts', method:'ACTIVE' });
+  await trial('SDUI: irmãos transparentes reconhecem Publicações preenchido',
+    'sduiTransparentSelected', { status:'POST_SECTION_READY', source:'posts', method:'ACTIVE' });
+  await trial('SDUI: todos transparentes não confirmam Publicações',
+    'sduiTransparentUnselected', { status:'POST_SECTION_READY', source:'activity', method:'FALLBACK' });
   await trial('SDUI: Comentários selecionado não se torna Publicações', 'sduiCommentsSelected',
     { status:'POST_SECTION_READY', source:'activity', method:'FALLBACK' });
   await trial('SDUI: chip Publicacoes clicavel sem nav ou role tab',
