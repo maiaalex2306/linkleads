@@ -235,7 +235,7 @@ async function discoverUnlikedPost(
   sourceSection: 'posts' | 'activity' = 'activity',
   personId: string = publicId,
 ): Promise<{ post?: PostExtract; posts: PostExtract[]; why: string; uncertain?: boolean;
-  diagnosticCode?: PostEvaluationCode | 'CARD_NOT_FOUND' }> {
+  diagnosticCode?: PostEvaluationCode | 'CARD_NOT_FOUND'; blockedOrdinal?: number | null }> {
   const seen = new Map<string, PostExtract>();
   const contextForPost = (post: PostExtract): PostSelectionContext =>
     buildPostSelectionContext(post, personId, publicId, sourceSection);
@@ -265,6 +265,7 @@ async function discoverUnlikedPost(
     // Autor, estado, URN e data continuam sendo gates separados de interacao.
     const ordered = [...seen.values()].filter((p) => !ignoredUrns.has(p.urn));
     let candidate = firstUnlikedCandidate(ordered, publicId, personName, settings, contextForPost);
+    let blockedOrdinal: number | null = null;
     if (candidate.uncertain) {
       // Reidratação deve preservar o MESMO cartão por URN/conteúdo, não seu
       // índice: uma viewport virtualizada pode inserir/remover cartões entre
@@ -272,6 +273,7 @@ async function discoverUnlikedPost(
       const blockedIndex = ordered.findIndex((post) => post.liked !== true &&
         evaluatePost(post, publicId, settings, contextForPost(post)).status === 'REVIEW_REQUIRED');
       const original = blockedIndex >= 0 ? ordered[blockedIndex] : undefined;
+      blockedOrdinal = blockedIndex >= 0 ? blockedIndex + 1 : null;
       for (let retry = 0; retry < 4 && candidate.uncertain && original; retry++) {
         // Somente LEITURA: dar tempo à hidratação assíncrona sem navegar,
         // interagir nem transformar identidades provisórias em confirmadas.
@@ -294,7 +296,7 @@ async function discoverUnlikedPost(
         ? ' Abra a publicação pelo carimbo de data na janela do LINKLEADS e use a interação manual supervisionada. Não haverá clique automático nem tentativa repetida sem identidade comprovada.'
         : '';
       return { posts: ordered, why: candidate.why + '. Confirmação humana necessária.' + manual,
-        uncertain: true, diagnosticCode: candidate.code };
+        uncertain: true, diagnosticCode: candidate.code, blockedOrdinal };
     }
     if (candidate.post) {
       const post = candidate.post;
@@ -425,8 +427,18 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
               if (empty && !found.posts.length)
                 return { ok: false, reason: 'NO_POST', message: 'A pessoa não tem publicações visíveis' };
               const unreadable = !found.posts.length;
+              // O JSON deve retratar o MOTIVO DA TENTATIVA selecionada,
+              // não substituir a falha por outro cartão da nova leitura.
+              const selectedAttemptContext: DiagnosisContext = {
+                ...diagnosisContext,
+                attempt: {
+                  stage: 'selection',
+                  code: found.diagnosticCode ?? (unreadable ? 'CARD_NOT_FOUND' : 'UNKNOWN'),
+                  ordinal: found.blockedOrdinal ?? null,
+                },
+              };
               const file = (unreadable || found.uncertain) ?
-                await d.reportUnrecognized?.(diagnosisContext).catch(() => undefined) : undefined;
+                await d.reportUnrecognized?.(selectedAttemptContext).catch(() => undefined) : undefined;
               if (unreadable || found.uncertain) {
                 // Código de seleção pré-interação; o ledger é a última barreira contra retry.
                 const code = found.diagnosticCode ?? (unreadable ? 'CARD_NOT_FOUND' : undefined);
