@@ -569,7 +569,7 @@ export function llPostContainers(
       typeof __llVisualPostScopeValid === 'function' &&
       __llVisualPostScopeValid(visualKey);
     return {
-      cardId: primary ?? (visualVerified ? visualKey! : 'll-card-' + digest),
+      cardId: primary ?? (visualVerified ? visualKey! : 'll-card-' + digest.slice(0,8)),
       postUrn: primary,
       permalink,
       primaryActorUrl: author?.href ?? null,
