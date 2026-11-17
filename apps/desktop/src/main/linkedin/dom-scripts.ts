@@ -803,7 +803,11 @@ export function extractPosts(sel: Record<string, readonly string[]>, limit: numb
         .slice(0, 100)
         .map((node) =>
           ((node as HTMLElement).innerText || node.textContent || '').replace(/\s+/g, ' ').trim())
-        .filter((value) => value.length > 0 && value.length <= 42 && AGE.test(value));
+        .filter((value) => value.length > 0 && value.length <= 42 &&
+          /^(?:h[áa]\\s+)?\\d+\\s*(?:min|h|d|dia|sem|w|week|mo|m|m[eê]s|mes|a|ano|y|year)\\b/i.test(value));
+      // A faixa pai também pode incluir o nome do autor. Não tomar a data
+      // agregada como segunda prova independente de um <span> temporal.
+      // Aceitar apenas texto que COMEÇA pelo carimbo, sem inferir do corpo.
       // Aceitar somente UMA legenda temporal distinta ANTES do botão de reação.
       // Duas datas significam conteúdo incorporado/ambíguo => revisão.
       const unique = [...new Set(labels)];
