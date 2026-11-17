@@ -84,6 +84,8 @@ export interface PostsFilterProbe {
   kind: 'ACTIVE' | 'LINK' | 'BUTTON' | 'UNAVAILABLE';
   href?: string;
   point?: { x: number; y: number };
+  /** Como o filtro foi identificado. Apenas códigos, sem texto nem perfil. */
+  verification?: 'ROUTE' | 'SEMANTIC' | 'SIBLING_STYLE' | 'LINK' | 'BUTTON' | 'NONE';
 }
 export function postsFilterProbe(expectedPublicId: string): PostsFilterProbe {
   const route = location.pathname.match(/^\/in\/([^/]+)\/recent-activity\/(all|posts|shares)\/?$/i);
@@ -92,7 +94,7 @@ export function postsFilterProbe(expectedPublicId: string): PostsFilterProbe {
   try { slug = decodeURIComponent(route[1]!); }
   catch { return { kind: 'UNAVAILABLE' }; }
   if (slug !== expectedPublicId) return { kind: 'UNAVAILABLE' };
-  if (/^(?:posts|shares)$/i.test(route[2]!)) return { kind: 'ACTIVE' };
+  if (/^(?:posts|shares)$/i.test(route[2]!)) return { kind: 'ACTIVE', verification: 'ROUTE' };
   const root: ParentNode = document.querySelector('main') ?? document;
   const matchLabel = (node: Element): boolean => {
     const label = (node.getAttribute('aria-label') || (node as HTMLElement).innerText || node.textContent || '')
@@ -140,48 +142,79 @@ export function postsFilterProbe(expectedPublicId: string): PostsFilterProbe {
     (safeHref(n) || n.matches('button,[role="button"],[role="tab"]') ||
       !!n.closest('nav,[role="tablist"]')));
   if (!candidates.length) return { kind: 'UNAVAILABLE' };
+  // Gemini acertou ao recomendar comparação com chips IRMÃOS.
+  // Diferença de cor isolada não prova seleção: exigir >=2 alternativas
+  // consistentes, nenhuma seleção semântica contrária e um único destaque.
+  // Suporta cores no span interno e temas claro/escuro, sem RGB absoluto.
+  const stylePalette = (el: Element): number[] | null => {
+    const visible = (item: Element): boolean => {
+      const r = item.getBoundingClientRect();
+      return r.width > 0 && r.height > 0;
+    };
+    const color = (value: string): number[] | null => {
+      const m = value.match(/^rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)(?:[,\s\/]+([\d.]+))?/i);
+      return m && (m[4] === undefined || Number(m[4]) >= .5)
+        ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
+    };
+    const elements = [el, ...Array.from(el.querySelectorAll('span, div')).slice(0, 5)];
+    for (const item of elements) {
+      if (!visible(item)) continue;
+      const bg = color(getComputedStyle(item).backgroundColor);
+      if (bg) return bg;
+    }
+    return null;
+  };
+  const distance = (a: number[], b: number[]) =>
+    Math.sqrt(a.reduce((sum, value, i) => sum + (value - b[i]!) ** 2, 0));
+  const semanticActive = (node: Element) =>
+    node.getAttribute('aria-selected') === 'true' ||
+    node.getAttribute('aria-pressed') === 'true' ||
+    node.getAttribute('data-state') === 'active' ||
+    node.getAttribute('data-selected') === 'true' ||
+    node.getAttribute('aria-current') === 'page';
   const visuallySelected = (n: Element): boolean => {
     if (!n.matches('button,[role="button"],[role="tab"]')) return false;
-    const bg = getComputedStyle(n).backgroundColor;
-    const fg = getComputedStyle(n).color;
-    const rgb = (value: string): number[] | null => {
-      const m = value.match(/^rgba?\((\d+)[,\s]+(\d+)[,\s]+(\d+)/i);
-      return m ? [Number(m[1]),Number(m[2]),Number(m[3])] : null;
-    };
-    const b = rgb(bg), c = rgb(fg);
-    if (!b || !c) return false;
-    const dark = b.reduce((a,x) => a+x,0)/3 < 175;
-    const lightText = c.reduce((a,x) => a+x,0)/3 > 195;
-    if (!dark || !lightText) return false;
-    let group: Element | null = n.parentElement;
-    for (let i=0;group && i<3;i++,group=group.parentElement) {
-      const siblings=Array.from(group.querySelectorAll('button,[role="button"],[role="tab"]'))
-        .filter((x)=>x!==n && allowedChip.test(chipLabel(x)) && isVisible(x));
-      if (siblings.length < 2) continue;
-      const lightAlternatives = siblings.filter((x) => {
-        const sb=rgb(getComputedStyle(x).backgroundColor);
-        return sb && sb.reduce((a,y)=>a+y,0)/3 > 215;
+    const own = stylePalette(n);
+    if (!own) return false;
+    let group = n.parentElement;
+    for (let depth = 0; group && depth < 3; depth++, group = group.parentElement) {
+      const peers = Array.from(group.querySelectorAll('button,[role="button"],[role="tab"]'))
+        .filter((x) => x !== n && isVisible(x) && allowedChip.test(chipLabel(x)));
+      if (peers.length < 2) continue;
+      // Se Comentários tiver seleção semântica, nunca promover Publicações
+      // apenas por diferença de cor ou foco.
+      if (peers.some(semanticActive)) return false;
+      const palettes = peers.map(stylePalette);
+      if (palettes.some((p) => !p)) return false;
+      const reference = palettes[0]!;
+      if (!palettes.every((p) => distance(p!, reference) < 35)) return false;
+      if (distance(own, reference) < 70) return false;
+      const groupChips = Array.from(group.querySelectorAll('button,[role="button"],[role="tab"]'))
+        .filter((x) => isVisible(x) && allowedChip.test(chipLabel(x)));
+      // Cor distinta deve identificar apenas o alvo; hover ou wrappers
+      // incompatíveis não são confirmação suficiente.
+      const standouts = groupChips.filter((x) => {
+        const p = stylePalette(x);
+        return !!p && distance(p, reference) >= 70;
       });
-      return lightAlternatives.length>=2;
+      return standouts.length === 1 && standouts[0] === n;
     }
     return false;
   };
-  const active = candidates.filter((n) =>
-    n.getAttribute('aria-selected') === 'true' ||
-    n.getAttribute('aria-pressed') === 'true' ||
-    n.getAttribute('data-state') === 'active' ||
-    n.getAttribute('data-selected') === 'true' ||
-    n.getAttribute('aria-current') === 'page' ||
-    visuallySelected(n));
-  if (active.length === 1) return { kind: 'ACTIVE' };
+  const semantic = candidates.filter(semanticActive);
+  if (semantic.length === 1) return { kind: 'ACTIVE', verification: 'SEMANTIC' };
+  if (semantic.length > 1) return { kind: 'UNAVAILABLE', verification: 'NONE' };
+  const visual = candidates.filter(visuallySelected);
+  if (visual.length === 1) return { kind: 'ACTIVE', verification: 'SIBLING_STYLE' };
+  if (visual.length > 1) return { kind: 'UNAVAILABLE', verification: 'NONE' };
   const urls = [...new Set(candidates.map(safeHref).filter((u): u is string => !!u))];
   // Dois destinos diferentes para a mesma aba significam ambiguidade.
   if (urls.length > 1) return { kind: 'UNAVAILABLE' };
-  if (urls.length === 1) return { kind: 'LINK', href: urls[0]! };
+  if (urls.length === 1) return { kind: 'LINK', href: urls[0]!, verification: 'LINK' };
   const buttons = candidates.filter((n) => n.matches('button, [role="tab"]') && !n.matches('a[href]'));
   if (buttons.length !== 1) return { kind: 'UNAVAILABLE' };
   const r = buttons[0]!.getBoundingClientRect();
-  return { kind: 'BUTTON', point: { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) } };
+  return { kind: 'BUTTON', verification: 'BUTTON', point: { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) } };
 }
 
 /** Identidade operacional: chave de conteúdo vinculada ao perfil e ao filtro
