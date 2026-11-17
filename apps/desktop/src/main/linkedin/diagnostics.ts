@@ -2,7 +2,7 @@ import { DEFAULT_LABELS, selectorAudit, type SelectorAudit, type LabelKey, type 
 import { evaluatePost, profileSlug, sameConfirmedPublicId } from './post-evaluation.js';
 import { cardDecision, diagnosticPath, layoutHash, layoutShape, type CardDecision, type DiagnosticCode, type LayoutShape } from './diagnostics-policy.js';
 import type { BaselineResult } from './diagnostic-baselines.js';
-import { diagnoseKeys, visibleButtonLabels, extractPosts, type KeyDiagnosis } from './dom-scripts.js';
+import { diagnoseKeys, visibleButtonLabels, extractPosts, postsFilterProbe, type KeyDiagnosis, type PostsFilterProbe } from './dom-scripts.js';
 import { isCanonicalPostUrn, buildPostSelectionContext } from './post-identity.js';
 import { parseRelativeAgeDays } from '@linkleads/core';
 import type { PageDriver } from './page-driver.js';
@@ -59,6 +59,8 @@ export interface DiagnosisContext {
   sourceSection?: 'posts' | 'activity' | 'permalink';
   includeReshares?: boolean;
   maxPostAgeDays?: number;
+  /** Erro da TENTATIVA já observado pelo executor, não inferido de outra leitura. */
+  attempt?: { code: string; stage: 'selection'; ordinal: number | null };
 }
 
 export interface DiagnosisReport {
@@ -69,6 +71,10 @@ export interface DiagnosisReport {
   /** Contrato estrutural anonimizável, confrontado com baseline por página/idioma. */
   layout: { shape: LayoutShape; hash: string; comparison?: BaselineResult };
   primaryCode: DiagnosticCode | 'OK';
+  /** Evidência da seleção real, distinta do diagnóstico agregado da página. */
+  attempt?: { code: string; stage: 'selection'; ordinal: number | null };
+  /** Sem slug, texto, URN, nome nem URL; só estado e método de inspeção. */
+  postsFilter?: { kind: PostsFilterProbe['kind']; verification: string; expectedProfileMatched: boolean };
   /** Etapa bloqueada e componente proprietário; nunca contém PII. */
   primaryBlocker?: { code: DiagnosticCode; stage: string; module: string; ordinal: number; evidence: CardDecision['evidence'] };
   page: PageKind;
@@ -248,8 +254,24 @@ export async function diagnosePage(
   // Identificadores, nome do ator, URL e texto do post não saem no relatório.
   // O diagnóstico só aceita o contexto Posts quando a URL observada pertence
   // efetivamente ao perfil confirmado. Não inferir autoria pelo nome do cartão.
-  const verifiedPosts = context.sourceSection === 'posts' && !!context.expectedPublicId &&
-    sameConfirmedPublicId(profileSlug(url), context.expectedPublicId);
+  const activitySlug = new URL(url).pathname.match(/^\/in\/([^/]+)\/recent-activity\/(?:all|posts|shares)\/?$/i)?.[1];
+  let observedSlug = '';
+  try { observedSlug = decodeURIComponent(activitySlug ?? ''); } catch { /* rota inválida */ }
+  const profileMatched = Boolean(context.expectedPublicId &&
+    sameConfirmedPublicId(observedSlug, context.expectedPublicId));
+  // Sonda REAL do filtro, não inferência baseada somente na URL. A inspeção
+  // pode funcionar mesmo sem expectedPublicId, mas não autoriza autoria.
+  const filterProbe = page === 'atividade' && observedSlug
+    ? await driver.read(postsFilterProbe, context.expectedPublicId || observedSlug)
+        .catch((): PostsFilterProbe => ({kind:'UNAVAILABLE', verification:'NONE'}))
+    : null;
+  const postsFilter = filterProbe ? {
+    kind: filterProbe.kind,
+    verification: filterProbe.verification ?? 'NONE',
+    expectedProfileMatched: profileMatched,
+  } : undefined;
+  const verifiedPosts = context.sourceSection === 'posts' && profileMatched &&
+    filterProbe?.kind === 'ACTIVE';
   const decisions = extracted.slice(0, 100).map((post, index) => cardDecision(
     post, index + 1,
     context.expectedPublicId
@@ -280,9 +302,31 @@ export async function diagnosePage(
   const shape = layoutShape({
     page, language: uiLanguage, keys, structure,
   });
-  const priority: DiagnosticCode | 'OK' = isActivity && extracted.length === 0
+  // A página pode conter 20 cartões; o primeiro erro agregado não é
+  // necessariamente o motivo pelo qual uma ação específica foi bloqueada.
+  const aggregatePriority: DiagnosticCode | 'OK' = isActivity && extracted.length === 0
     ? 'CARD_NOT_FOUND'
     : (decisions.find((item) => item.status === 'REVIEW_REQUIRED')?.code ?? 'OK');
+  const attemptCode = (() : DiagnosticCode | null => {
+    if (!context.attempt) return null;
+    const mapping: Record<string, DiagnosticCode> = {
+      POST_ID_PROVISIONAL: 'CARD_ID_PROVISIONAL',
+      POST_ID_CONFLICT: 'CARD_ID_CONFLICT',
+      EMPTY_CONTENT: 'POST_EMPTY',
+      ELIGIBLE: 'POST_ELIGIBLE',
+      AUTHOR_CONFLICT: 'AUTHOR_UNVERIFIED',
+    };
+    const mapped = mapping[context.attempt.code] ?? context.attempt.code;
+    const allowed: DiagnosticCode[] = [
+      'CARD_NOT_FOUND','CARD_ID_PROVISIONAL','CARD_ID_CONFLICT',
+      'RESHARE_CLASSIFICATION_ERROR','RESHARE_EXCLUDED',
+      'AUTHOR_UNVERIFIED','AUTHOR_MISMATCH','REACTION_UNKNOWN',
+      'POST_AGE_UNVERIFIED','POST_TOO_OLD','ALREADY_LIKED','POST_EMPTY',
+      'POST_ELIGIBLE',
+    ];
+    return allowed.includes(mapped as DiagnosticCode) ? mapped as DiagnosticCode : null;
+  })();
+  const priority = attemptCode ?? aggregatePriority;
   return {
     at: new Date().toISOString(),
     appVersion,
@@ -290,15 +334,22 @@ export async function diagnosePage(
     selectorConfiguration: selectorAudit(driver.sel),
     layout: { shape, hash: layoutHash(shape) },
     primaryCode: priority,
-    primaryBlocker: priority !== 'OK' && decisions.some((d) => d.status === 'REVIEW_REQUIRED')
+    attempt: context.attempt,
+    postsFilter,
+    primaryBlocker: priority !== 'OK' && decisions.length > 0
       ? (() => {
-          const item = decisions.find((d) => d.status === 'REVIEW_REQUIRED')!;
-          const module = item.code === 'CARD_ID_PROVISIONAL' || item.code === 'CARD_ID_CONFLICT'
+          const item = context.attempt?.ordinal
+            ? decisions.find((d) => d.ordinal === context.attempt!.ordinal)
+            : decisions.find((d) => d.status === 'REVIEW_REQUIRED');
+          if (!item) return undefined;
+          const code = attemptCode ?? item.code;
+          const module = code === 'CARD_ID_PROVISIONAL' || code === 'CARD_ID_CONFLICT'
             ? 'dom-scripts.ts / post-identity.ts'
-            : item.code === 'AUTHOR_UNVERIFIED' ? 'dom-scripts.ts / post-evaluation.ts'
-            : item.code === 'POST_AGE_UNVERIFIED' ? 'relative-time.ts / post-evaluation.ts'
+            : code === 'AUTHOR_UNVERIFIED' || code === 'AUTHOR_MISMATCH'
+              ? 'dom-scripts.ts / post-evaluation.ts'
+            : code === 'POST_AGE_UNVERIFIED' ? 'relative-time.ts / post-evaluation.ts'
             : 'post-evaluation.ts / executors.ts';
-          return { code: item.code, stage: item.stage, module,
+          return { code, stage: context.attempt?.stage ?? item.stage, module,
             ordinal: item.ordinal, evidence: item.evidence };
         })() : undefined,
     page,
