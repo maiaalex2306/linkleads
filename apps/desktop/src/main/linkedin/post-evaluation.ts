@@ -3,7 +3,7 @@
  */
 import { normalizeLinkedInPublicId, parseRelativeAgeDays } from '@linkleads/core';
 import type { PostExtract } from './dom-scripts.js';
-import { isCanonicalPostUrn, contextualAuthorAccepted, type PostSelectionContext } from './post-identity.js';
+import { isCanonicalPostUrn, isVisualPostKey, contextualAuthorAccepted, type PostSelectionContext } from './post-identity.js';
 const BASE = process.env.LINKLEADS_TEST_BASE_URL ?? 'https://www.linkedin.com';
 export interface LikeEvaluationSettings {
   maxPostAgeDays?: number;
@@ -109,9 +109,19 @@ export function evaluatePost(
         'Identificador opaco do autor ou compartilhador diferente do perfil confirmado')
       : result('NOT_ELIGIBLE', 'POST_FOUND', 'AUTHOR_MISMATCH', 'Publicação de outro autor');
   passedStages.push('AUTHOR_CONFIRMED', 'POST_CLASSIFIED');
-  if (!isCanonicalPostUrn(post.urn))
+  const visualBound = isVisualPostKey(post.urn) && !isReshare &&
+    selectionContext?.sourceSection === 'posts' &&
+    selectionContext?.postUrn === post.urn &&
+    selectionContext?.confirmedPublicId === publicId &&
+    post.cardIdentity?.identityStatus === 'PROVISIONAL' &&
+    post.cardIdentity.cardId === post.urn &&
+    (contextual || Boolean(actor && sameConfirmedPublicId(actor, publicId))) &&
+    post.text.trim().length >= 24;
+  if (!isCanonicalPostUrn(post.urn) && !visualBound)
     return result('REVIEW_REQUIRED', 'POST_CLASSIFIED', 'POST_ID_PROVISIONAL',
-      'Publicação com URN provisória; identidade do alvo não comprovada');
+      'Cartão sem URL e sem vínculo visual exclusivo no filtro Publicações');
+  // POST_ID_CONFIRMED representa URN canônica OU cartão visual vinculado
+  // à publicação selecionada: nunca transformar chave visual em permalink.
   passedStages.push('POST_ID_CONFIRMED');
   const days = post.age ? parseRelativeAgeDays(post.age) : undefined;
   if (days === undefined || !Number.isFinite(days) || days < 0)
