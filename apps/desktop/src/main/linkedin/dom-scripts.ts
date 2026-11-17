@@ -811,7 +811,7 @@ export function extractPosts(sel: Record<string, readonly string[]>, limit: numb
         .map((node) =>
           ((node as HTMLElement).innerText || node.textContent || '').replace(/\s+/g, ' ').trim())
         .filter((value) => value.length > 0 && value.length <= 42 &&
-          /^(?:h[áa]\s+)?\d+\s*(?:min|h|d|dia|sem|w|week|mo|m|m[eê]s|mes|a|ano|y|year)\b/i.test(value));
+          /^(?:h[áa]\s+)?\d+\s*(?:min(?:utos?)?|h(?:oras?|rs?)?|d(?:ias?)?|sem(?:anas?)?|w(?:eeks?)?|mo(?:nths?)?|m[eê]s(?:es)?|mes(?:es)?|m|a(?:nos?)?|y(?:ears?)?)\b/i.test(value));
       // A faixa pai também pode incluir o nome do autor. Não tomar a data
       // agregada como segunda prova independente de um <span> temporal.
       // Aceitar apenas texto que COMEÇA pelo carimbo, sem inferir do corpo.
