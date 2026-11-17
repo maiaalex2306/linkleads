@@ -8,7 +8,7 @@ import { openAccountDb, IntegrationCrm, SCHEMA_VERSION } from '@linkleads/db';
 import { ensurePhase56Schema, savePostSelectionProof, postSelectionProof, saveCommentDraftOnce, recognitionRetryCandidates56 } from '../dist/main/phase56-store.js';
 import { buildPostSelectionContext, contextualAuthorAccepted } from '../dist/main/linkedin/post-identity.js';
 import { evaluatePost } from '../dist/main/linkedin/post-evaluation.js';
-import { cardDecision, evaluatePostPreflight } from '../dist/main/linkedin/diagnostics-policy.js';
+import { cardDecision, evaluatePostPreflight, prioritizeDiagnosticCode } from '../dist/main/linkedin/diagnostics-policy.js';
 import { compareAndStoreBaseline } from '../dist/main/linkedin/diagnostic-baselines.js';
 
 const root=mkdtempSync(join(tmpdir(),'linkleads-phase56-'));
@@ -61,6 +61,19 @@ try {
     'logout continua bloqueando');
   ok(!evaluatePostPreflight({page:'perfil',blocked:{checkpoint:false,loggedOut:false}}).allowed,
     'rota de perfil sem post nao vira elegivel para curtida');
+
+  // O JSON da tentativa bloqueada não pode assumir erro de outro post
+  // só porque uma segunda leitura encontrou AUTHOR_MISMATCH primeiro.
+  ok(prioritizeDiagnosticCode('AUTHOR_MISMATCH', 'POST_ID_PROVISIONAL') === 'CARD_ID_PROVISIONAL',
+    'diagnóstico prioriza ausência de vínculo visual da tentativa real');
+  ok(prioritizeDiagnosticCode('CARD_ID_PROVISIONAL', 'AUTHOR_UNVERIFIED') === 'AUTHOR_UNVERIFIED',
+    'diagnóstico prioriza autoria da tentativa real');
+  ok(prioritizeDiagnosticCode('OK', 'AUTHOR_CONFLICT') === 'AUTHOR_UNVERIFIED',
+    'diagnóstico mapeia conflito opaco com semântica compatível');
+  ok(prioritizeDiagnosticCode('AUTHOR_MISMATCH', 'CODIGO_DESCONHECIDO') === 'AUTHOR_MISMATCH',
+    'código desconhecido não se torna erro inventado');
+  ok(prioritizeDiagnosticCode('AUTHOR_MISMATCH') === 'AUTHOR_MISMATCH',
+    'diagnóstico manual continua representando leitura da página');
 
   db=openAccountDb(file);
   ensurePhase56Schema(db);
