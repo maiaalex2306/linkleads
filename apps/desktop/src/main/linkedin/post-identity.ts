@@ -108,3 +108,27 @@ export function buildPostSelectionContext(
     contentState: post.truncated ? 'truncated' : post.text || post.hasMedia ? 'complete' : 'unavailable',
   };
 }
+
+/** Encontra a MESMA publicação após hidratação/virtualização do feed.
+ * Não presume que a posição do cartão permanece igual. Em caso de conteúdo
+ * insuficiente ou duplicado, não retorna candidato: a seleção segue em revisão.
+ */
+export function matchHydratedPost<T extends {
+  urn: string; text: string; age: string | null; actorHref: string | null; isReshare: boolean;
+}>(original: T, refreshed: readonly T[]): T | undefined {
+  const sameText = (value: string) => value.normalize('NFC').replace(/\s+/g, ' ').trim();
+  const expected = sameText(original.text);
+  const canonical = isCanonicalPostUrn(original.urn);
+  if (!canonical && expected.length < 20) return undefined;
+  const norm = (v: string) => v.trim().replace(/\/$/, '').toLowerCase();
+  const matches = refreshed.filter((post) => {
+    if (post.isReshare !== original.isReshare) return false;
+    if (canonical) return post.urn === original.urn;
+    if (sameText(post.text) !== expected) return false;
+    if (original.age && post.age && original.age.trim() !== post.age.trim()) return false;
+    if (original.actorHref && post.actorHref &&
+        norm(original.actorHref) !== norm(post.actorHref)) return false;
+    return true;
+  });
+  return matches.length === 1 ? matches[0] : undefined;
+}
