@@ -90,7 +90,7 @@ export function buildPostSelectionContext(
     truncated?: boolean;
     text: string;
     hasMedia: boolean;
-    cardIdentity?: { identityStatus: 'CONFIRMED' | 'PROVISIONAL' | 'CONFLICT' };
+    cardIdentity?: { cardId: string; identityStatus: 'CONFIRMED' | 'PROVISIONAL' | 'CONFLICT' };
   },
   personId: string,
   confirmedPublicId: string,
