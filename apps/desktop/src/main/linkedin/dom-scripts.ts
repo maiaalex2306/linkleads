@@ -488,17 +488,37 @@ export function llPostContainers(
         return u.origin.toLowerCase() + u.pathname.replace(/\/$/, '');
       } catch { return null; }
     };
+    // O Gemini acertou no ISOLAMENTO DO CABEÇALHO, não na regra
+    // "primeiro /in/ antes do botão": menções também aparecem antes de Curtir.
+    // Localizar o início do corpo próprio; só links ANTERIORES a ele podem
+    // concorrer à autoria. Sem limite seguro, os filtros semânticos continuam.
+    const bodyBoundary = card.closest('[data-sdui-screen]')
+      ? Array.from(card.querySelectorAll([
+          '.update-components-text', '.feed-shared-text',
+          '[data-testid*="post-text"]', '[data-test-id*="commentary"]',
+          '[dir="ltr"]', 'p',
+        ].join(', '))).find((n) => !n.closest(COMMENT) &&
+          !n.closest(AUTHOR_HEADER) &&
+          ((n as HTMLElement).innerText || n.textContent || '').trim().length >= 20 &&
+          !n.querySelector('button, [role="button"], [contenteditable="true"]')) ?? null
+      : null;
+    const headerAuthorLinks = bodyBoundary
+      ? authorLinks.filter((a) =>
+          a !== bodyBoundary &&
+          Boolean(a.compareDocumentPosition(bodyBoundary) & Node.DOCUMENT_POSITION_FOLLOWING) &&
+          !bodyBoundary.contains(a))
+      : authorLinks;
     // A área de autoria tem precedência sobre cabeçalhos amplos. Um nome
-    // citado num header, comentário ou anexo nunca substitui o autor principal.
-    const specific = authorLinks.filter((a) =>
+    // citado no corpo ou anexo nunca substitui o autor principal.
+    const specific = headerAuthorLinks.filter((a) =>
       a.matches('.update-components-actor__meta-link, .feed-shared-actor__meta-link') ||
       !!a.closest('.update-components-actor, .feed-shared-actor, [data-testid*="actor"], [data-test-id*="actor"]'));
-    const general = authorLinks.filter((a) => !!a.closest('header') &&
+    const general = headerAuthorLinks.filter((a) => !!a.closest('header') &&
       !a.closest('.update-components-header, .feed-shared-header'));
     // Layout moderno: o bloco compacto da autoria pode não ser <header>,
     // mas contém o link do membro JUNTO do permalink temporal do post.
     // Nunca subir até o corpo com [dir=ltr], menções ou barra de reações.
-    const adjacentToPostMetadata = authorLinks.filter((a) => {
+    const adjacentToPostMetadata = headerAuthorLinks.filter((a) => {
       let node: Element | null = a.parentElement;
       for (let depth = 0; node && node !== card && depth < 4; depth++, node = node.parentElement) {
         if (node.matches(COMMENT) ||
@@ -513,7 +533,7 @@ export function llPostContainers(
     // classes update-components. O link do autor pode estar JUNTO do
     // carimbo temporal em um pequeno bloco semantico.
     const sduiAge = /^(?:h[áa]\s+)?\d+\s*(?:min(?:utos?)?|h(?:oras?)?|d(?:ias?)?|sem(?:anas?)?|w(?:eeks?)?|m[eê]s(?:es)?|mes(?:es)?|m|a(?:nos?)?|y(?:ears?)?)\b/i;
-    const sduiAdjacent = card.closest('[data-sdui-screen]') ? authorLinks.filter((a) => {
+    const sduiAdjacent = card.closest('[data-sdui-screen]') ? headerAuthorLinks.filter((a) => {
       let node: Element | null = a.parentElement;
       for (let depth = 0; node && node !== card && depth < 6; depth++, node = node.parentElement) {
         if (node.matches(COMMENT) ||
@@ -542,16 +562,9 @@ export function llPostContainers(
     // vem antes do texto, e a citacao de Leticia aparece DEPOIS dele.
     // Links de perfil dentro da citacao nao concorrem com o autor principal.
     // Se nao houver uma separacao visivel, conservar autoria ambigua.
-    const bodyBoundary = card.closest('[data-sdui-screen]') ? card.querySelector([
-      '.update-components-text', '.feed-shared-text',
-      '[data-testid*="post-text"]', '[data-test-id*="commentary"]',
-      '[dir="ltr"]', 'a[href*="lnkd.in/"]',
-    ].join(', ')) : null;
-    const beforeBody = (a: Element): boolean =>
-      !!bodyBoundary && a !== bodyBoundary &&
-      !!(a.compareDocumentPosition(bodyBoundary) & Node.DOCUMENT_POSITION_FOLLOWING);
-    const topAuthors = candidates.filter(beforeBody);
-    const authorCandidates = topAuthors.length === 1 ? topAuthors : candidates;
+    // NUNCA recorrer a links posteriores ao corpo depois de detectar o
+    // cabeçalho: isso era a fonte do falso AUTHOR_MISMATCH em alguns cartões.
+    const authorCandidates = candidates;
     const authors = new Map<string, HTMLAnchorElement>();
     for (const a of authorCandidates) {
       const url = validProfile(a);
