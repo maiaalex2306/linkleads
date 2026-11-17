@@ -863,6 +863,9 @@ export function llCommentControls(
       'button[aria-label*="Publicar"]',
       'button[aria-label*="Post comment"]',
       'button[data-testid*="comment-submit"]',
+      // SDUI: "Comentar" pode ser o botão de envio sem type=submit,
+      // mas só após o editor e dentro do MESMO envelope de composição.
+      'button',
     ];
     for (const selector of selectors) {
       try {
@@ -873,13 +876,21 @@ export function llCommentControls(
             'button[type="submit"], .comments-comment-box__submit-button, .comments-comment-box__submit-button--cr, [data-testid*="comment-submit"], [data-test-id*="comment-submit"]');
           const label = (node.getAttribute('aria-label') || node.innerText || '').replace(/\s+/g, ' ').trim();
           const submitLabel = /^(publicar|post|postar|publish|post comment|publicar comentário|enviar comentário)$/i.test(label);
-          if ((!explicitSubmit && !submitLabel) ||
+          const namedComment = /^(comentar|comment)$/i.test(label);
+          const composerComment = namedComment && !editor.closest('form') &&
+            ancestor !== root && depth <= 5 &&
+            // A barra de ações "Comentar" fica ANTES do editor. O envio
+            // SDUI fica DEPOIS, no mesmo envelope e sem toolbar intermediária.
+            !!(editor.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING) &&
+            !node.closest('nav, [role="toolbar"], .feed-shared-social-action-bar, .social-actions') &&
+            Array.from(ancestor.querySelectorAll('[contenteditable="true"]')).filter(visible).length === 1;
+          if ((!explicitSubmit && !submitLabel && !composerComment) ||
             (node.closest('form') && node.closest('form') !== editor.closest('form')) ||
             (editor.closest('form') && !editor.closest('form')!.contains(node)) ||
             (node.disabled || node.getAttribute('aria-disabled') === 'true')) continue;
-          // "Comment"/"Comentar" só é envio quando o botão está no form
-          // do editor e é explicitamente type=submit.
-          if (/^(comentar|comment)$/i.test(label) && !(isForm && node.type === 'submit')) continue;
+          // Rótulo "Comentar" não é prova isolada: exigir form de envio
+          // explícito ou posição contextual posterior ao editor.
+          if (namedComment && !(isForm && node.type === 'submit') && !composerComment) continue;
           submits.add(node);
         }
       } catch { /* configuração inválida não vira seletor global */ }
