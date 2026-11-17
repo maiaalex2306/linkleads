@@ -156,13 +156,17 @@ export function postsFilterProbe(expectedPublicId: string): PostsFilterProbe {
       return m && (m[4] === undefined || Number(m[4]) >= .5)
         ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
     };
-    const elements = [el, ...Array.from(el.querySelectorAll('span, div')).slice(0, 5)];
-    for (const item of elements) {
+    const own = color(getComputedStyle(el).backgroundColor);
+    const descendants = Array.from(el.querySelectorAll('span, div')).slice(0, 5);
+    // Em SDUI a cor pode estar apenas no span. Um contraste forte entre
+    // botão e span indica que o filho (não a cor padrão ButtonFace) é a pílula.
+    for (const item of descendants) {
       if (!visible(item)) continue;
       const bg = color(getComputedStyle(item).backgroundColor);
-      if (bg) return bg;
+      if (bg && (!own || Math.sqrt(bg.reduce(
+        (sum, value, i) => sum + (value - own[i]!) ** 2, 0)) > 40)) return bg;
     }
-    return null;
+    return own;
   };
   const distance = (a: number[], b: number[]) =>
     Math.sqrt(a.reduce((sum, value, i) => sum + (value - b[i]!) ** 2, 0));
