@@ -153,6 +153,31 @@ try {
   assert(expanded.length === 1 && expanded[0].truncated === false,
     'a IA só recebe conteúdo integral relido após expandir');
 
+  // Layout SDUI de 16/11: TipTap dentro de um envelope sem form,
+  // com botão "Comentar" após o editor (e botão da barra acima dele).
+  const sduiComposer = '<div class="sdui-comment-composer">' +
+    '<div class="tiptap ProseMirror" contenteditable="true"><p class="is-empty is-editor-empty"></p></div>' +
+    '<div class="sdui-comment-actions"><button type="button">Comentar</button></div></div>';
+  await page.setContent('<main>' + card(urn, 'Publicação SDUI verificável.', sduiComposer) + '</main>');
+  const sduiEditor = await run('editorPoint', [urn]);
+  const sduiSend = await run('submitPoint', [urn]);
+  assert(!!sduiEditor && !!sduiSend,
+    'SDUI: editor TipTap e botão Comentar posteriores pertencem ao mesmo post');
+  await page.locator('.tiptap.ProseMirror').fill(text);
+  assert(await run('clickGuard', [urn, 'submit', sduiSend.x, sduiSend.y, text]),
+    'SDUI: publicar exige texto aprovado e botão associado ao editor');
+  await page.setContent('<main>' + card(urn, 'Publicação SDUI.',
+    '<div class="sdui-comment-composer">' +
+    '<button type="button">Comentar</button>' +
+    '<div class="tiptap ProseMirror" contenteditable="true"></div></div>') + '</main>');
+  assert((await run('submitPoint', [urn])) === null,
+    'SDUI: botão Comentar acima do editor não é envio');
+  await page.setContent('<main>' + card(urn, 'Publicação SDUI.',
+    sduiComposer.replace('<button type="button">Comentar</button>',
+      '<button type="button">Comentar</button><button type="button">Comentar</button>')) + '</main>');
+  assert((await run('submitPoint', [urn])) === null,
+    'SDUI: dois botões Comentar posteriores são ambíguos e bloqueados');
+
   // Dois editores, ainda que ambos visíveis, exigem revisão.
   await page.setContent('<main>' + card(urn, 'Publicação normal.', form + form) + '</main>');
   assert((await run('editorPoint', [urn])) === null &&
