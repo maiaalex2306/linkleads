@@ -93,6 +93,31 @@ try {
     sduiRead[0].urn.startsWith('ll-idx-'),
     'SDUI: dois metadados primários conflitantes continuam bloqueados',sduiRead.map(p=>p.cardIdentity));
 
+  // Regressão dos relatórios reais: perfis mencionados dentro do texto
+  // não devem substituir o autor do cabeçalho SDUI, nem virar falso mismatch.
+  const mentionCard = (header) => '<div class="sdui-card">' +
+    header + '<div dir="ltr">Obrigado à <a href="https://www.linkedin.com/in/terceira-pessoa/">' +
+    'terceira pessoa</a> pela parceria no projeto de inovação industrial.</div>' +
+    '<button aria-label="Gostei" aria-pressed="false">Gostei</button>' +
+    '<button aria-label="Comentar">Comentar</button></div>';
+  await page.setContent('<main><div data-sdui-screen>' + mentionCard(
+    '<div class="header-area"><a href="https://www.linkedin.com/in/lucia-fernandes/">' +
+    'Lucia Fernandes</a><span>há 2 d</span><button>Seguir</button></div>') +
+    '</div></main>');
+  let mentionResult = await scan();
+  check(mentionResult.length === 1 &&
+    mentionResult[0].actorHref?.endsWith('/lucia-fernandes/') &&
+    mentionResult[0].liked === false,
+    'SDUI: link mencionado no corpo não substitui autora do cabeçalho',
+    mentionResult.map(p => ({actor:p.actorHref,urn:p.urn})));
+  await page.setContent('<main><div data-sdui-screen>' +
+    mentionCard('<div class="header-area"><span>há 2 d</span></div>') +
+    '</div></main>');
+  mentionResult = await scan();
+  check(mentionResult.length === 1 && mentionResult[0].actorHref === null,
+    'SDUI: se não há link no cabeçalho, não promover pessoa mencionada',
+    mentionResult.map(p => ({actor:p.actorHref})));
+
   // FASE 0.5.20: página que permanece /all/ com Publicações em verde.
   const fixtureCard = () => '<section class="sdui-card">' +
     '<div class="author"><a href="https://www.linkedin.com/in/jana/">Jana Barbosa</a>' +
