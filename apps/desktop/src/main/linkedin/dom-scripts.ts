@@ -427,7 +427,7 @@ export function llPostContainers(
     // SDUI usa componentkey e nao possui necessariamente <header> ou
     // classes update-components. O link do autor pode estar JUNTO do
     // carimbo temporal em um pequeno bloco semantico.
-    const sduiAge = /^(?:h[áa]\s+)?\d+\s*(?:min(?:utos?)?|h(?:oras?)?|d(?:ias?)?|sem(?:anas?)?|w(?:eeks?)?|m[eê]s(?:es)?|mes(?:es)?|a(?:nos?)?|y(?:ears?)?)\b/i;
+    const sduiAge = /^(?:h[áa]\s+)?\d+\s*(?:min(?:utos?)?|h(?:oras?)?|d(?:ias?)?|sem(?:anas?)?|w(?:eeks?)?|m[eê]s(?:es)?|mes(?:es)?|m|a(?:nos?)?|y(?:ears?)?)\b/i;
     const sduiAdjacent = card.closest('[data-sdui-screen]') ? authorLinks.filter((a) => {
       let node: Element | null = a.parentElement;
       for (let depth = 0; node && node !== card && depth < 6; depth++, node = node.parentElement) {
@@ -533,7 +533,7 @@ export function llPostContainers(
   for (const el of topLevel) add(el);
 
   // Fallback estrutural para cartões sem data-urn (layout moderno).
-  const TIME = /^(?:h[áa]\s+)?\d+\s*(?:min(?:utos?)?|h(?:oras?|rs?)?|d(?:ias?|ays?)?|sem(?:anas?)?|w(?:eeks?)?|mo(?:nths?)?|m[eê]s(?:es)?|mes(?:es)?|a(?:nos?)?|y(?:ears?|rs?)?|s(?:egundos?)?)\b(?:\s*[•·]\s*.*)?$/i;
+  const TIME = /^(?:h[áa]\s+)?\d+\s*(?:min(?:utos?)?|h(?:oras?|rs?)?|d(?:ias?|ays?)?|sem(?:anas?)?|w(?:eeks?)?|mo(?:nths?)?|m[eê]s(?:es)?|mes(?:es)?|m|a(?:nos?)?|y(?:ears?|rs?)?|s(?:egundos?)?)\b(?:\s*[•·]\s*.*)?$/i;
   const timeEls = (Array.from(root.querySelectorAll('span, time, a, div, p')) as HTMLElement[])
     .filter((e) => {
       if (e.children.length > 3) return false;
@@ -649,7 +649,7 @@ export function extractPosts(sel: Record<string, readonly string[]>, limit: numb
       if (node.querySelector('button, [role="button"], time, [contenteditable]')) return false;
       const value = ((node as HTMLElement).innerText || node.textContent || '').replace(/\s+/g, ' ').trim();
       // Tempo da publicação e etiquetas do autor nunca viram corpo de texto.
-      if (/^(?:h[áa]\s+)?\d+\s*(?:min|h|d|dia|day|sem|week|m[eê]s|mes|ano|year)\b/i.test(value) &&
+      if (/^(?:h[áa]\s+)?\d+\s*(?:min|h|d|dia|day|sem|week|m[eê]s|mes|m|ano|year)\b/i.test(value) &&
           value.length < 45) return false;
       return true;
     };
