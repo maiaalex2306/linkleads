@@ -35,6 +35,9 @@ import { AccountStore, publicAccount } from './account-store.js';
 import { checkProxy, validateProxy } from './proxy-check.js';
 import { advanceClock, now } from './clock.js';
 import { CrmRegistry } from './crm-registry.js';
+import { recognitionRetryCandidates56, reprocessRecognitionFailures56 } from './phase56-store.js';
+import { reliabilitySummary } from './reliability.js';
+import { PILOT_CHECKPOINTS, recordPilotObservation, pilotSummary, type PilotCheckpoint, type PilotOutcome } from './phase9-pilot.js';
 import { accountStats } from './stats.js';
 import { TeamSync } from './team-sync.js';
 import { setupUpdater } from './updater.js';
@@ -331,6 +334,32 @@ ipcMain.handle('campaigns:retryFailed', (_e, id: string, campaignId: string) => 
  * Fase 5: leitura da cadeia de efeitos, sem alterar estado.
  * Conta/campanha validadas; não expõe texto, credenciais ou cookie.
  */
+/** Fase 10: indicadores agregados locais. Não abre LinkedIn, não executa ações
+ * e não expõe membros, posts, URLs, nomes ou conteúdo.
+ */
+ipcMain.handle('reliability:summary', (_e, id: string) =>
+  reliabilitySummary(crms.get(account(id))));
+
+/** Fase 9: observações humanas somente leitura/registro append-only.
+ * Um resultado informado pelo operador NÃO confirma interações no ledger.
+ */
+ipcMain.handle('pilot:summary', (_e, id: string, campaignId: string) => {
+  const crm = crms.get(account(id));
+  if (!crm.loadCampaign(campaignId, id)) throw Error('Campanha não pertence a esta conta');
+  return pilotSummary(crm, campaignId);
+});
+ipcMain.handle('pilot:record', (_e, id: string, campaignId: string, caseNumber: number,
+  checkpoint: PilotCheckpoint, outcome: PilotOutcome) => {
+  const crm = crms.get(account(id));
+  if (!crm.loadCampaign(campaignId, id)) throw Error('Campanha não pertence a esta conta');
+  // Esta é uma observação do operador, NUNCA uma confirmação automática externa.
+  const rowId = recordPilotObservation(crm, campaignId, caseNumber, checkpoint, outcome);
+  trace.record('pilot', 'observation_recorded', {code:checkpoint,status:outcome},
+    {accountId:id,campaignId});
+  return {rowId, ...pilotSummary(crm, campaignId)};
+});
+void PILOT_CHECKPOINTS; // tipos compartilhados e reconhecidos no módulo de piloto.
+
 ipcMain.handle('campaigns:engagementEffects', (_e, id: string, campaignId: string, personId?: string) => {
   const a = account(id);
   const crm = crms.get(a);
@@ -343,7 +372,7 @@ ipcMain.handle('campaigns:recognitionRetryCandidates', (_e, id: string, campaign
   const a = account(id);
   const crm = crms.get(a);
   if (!crm.loadCampaign(campaignId, id)) throw new Error('Campanha inexistente nesta conta.');
-  return { count: crm.recognitionRetryCandidates(campaignId).length };
+  return { count: recognitionRetryCandidates56(crm,campaignId).length };
 });
 
 /** Reprocessamento EXPLICITAMENTE solicitado, apenas para falhas de reconhecimento
@@ -359,7 +388,7 @@ ipcMain.handle('campaigns:reprocessRecognitionFailures', (_e, id: string, campai
     campaignArchived: !!campaign.archived,
     runnerRunning: !!instances.get(id)?.schedulerRunning(),
   });
-  const count = crm.reprocessRecognitionFailures(campaignId);
+  const count = reprocessRecognitionFailures56(crm,campaignId);
   trace.record('campaign', 'recognition_failures_reprocessed', { count, policy: 'pre_click_no_effects_v1' },
     { accountId: id, campaignId });
   return count;
@@ -407,12 +436,29 @@ ipcMain.handle('instance:live', (_e, id: string) => {
 ipcMain.handle('instance:runNow', (_e, id: string, opts?: { ignoreHours?: boolean }) =>
   instances.require(id).tickAll({ waitIfBusy: true, ignoreHours: !!opts?.ignoreHours }));
 ipcMain.handle('instance:diagnose', (_e, id: string) => instances.require(id).diagnose());
-ipcMain.handle('instance:saveDiagnosis', async (_e, reports: unknown[]) => {
+ipcMain.handle('instance:saveDiagnosis', async (_e, id: string, reports: unknown[]) => {
+  // Nunca exportar relatorios de outras contas. A UI ja filtra os seus
+  // registros, mas a fronteira IPC tambem deve validar seu escopo.
+  account(id);
+  const acceptedPages = new Set(['perfil','atividade','post','mensagens',
+    'empresa_pessoas','empresa_vagas','contato','feed','outra']);
+  if (!Array.isArray(reports) || reports.length < 1 || reports.length > 100 ||
+    reports.some((entry) => {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return true;
+      const r = entry as Record<string,unknown>;
+      return typeof r.page !== 'string' || !acceptedPages.has(r.page) ||
+        typeof r.path !== 'string' || typeof r.at !== 'string' ||
+        (r.accountId !== undefined && r.accountId !== id);
+    })) throw new Error('Relatorio invalido ou pertence a outra conta');
+  const stripped = reports.map((entry) => {
+    const { accountId: _scope, ...report } = entry as Record<string,unknown>;
+    return report;
+  });
   const pick = process.env.LINKLEADS_TEST_EXPORT_PATH
     ? { canceled: false, filePath: process.env.LINKLEADS_TEST_EXPORT_PATH }
     : await dialog.showSaveDialog(launcher!, { title: 'Salvar relatório de diagnóstico', defaultPath: `linkleads-diagnostico-${new Date().toISOString().slice(0, 10)}.json`, filters: [{ name: 'JSON', extensions: ['json'] }] });
   if (pick.canceled || !pick.filePath) return null;
-  writeFileSync(pick.filePath, JSON.stringify({ generatedAt: new Date().toISOString(), platform: process.platform, reports }, null, 2));
+  writeFileSync(pick.filePath, JSON.stringify({ generatedAt: new Date().toISOString(), platform: process.platform, scope: 'single-account', reports: stripped }, null, 2));
   return pick.filePath;
 });
 ipcMain.handle('instance:saveCurrentProfile', async (_e, id: string) => {

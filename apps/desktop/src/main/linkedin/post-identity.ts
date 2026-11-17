@@ -68,3 +68,43 @@ export function contextualAuthorAccepted(context: PostSelectionContext | undefin
     context.confirmedPublicId.trim().length > 0 &&
     context.personId.trim().length > 0);
 }
+
+/** A mesma fábrica de evidência abastece seleção e diagnóstico.
+ * O contexto só se torna prova após navegar e validar o perfil esperado.
+ */
+export function buildPostSelectionContext(
+  post: {
+    urn: string;
+    postKind?: 'ORIGINAL' | 'ORIGINAL_WITH_ATTACHMENT' | 'RESHARE_PLAIN' | 'RESHARE_COMMENTED' | 'UNKNOWN';
+    isReshare: boolean;
+    actorHref: string | null;
+    resharedByHref?: string | null;
+    liked: boolean | null;
+    truncated?: boolean;
+    text: string;
+    hasMedia: boolean;
+    cardIdentity?: { identityStatus: 'CONFIRMED' | 'PROVISIONAL' | 'CONFLICT' };
+  },
+  personId: string,
+  confirmedPublicId: string,
+  sourceSection: PostSelectionContext['sourceSection'],
+): PostSelectionContext {
+  const postKind = !post.postKind || post.postKind === 'UNKNOWN' ? 'unknown' :
+    post.isReshare || post.postKind === 'RESHARE_PLAIN' ||
+    post.postKind === 'RESHARE_COMMENTED' ? 'reshare' : 'original';
+  const authorConflict = post.cardIdentity?.identityStatus === 'CONFLICT' ||
+    (postKind === 'original' && Boolean(post.resharedByHref));
+  const cardConfirmed = post.cardIdentity?.identityStatus === 'CONFIRMED';
+  return {
+    personId, confirmedPublicId, sourceSection,
+    postUrn: isCanonicalPostUrn(post.urn) ? post.urn : null,
+    postKind,
+    authorEvidence: post.actorHref ? 'explicit' :
+      sourceSection === 'posts' && postKind === 'original' &&
+      cardConfirmed && !authorConflict
+        ? 'contextual' : 'unknown',
+    authorConflict,
+    reactionState: post.liked === null ? 'unknown' : post.liked ? 'liked' : 'not_liked',
+    contentState: post.truncated ? 'truncated' : post.text || post.hasMedia ? 'complete' : 'unavailable',
+  };
+}

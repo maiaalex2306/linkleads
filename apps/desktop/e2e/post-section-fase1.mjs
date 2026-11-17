@@ -6,6 +6,7 @@ const require = createRequire(import.meta.url);
 const { chromium } = require('playwright');
 const browser = await chromium.launch({ headless: true });
 const BASE = 'http://linkleads-fase1.test';
+process.env.LINKLEADS_TEST_BASE_URL = BASE;
 let count = 0;
 function check(ok, message, detail) {
   if (!ok) throw Error('FASE1 FALHOU: ' + message + (detail ? ': ' + JSON.stringify(detail) : ''));
@@ -14,7 +15,7 @@ function check(ok, message, detail) {
 }
 const post = '<article data-post-fixture="true">Publicacao propria simulada</article>';
 function fixture(slug, mode, path, extra = {}) {
-  const posts = path.endsWith('/shares/') || path.endsWith('/posts/');
+  const posts = path.endsWith('/shares/') || path.endsWith('/posts/') || mode === 'sduiSelected';
   const filter = mode === 'link'
     ? '<nav aria-label="Filtros de atividades"><a role="tab" href="/in/' + slug + '/recent-activity/shares/">Posts</a></nav>'
     : mode === 'button'
@@ -25,7 +26,17 @@ function fixture(slug, mode, path, extra = {}) {
           ? '<nav><a role="tab" href="https://external.example/posts">Posts</a></nav>'
           : mode === 'ambiguous'
             ? '<nav><a role="tab" href="/in/' + slug + '/recent-activity/shares/">Posts</a><a role="tab" href="/in/' + slug + '/recent-activity/posts/">Posts</a></nav>'
-            : '';
+            : mode === 'sduiSelected' || mode === 'sduiUnselected'
+              ? '<div class="activity-filters">' +
+                '<button style="' + (mode === 'sduiSelected'
+                  ? 'background-color:rgb(4,129,90);color:rgb(255,255,255)'
+                  : 'background-color:rgb(255,255,255);color:rgb(20,20,20)') +
+                '">Publicações</button>' +
+                '<button style="background:white;color:black">Comentários</button>' +
+                '<button style="background:white;color:black">Vídeos</button>' +
+                '<button style="background:white;color:black">Imagens</button>' +
+                '<button style="background:white;color:black">Reações</button></div>'
+              : '';
   const delayedTab = mode === 'delayed' && !posts
     ? '<nav id="tabs"></nav><script>setTimeout(()=>{document.getElementById("tabs").innerHTML=' +
       JSON.stringify('<a role="tab" href="/in/' + slug + '/recent-activity/shares/">Posts</a>') + '},500)</script>'
@@ -44,9 +55,9 @@ function fixture(slug, mode, path, extra = {}) {
     body = posts ? post : '<article data-post-fixture="true">Atividade existente</article><div class="third-party">Outro tipo de atividade</div>';
   }
   return '<!doctype html><html><head><meta charset="UTF-8"></head><body><main>' +
-    (posts ? '' : filter + delayedTab) + body + '</main></body></html>';
+    ((path.endsWith('/shares/') || path.endsWith('/posts/')) ? '' : filter + delayedTab) + body + '</main></body></html>';
 }
-async function trial(name, mode, expected, extra = {}, slug = 'ana-silva') {
+async function trial(name, mode, expected, extra = {}, slug = 'ana-silva', options = {}) {
   const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
   const navigations = [];
   const records = [];
@@ -72,6 +83,7 @@ async function trial(name, mode, expected, extra = {}, slug = 'ana-silva') {
         [fn.toString(), args]);
     },
     goto: async (url) => { navigations.push(url); await page.goto(url); },
+    assertNotBlocked: async () => {},
     input: { click: async (x, y, preflight) => {
       if (preflight && !(await preflight(x,y))) return false;
       await page.mouse.click(x, y);
@@ -90,7 +102,7 @@ async function trial(name, mode, expected, extra = {}, slug = 'ana-silva') {
     recordPostSection: (source, status, method) => records.push({ source, status, method }),
   };
   try {
-    const result = await openPostsSection({ driver }, slug);
+    const result = await openPostsSection({ driver }, slug, options);
     check(result.status === expected.status && result.source === expected.source &&
       result.method === expected.method, name + ': classificação', { result, expected });
     check(records.some(x=>x.status==='POST_SECTION_LOADING') ||
@@ -98,7 +110,12 @@ async function trial(name, mode, expected, extra = {}, slug = 'ana-silva') {
     check(records.some(x=>x.status===result.status), name + ': resultado registrado');
     if (expected.method === 'LINK') check(navigations.length === 1, name + ': um link de filtro, sem reidentificar perfil');
     if (expected.method === 'BUTTON') check(page.url().endsWith('/recent-activity/shares/'), name + ': botao navigou para Posts');
-    if (expected.method === 'FALLBACK') check(navigations.length === 0, name + ': sem URL inventada nem navegacao indevida');
+    if (expected.method === 'FALLBACK' && !options.recoverVerifiedPostsRoute)
+      check(navigations.length === 0, name + ': sem navegacao indevida');
+    if (expected.method === 'ROUTE_RECOVERY')
+      check(navigations.length === 1 &&
+        navigations[0].endsWith('/in/' + slug + '/recent-activity/posts/'),
+        name + ': recuperou Posts no mesmo perfil verificado');
     if (expected.source === 'posts' && expected.status === 'POST_SECTION_READY')
       check((await page.locator('.third-party').count()) === 0, name + ': aba nao mistura atividade de terceiros');
   } finally { await page.close(); }
@@ -106,18 +123,28 @@ async function trial(name, mode, expected, extra = {}, slug = 'ana-silva') {
 try {
   await trial('link Publicacoes', 'link', { status:'POST_SECTION_READY', source:'posts', method:'LINK' });
   await trial('botao Publicacoes', 'button', { status:'POST_SECTION_READY', source:'posts', method:'BUTTON' });
+  await trial('SDUI: aba Publicacoes verde sem mudar rota all', 'sduiSelected',
+    { status:'POST_SECTION_READY', source:'posts', method:'ACTIVE' });
+  await trial('SDUI: aba Publicacoes visivel mas nao selecionada', 'sduiUnselected',
+    { status:'POST_SECTION_READY', source:'activity', method:'FALLBACK' });
   await trial('filtro hidratado atrasado', 'delayed', { status:'POST_SECTION_READY', source:'posts', method:'LINK' });
   await trial('fallback controlado', 'none', { status:'POST_SECTION_READY', source:'activity', method:'FALLBACK' });
   await trial('filtro aponta para terceiro', 'wrong', { status:'POST_SECTION_READY', source:'activity', method:'FALLBACK' });
   await trial('filtro externo bloqueado', 'external', { status:'POST_SECTION_READY', source:'activity', method:'FALLBACK' });
   await trial('filtro contraditorio', 'ambiguous', { status:'POST_SECTION_READY', source:'activity', method:'FALLBACK' });
+  await trial('recupera Posts com filtro invisivel no layout moderno', 'none',
+    { status:'POST_SECTION_READY', source:'posts', method:'ROUTE_RECOVERY' },
+    {}, 'ana-silva', { recoverVerifiedPostsRoute: true });
+  await trial('rota de Posts redirecionada nao prova autoria', 'none',
+    { status:'POST_SECTION_READY', source:'activity', method:'FALLBACK' },
+    { redirectToOther: true }, 'ana-silva', { recoverVerifiedPostsRoute: true });
   await trial('aba vazia explicitamente', 'link', { status:'POST_SECTION_EMPTY', source:'posts', method:'LINK' }, {empty:true});
   await trial('post carrega depois do filtro', 'link', { status:'POST_SECTION_READY', source:'posts', method:'LINK' }, {delayMs:850});
   await trial('pagina nao carrega nao e vazia', 'link', { status:'POST_SECTION_UNAVAILABLE', source:'posts', method:'LINK' }, {neverReady:true});
   await trial('redirect apos filtro para outro perfil', 'link', { status:'POST_SECTION_UNAVAILABLE', source:'activity', method:'LINK' }, {redirectToOther:true});
   const opaque='ACoAAA8BYqEBCGLg_vT_ca6mMEqkpp9nVffJ3hc';
   await trial('perfil opaco preserva caixa', 'link', { status:'POST_SECTION_READY', source:'posts', method:'LINK' }, {}, opaque);
-  check(count >= 38, 'cobertura minima de casos e verificacoes');
+  check(count >= 52, 'cobertura minima de casos e verificacoes');
   console.log('FASE 1 APROVADA EM CHROMIUM SIMULADO:', count, 'assercoes');
 } finally {
   await browser.close();

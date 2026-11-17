@@ -141,7 +141,7 @@ export function firstUnlikedCandidate(
   posts: PostExtract[], publicId: string, personName = '',
   options: Pick<LikeEvaluationSettings, 'includeReshares' | 'maxPostAgeDays'> = {},
   contextForPost?: (post: PostExtract) => PostSelectionContext,
-): { post?: PostExtract; why: string; uncertain?: boolean } {
+): { post?: PostExtract; why: string; uncertain?: boolean; code?: PostEvaluationCode } {
   void personName; // Nome apresentado na UI não é uma prova de autoria.
   for (const post of posts) {
     if (post.liked === true) continue;
@@ -153,7 +153,7 @@ export function firstUnlikedCandidate(
         // URN provisória/estado desconhecido podem ser exibidos para diagnóstico.
         post: ['AUTHOR_CONFLICT', 'POST_ID_CONFLICT', 'AUTHOR_UNVERIFIED', 'RESHARE_CLASSIFICATION_ERROR'].includes(assessment.code)
           ? undefined : post,
-        why: assessment.why, uncertain: true,
+        why: assessment.why, uncertain: true, code: assessment.code,
       };
     return { post, why: '' };
   }

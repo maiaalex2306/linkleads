@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { PostExtract } from './dom-scripts.js';
+import { isCanonicalPostUrn } from './post-identity.js';
 import type { PostEvaluation } from './executors.js';
 
 /** Remove todos os identificadores de URL antes de exportar diagnóstico.
@@ -84,7 +85,7 @@ export function cardDecision(
   return {
     ordinal, code, status, stage: evaluation?.stage ?? 'POST_FOUND',
     evidence: {
-      canonical: /^urn:li:activity:\d+$/.test(post.urn),
+      canonical: isCanonicalPostUrn(post.urn),
       identity, kind: post.postKind ?? 'UNKNOWN',
       actorLinkPresent: Boolean(post.actorHref || post.resharedByHref),
       embeddedActorPresent: Boolean(post.cardIdentity?.embeddedActorUrl),
@@ -148,4 +149,32 @@ export function compareLayout(
   if (requiredGone) return { status: 'UI_CHANGED', changedKeys, hash };
   if (layoutHash(baseline) !== hash) return { status: 'DRIFT_DETECTED', changedKeys, hash };
   return { status: 'MATCH', changedKeys: [], hash };
+}
+
+/**
+ * Contrato da etapa de pré-leitura. O hash da página é uma observação,
+ * não autorização nem proibição global de curtidas. Uma página pode variar
+ * em seus elementos opcionais sem mudar o alvo.
+ *
+ * A ação externa continua condicionada aos guardas posteriores de autoria,
+ * URN canônica, estado da reação, editor e pixel pertencente ao MESMO post.
+ */
+export type PostPreflightCode =
+  'CHECKPOINT' | 'LOGGED_OUT' | 'UNSUPPORTED_PAGE' |
+  'PAGE_DRIFT_REQUIRES_POST_GUARDS' | 'POST_GUARDS_REQUIRED';
+
+export function evaluatePostPreflight(input: {
+  page: string;
+  blocked: { checkpoint: boolean; loggedOut: boolean };
+  layoutStatus?: string;
+  selectorIssues?: number;
+}): { allowed: boolean; code: PostPreflightCode } {
+  if (input.blocked.checkpoint) return { allowed: false, code: 'CHECKPOINT' };
+  if (input.blocked.loggedOut) return { allowed: false, code: 'LOGGED_OUT' };
+  if (!['atividade', 'post', 'feed'].includes(input.page))
+    return { allowed: false, code: 'UNSUPPORTED_PAGE' };
+  if (input.layoutStatus === 'UI_CHANGED' || input.layoutStatus === 'DRIFT_DETECTED' ||
+      (input.selectorIssues ?? 0) > 0)
+    return { allowed: true, code: 'PAGE_DRIFT_REQUIRES_POST_GUARDS' };
+  return { allowed: true, code: 'POST_GUARDS_REQUIRED' };
 }

@@ -113,15 +113,66 @@ export function postsFilterProbe(expectedPublicId: string): PostsFilterProbe {
         && !u.username && !u.password && !u.search && !u.hash ? u.href : null;
     } catch { return null; }
   };
+  // SDUI 2026: os filtros podem ser chips <button> sob um <div>
+  // comum, sem role=tab e SEM mudar /recent-activity/all/.
+  // Reconhecer apenas grupos com outras opcoes de filtro verificaveis.
+  const normalized = (v: string) => v.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ').trim().toLowerCase();
+  const chipLabel = (n: Element) => normalized(
+    n.getAttribute('aria-label') || (n as HTMLElement).innerText || n.textContent || '');
+  const allowedChip = /^(?:posts|publicacoes|postagens|comentarios|comments|videos|imagens|images|reacoes|reactions)$/;
+  const isFilterGroup = (n: Element): boolean => {
+    if (n.closest('nav, [role="tablist"]')) return true;
+    let ancestor = n.parentElement;
+    for (let depth = 0; depth < 3 && ancestor && ancestor !== root; depth++, ancestor = ancestor.parentElement) {
+      const chips = Array.from(ancestor.querySelectorAll('a,button,[role="tab"],[role="button"]'))
+        .filter((x) => isVisible(x) && allowedChip.test(chipLabel(x)));
+      if (new Set(chips.map(chipLabel)).size >= 3) return true;
+    }
+    return false;
+  };
   const candidates = Array.from(root.querySelectorAll(
-    'a[href*="recent-activity"], nav a[href], nav button, [role="tablist"] [role="tab"], [role="tab"]',
+    'a[href*="recent-activity"], nav a[href], nav button, [role="tablist"] [role="tab"], [role="tab"], button, [role="button"]',
   )).filter((n) => isVisible(n) && matchLabel(n) &&
     n.getAttribute('aria-disabled') !== 'true' &&
     !(n instanceof HTMLButtonElement && n.disabled) &&
-    (safeHref(n) || !!n.closest('nav, [role="tablist"]') || n.getAttribute('role') === 'tab'));
+    isFilterGroup(n) &&
+    (safeHref(n) || n.matches('button,[role="button"],[role="tab"]') ||
+      !!n.closest('nav,[role="tablist"]')));
   if (!candidates.length) return { kind: 'UNAVAILABLE' };
+  const visuallySelected = (n: Element): boolean => {
+    if (!n.matches('button,[role="button"],[role="tab"]')) return false;
+    const bg = getComputedStyle(n).backgroundColor;
+    const fg = getComputedStyle(n).color;
+    const rgb = (value: string): number[] | null => {
+      const m = value.match(/^rgba?\((\d+)[,\s]+(\d+)[,\s]+(\d+)/i);
+      return m ? [Number(m[1]),Number(m[2]),Number(m[3])] : null;
+    };
+    const b = rgb(bg), c = rgb(fg);
+    if (!b || !c) return false;
+    const dark = b.reduce((a,x) => a+x,0)/3 < 175;
+    const lightText = c.reduce((a,x) => a+x,0)/3 > 195;
+    if (!dark || !lightText) return false;
+    let group: Element | null = n.parentElement;
+    for (let i=0;group && i<3;i++,group=group.parentElement) {
+      const siblings=Array.from(group.querySelectorAll('button,[role="button"],[role="tab"]'))
+        .filter((x)=>x!==n && allowedChip.test(chipLabel(x)) && isVisible(x));
+      if (siblings.length < 2) continue;
+      const lightAlternatives = siblings.filter((x) => {
+        const sb=rgb(getComputedStyle(x).backgroundColor);
+        return sb && sb.reduce((a,y)=>a+y,0)/3 > 215;
+      });
+      return lightAlternatives.length>=2;
+    }
+    return false;
+  };
   const active = candidates.filter((n) =>
-    n.getAttribute('aria-selected') === 'true' || n.getAttribute('aria-current') === 'page');
+    n.getAttribute('aria-selected') === 'true' ||
+    n.getAttribute('aria-pressed') === 'true' ||
+    n.getAttribute('data-state') === 'active' ||
+    n.getAttribute('data-selected') === 'true' ||
+    n.getAttribute('aria-current') === 'page' ||
+    visuallySelected(n));
   if (active.length === 1) return { kind: 'ACTIVE' };
   const urls = [...new Set(candidates.map(safeHref).filter((u): u is string => !!u))];
   // Dois destinos diferentes para a mesma aba significam ambiguidade.
@@ -373,9 +424,44 @@ export function llPostContainers(
       }
       return false;
     });
-    const candidates = specific.length ? specific : general.length ? general : adjacentToPostMetadata;
+    // SDUI usa componentkey e nao possui necessariamente <header> ou
+    // classes update-components. O link do autor pode estar JUNTO do
+    // carimbo temporal em um pequeno bloco semantico.
+    const sduiAge = /^(?:h[áa]\s+)?\d+\s*(?:min(?:utos?)?|h(?:oras?)?|d(?:ias?)?|sem(?:anas?)?|w(?:eeks?)?|m[eê]s(?:es)?|mes(?:es)?|m|a(?:nos?)?|y(?:ears?)?)\b/i;
+    const sduiAdjacent = card.closest('[data-sdui-screen]') ? authorLinks.filter((a) => {
+      let node: Element | null = a.parentElement;
+      for (let depth = 0; node && node !== card && depth < 6; depth++, node = node.parentElement) {
+        if (node.matches(COMMENT) ||
+            node.querySelector('[dir="ltr"], .update-components-text, [contenteditable="true"]') ||
+            node.querySelector('button, [role="button"]')) return false;
+        const small = Array.from(node.querySelectorAll('span, p, time, a')).filter((el) =>
+          el !== a && !a.contains(el) && el.children.length <= 2);
+        if (small.some((el) => {
+          const v = ((el as HTMLElement).innerText || el.textContent || '').replace(/\s+/g, ' ').trim();
+          return v.length > 0 && v.length <= 42 && sduiAge.test(v);
+        })) return true;
+      }
+      return false;
+    }) : [];
+    const candidates = specific.length ? specific :
+      general.length ? general : adjacentToPostMetadata.length ? adjacentToPostMetadata : sduiAdjacent;
+    // O SDUI tambem pode incorporar a publicacao de OUTRA pessoa dentro
+    // do mesmo cartao. No print do proprietario o cabecalho de Alexandre
+    // vem antes do texto, e a citacao de Leticia aparece DEPOIS dele.
+    // Links de perfil dentro da citacao nao concorrem com o autor principal.
+    // Se nao houver uma separacao visivel, conservar autoria ambigua.
+    const bodyBoundary = card.closest('[data-sdui-screen]') ? card.querySelector([
+      '.update-components-text', '.feed-shared-text',
+      '[data-testid*="post-text"]', '[data-test-id*="commentary"]',
+      '[dir="ltr"]', 'a[href*="lnkd.in/"]',
+    ].join(', ')) : null;
+    const beforeBody = (a: Element): boolean =>
+      !!bodyBoundary && a !== bodyBoundary &&
+      !!(a.compareDocumentPosition(bodyBoundary) & Node.DOCUMENT_POSITION_FOLLOWING);
+    const topAuthors = candidates.filter(beforeBody);
+    const authorCandidates = topAuthors.length === 1 ? topAuthors : candidates;
     const authors = new Map<string, HTMLAnchorElement>();
-    for (const a of candidates) {
+    for (const a of authorCandidates) {
       const url = validProfile(a);
       if (url) authors.set(url, a);
     }
@@ -420,7 +506,26 @@ export function llPostContainers(
   // com data-urn não se torna uma segunda publicação independente.
   const classic = new Set<Element>();
   for (const selector of sel.postItem) {
-    for (const el of Array.from(root.querySelectorAll(selector))) classic.add(el);
+    let elements: Element[] = [];
+    try { elements = Array.from(root.querySelectorAll(selector)); }
+    catch { continue; }
+    for (const el of elements) {
+      // O envelope SDUI nao e necessariamente um post. So aceitar como
+      // candidato se ele possui UMA barra de reacoes, UM comentario e
+      // conteudo no mesmo card (sem agrupar varios posts).
+      if (el.hasAttribute('componentkey') && el.closest('[data-sdui-screen]')) {
+        const controls = Array.from(el.querySelectorAll('button, [role="button"]'));
+        const reactions = controls.filter((b) =>
+          (typeof __llIsReact === 'function' ? __llIsReact : llIsReact)(b));
+        const comments = controls.filter((b) =>
+          /^(?:comentar|comment)(?:\s|$)/i.test(
+            (b.getAttribute('aria-label') || (b as HTMLElement).innerText || '').trim()));
+        if (reactions.length !== 1 || comments.length !== 1 ||
+            !el.querySelector('a[href*="/in/"]') ||
+            !el.querySelector('p, [dir="ltr"], [data-testid*="commentary"], [data-testid*="post-text"]')) continue;
+      }
+      classic.add(el);
+    }
   }
   const topLevel = [...classic].filter((el) => ![...classic].some(
     (outer) => outer !== el && outer.contains(el),
@@ -428,7 +533,7 @@ export function llPostContainers(
   for (const el of topLevel) add(el);
 
   // Fallback estrutural para cartões sem data-urn (layout moderno).
-  const TIME = /^(?:h[áa]\s+)?\d+\s*(?:min(?:utos?)?|h(?:oras?|rs?)?|d(?:ias?|ays?)?|sem(?:anas?)?|w(?:eeks?)?|mo(?:nths?)?|m[eê]s(?:es)?|mes(?:es)?|a(?:nos?)?|y(?:ears?|rs?)?|s(?:egundos?)?)\b(?:\s*[•·]\s*.*)?$/i;
+  const TIME = /^(?:h[áa]\s+)?\d+\s*(?:min(?:utos?)?|h(?:oras?|rs?)?|d(?:ias?|ays?)?|sem(?:anas?)?|w(?:eeks?)?|mo(?:nths?)?|m[eê]s(?:es)?|mes(?:es)?|m|a(?:nos?)?|y(?:ears?|rs?)?|s(?:egundos?)?)\b(?:\s*[•·]\s*.*)?$/i;
   const timeEls = (Array.from(root.querySelectorAll('span, time, a, div, p')) as HTMLElement[])
     .filter((e) => {
       if (e.children.length > 3) return false;
@@ -540,8 +645,12 @@ export function extractPosts(sel: Record<string, readonly string[]>, limit: numb
       '[contenteditable="true"]', '[role="toolbar"]', 'button', '[role="button"]',
     ].join(', ');
     const validTextNode = (node: Element) => {
-      if (inEmbedded(node) || node.closest(nonContent)) return false;
+      if (inEmbedded(node) || node.closest(nonContent) || node.closest('header, [data-testid*="actor"]')) return false;
       if (node.querySelector('button, [role="button"], time, [contenteditable]')) return false;
+      const value = ((node as HTMLElement).innerText || node.textContent || '').replace(/\s+/g, ' ').trim();
+      // Tempo da publicação e etiquetas do autor nunca viram corpo de texto.
+      if (/^(?:h[áa]\s+)?\d+\s*(?:min|h|d|dia|day|sem|week|m[eê]s|mes|m|ano|year)\b/i.test(value) &&
+          value.length < 45) return false;
       return true;
     };
     // Um botão "ver mais" pode estar dentro da área oficial do texto.
@@ -595,8 +704,29 @@ export function extractPosts(sel: Record<string, readonly string[]>, limit: numb
       .filter((a) => !inEmbedded(a))
       .map((a) => (a.innerText || '').replace(/\s+/g, ' ').trim())
       .find((v) => v && v.length < 60 && AGE.test(v)) ?? null;
+    // SDUI: a legenda temporal pode ser <p>/<span>, sem classes legadas.
+    // Só ler se estiver no mesmo envelope pequeno do autor JA verificado;
+    // jamais deduzir idade a partir de números escritos no corpo do post.
+    const sduiAgeLabel = (() => {
+      if (!identity.primaryActorUrl || !it.closest('[data-sdui-screen]')) return null;
+      const links = Array.from(it.querySelectorAll('a[href*="/in/"]')) as HTMLAnchorElement[];
+      const owner = links.find((a) =>
+        a.href.replace(/\/$/, '') === identity.primaryActorUrl?.replace(/\/$/, ''));
+      if (!owner) return null;
+      for (let node = owner.parentElement, depth = 0; node && node !== it && depth < 5;
+        node = node.parentElement, depth++) {
+        if (node.querySelector('button, [role="button"], [dir="ltr"], [contenteditable]')) break;
+        const labels = Array.from(node.querySelectorAll('span, p, time, a'))
+          .filter((item) => item !== owner && item.children.length < 3);
+        const found = labels.map((item) =>
+          ((item as HTMLElement).innerText || item.textContent || '').replace(/\s+/g, ' ').trim())
+          .find((value) => value.length > 0 && value.length < 45 && AGE.test(value));
+        if (found) return found;
+      }
+      return null;
+    })();
     const ageTxt = (labelled && /(?:^|\s)(?:h[áa]\s+)?\d+\s*(?:min|h|d|dia|day|sem|w|week|m[oêe]|mes|a|ano|y|year)\b/i.test(labelled)
-      ? labelled : null) || absolute || permalinkAge || null;
+      ? labelled : null) || absolute || permalinkAge || sduiAgeLabel || null;
     // A única fonte de autoria é a identidade do contêiner principal.
     // Fallback por nome, por menção ou por autor incorporado é proibido.
     const media = !!firstOwn(sel.postMedia!) ||
@@ -733,6 +863,9 @@ export function llCommentControls(
       'button[aria-label*="Publicar"]',
       'button[aria-label*="Post comment"]',
       'button[data-testid*="comment-submit"]',
+      // SDUI: "Comentar" pode ser o botão de envio sem type=submit,
+      // mas só após o editor e dentro do MESMO envelope de composição.
+      'button',
     ];
     for (const selector of selectors) {
       try {
@@ -743,13 +876,21 @@ export function llCommentControls(
             'button[type="submit"], .comments-comment-box__submit-button, .comments-comment-box__submit-button--cr, [data-testid*="comment-submit"], [data-test-id*="comment-submit"]');
           const label = (node.getAttribute('aria-label') || node.innerText || '').replace(/\s+/g, ' ').trim();
           const submitLabel = /^(publicar|post|postar|publish|post comment|publicar comentário|enviar comentário)$/i.test(label);
-          if ((!explicitSubmit && !submitLabel) ||
+          const namedComment = /^(comentar|comment)$/i.test(label);
+          const composerComment = namedComment && !editor.closest('form') &&
+            ancestor !== root && depth <= 5 &&
+            // A barra de ações "Comentar" fica ANTES do editor. O envio
+            // SDUI fica DEPOIS, no mesmo envelope e sem toolbar intermediária.
+            !!(editor.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING) &&
+            !node.closest('nav, [role="toolbar"], .feed-shared-social-action-bar, .social-actions') &&
+            Array.from(ancestor.querySelectorAll('[contenteditable="true"]')).filter(visible).length === 1;
+          if ((!explicitSubmit && !submitLabel && !composerComment) ||
             (node.closest('form') && node.closest('form') !== editor.closest('form')) ||
             (editor.closest('form') && !editor.closest('form')!.contains(node)) ||
             (node.disabled || node.getAttribute('aria-disabled') === 'true')) continue;
-          // "Comment"/"Comentar" só é envio quando o botão está no form
-          // do editor e é explicitamente type=submit.
-          if (/^(comentar|comment)$/i.test(label) && !(isForm && node.type === 'submit')) continue;
+          // Rótulo "Comentar" não é prova isolada: exigir form de envio
+          // explícito ou posição contextual posterior ao editor.
+          if (namedComment && !(isForm && node.type === 'submit') && !composerComment) continue;
           submits.add(node);
         }
       } catch { /* configuração inválida não vira seletor global */ }

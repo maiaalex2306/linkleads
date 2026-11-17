@@ -106,7 +106,15 @@ function topNav() {
         menu.open = false;
         const result = await safe(() => api.exportTrace(state.accountId || undefined));
         if (result && !result.canceled) toast('Diagnóstico exportado: ' + result.file, 6500);
-      } }, 'Exportar diagnóstico')));
+      } }, 'Exportar diagnóstico'),
+      h('button', { onclick: () => {
+        menu.open = false;
+        if (!state.accountId) return toast('Selecione uma conta antes de consultar a confiabilidade.');
+        state.screen = 'workspace';
+        state.mode = 'advanced';
+        state.tab = 'reliability';
+        renderView();
+      } }, 'Confiabilidade')));
   document.getElementById('topnav').replaceChildren(
     h('button', { class: 'link top-home', onclick: returnToLauncher }, 'Minhas contas'),
     menu, ver);
@@ -190,7 +198,7 @@ async function renderView() {
   );
   const body = state.tab === 'campaigns' && state.campaignId
     ? await campaignDetailView(a)
-    : await ({ collections: collectionsView, campaigns: campaignsView, approvals: approvalsView, inbox: inboxView, companies: companiesView, signals: signalsView, deliveries: deliveriesView, diagnostics: diagnosticsView, activity: activityView }[state.tab] || campaignsView)(a);
+    : await ({ collections: collectionsView, campaigns: campaignsView, approvals: approvalsView, inbox: inboxView, companies: companiesView, signals: signalsView, deliveries: deliveriesView, diagnostics: diagnosticsView, reliability: reliabilityView, activity: activityView }[state.tab] || campaignsView)(a);
   commitView(header, body);
 }
 
