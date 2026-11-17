@@ -380,11 +380,21 @@ export function llPostContainers(
     return false;
   };
   const identityOf = (card: Element): PostCardIdentity => {
-    const direct = new Set(
-      ['data-urn', 'data-id', 'data-activity-urn', 'componentkey']
-        .map((attr) => parseUrn(card.getAttribute(attr)))
-        .filter((value): value is string => !!value),
-    );
+    // No SDUI a URN pode estar no wrapper interno do cartão, enquanto o
+    // contêiner que contém autor + conteúdo + reação não possui data-urn.
+    // Examinar SOMENTE atributos de metadados próprios, excluindo comentário
+    // e conteúdo incorporado; candidatos discordantes ficam CONFLICT.
+    const ownMetadata = [card, ...Array.from(card.querySelectorAll(
+      '[data-urn], [data-id], [data-activity-urn], [data-post-urn], [componentkey]',
+    ))].filter((element) => element === card ||
+      (!element.matches(EMBED) && !embeddedWithin(element, card) &&
+       !element.closest(COMMENT) && !element.closest(
+         '.feed-shared-mini-update-v2, .update-components-mini-update-v2, [data-testid*="quoted"], [data-test-id*="reshared"]',
+       )));
+    const direct = new Set(ownMetadata.flatMap((element) =>
+      ['data-urn', 'data-id', 'data-activity-urn', 'data-post-urn', 'componentkey']
+        .map((attr) => parseUrn(element.getAttribute(attr)))
+        .filter((value): value is string => !!value)));
     const primaryLinks = (Array.from(card.querySelectorAll(POST_LINKS)) as HTMLAnchorElement[])
       .filter((a) => !embeddedWithin(a, card));
     const primaryPermalinks = new Set(primaryLinks.map((a) => parseUrn(a.getAttribute('href')))
@@ -455,8 +465,15 @@ export function llPostContainers(
       let node: Element | null = a.parentElement;
       for (let depth = 0; node && node !== card && depth < 6; depth++, node = node.parentElement) {
         if (node.matches(COMMENT) ||
-            node.querySelector('[dir="ltr"], .update-components-text, [contenteditable="true"]') ||
-            node.querySelector('button, [role="button"]')) return false;
+            node.querySelector('[dir="ltr"], .update-components-text, [contenteditable="true"]')) return false;
+        // Na faixa SDUI de autoria o botão "Seguir" pode estar ao lado do
+        // carimbo de data. Ele não transforma o bloco em toolbar de reação.
+        // Outros botões seguem impedindo inferência contextual de autoria.
+        const unsafeButtons = Array.from(node.querySelectorAll('button,[role="button"]'))
+          .some((button) => !/^(?:seguir|follow|mais|more|seguir pessoa)$/.test(
+            (button.getAttribute('aria-label') || (button as HTMLElement).innerText ||
+              button.textContent || '').replace(/\s+/g,' ').trim().toLowerCase()));
+        if (unsafeButtons) return false;
         const small = Array.from(node.querySelectorAll('span, p, time, a')).filter((el) =>
           el !== a && !a.contains(el) && el.children.length <= 2);
         if (small.some((el) => {
