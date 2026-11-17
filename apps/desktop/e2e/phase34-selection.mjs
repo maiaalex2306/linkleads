@@ -46,6 +46,20 @@ const provisional = make({urn:'ll-idx-0'});
 check(evaluatePost(provisional, 'leticia', settings, context(provisional)).code === 'POST_ID_PROVISIONAL' ||
       evaluatePost(provisional, 'leticia', settings, context(provisional)).code === 'AUTHOR_UNVERIFIED',
   'URN provisória jamais elegível');
+const visualKey='ll-vcard:leticia:12345678abcdef01';
+const visual = make({urn:visualKey,actorHref:null,cardIdentity:{
+  ...own.cardIdentity,cardId:visualKey,postUrn:null,identityStatus:'PROVISIONAL'}});
+check(evaluatePost(visual,'leticia',settings,context(visual)).status==='ELIGIBLE',
+  'cartão sem URN, com texto estável, filtro Posts e contexto próprio é elegível');
+check(evaluatePost(visual,'leticia',settings,context(visual,{sourceSection:'activity'})).code==='AUTHOR_UNVERIFIED',
+  'cartão visual da aba Todas não comprova autoria');
+check(evaluatePost(visual,'leticia',settings).code==='AUTHOR_UNVERIFIED',
+  'cartão visual sem contexto não autoriza clique');
+check(evaluatePost(make({...visual,cardIdentity:{...visual.cardIdentity,
+  identityStatus:'CONFLICT'}}),'leticia',settings,context(visual)).code==='POST_ID_CONFLICT',
+  'conflito de cartões visuais continua bloqueado');
+check(evaluatePost({...visual,text:'curto'},'leticia',settings,context(visual)).code==='POST_ID_PROVISIONAL',
+  'texto visual curto não comprova o cartão');
 const old = make({age:'70 d'});
 check(evaluatePost(old, 'leticia', settings, context(old)).code === 'POST_TOO_OLD',
   'post mais antigo que a janela permanece excluído');
