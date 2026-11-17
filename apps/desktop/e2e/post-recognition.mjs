@@ -54,6 +54,40 @@ const probe = (urn, clickPoint = null) => page.evaluate(({ fns, selectors, urn, 
 const comment = 'Este texto de comentário não é a publicação. '.repeat(35);
 const noise = 'Ruído de comentário muito longo. '.repeat(50);
 try {
+  // Caso SDUI observado em 17/11/2026: metadado de publicação em wrapper
+  // interno, autor em faixa compacta com botão Seguir e data 'há 11 m'.
+  const sduiUrn = 'urn:li:activity:7381234567890128988';
+  const sduiOwnCard = (metadata) => '<div class="new-card">' +
+    '<div class="sdui-author-meta"><a href="https://www.linkedin.com/in/erika-rod/">Erika Rodrigues</a>' +
+    '<span>há 11 m · Editado</span><button>Seguir</button></div>' +
+    metadata +
+    '<div class="update-components-text">Celebração de uma conquista profissional.</div>' +
+    '<button aria-label="Gostei" aria-pressed="false">Gostei</button>' +
+    '<button aria-label="Comentar">Comentar</button></div>';
+  await page.setContent('<main><div data-sdui-screen>' +
+    sduiOwnCard('<div data-activity-urn="' + sduiUrn + '"></div>') +
+    '</div></main>');
+  let sduiRead = await scan();
+  check(sduiRead.length === 1 && sduiRead[0].urn === sduiUrn &&
+    sduiRead[0].actorHref?.endsWith('/erika-rod/') && sduiRead[0].liked === false,
+    'SDUI: URN do próprio wrapper, autor com Seguir e reação não curtida',
+    sduiRead.map(p=>({urn:p.urn,author:p.actorHref,liked:p.liked})));
+  await page.setContent('<main><div data-sdui-screen>' +
+    sduiOwnCard('<div data-activity-urn="' + sduiUrn + '"></div>' +
+      '<section class="update-components-article" data-activity-urn="urn:li:activity:7381234567890128999"></section>') +
+    '</div></main>');
+  sduiRead = await scan();
+  check(sduiRead.length === 1 && sduiRead[0].urn === sduiUrn,
+    'SDUI: metadados de artigo incorporado não substituem o post principal',sduiRead.map(p=>p.urn));
+  await page.setContent('<main><div data-sdui-screen>' +
+    sduiOwnCard('<div data-activity-urn="' + sduiUrn + '"></div>' +
+      '<div data-activity-urn="urn:li:activity:7381234567890128999"></div>') +
+    '</div></main>');
+  sduiRead = await scan();
+  check(sduiRead.length === 1 && sduiRead[0].cardIdentity?.identityStatus === 'CONFLICT' &&
+    sduiRead[0].urn.startsWith('ll-idx-'),
+    'SDUI: dois metadados primários conflitantes continuam bloqueados',sduiRead.map(p=>p.cardIdentity));
+
   await page.setContent(
     '<main><div class="feed-shared-update-v2" data-urn="urn:li:activity:7001">' +
       '<div class="update-components-actor"><a class="update-components-actor__meta-link" href="https://www.linkedin.com/in/ana-silva/">Ana Silva</a>' +

@@ -6,7 +6,7 @@ import type { IntegrationCrm } from '@linkleads/db';
 import type { EnrichmentProvider } from '@linkleads/integrations';
 import { commentEditorPoint, commentSubmitPoint, commentEvidence, editorText, extractPosts, extractProfile, likeState, profileReady, type PostExtract } from './dom-scripts.js';
 import { BlockedError, type PageDriver } from './page-driver.js';
-import { isCanonicalPostUrn, provisionalPostFingerprint, contextualAuthorAccepted, buildPostSelectionContext, type PostSelectionContext } from './post-identity.js';
+import { isCanonicalPostUrn, provisionalPostFingerprint, contextualAuthorAccepted, buildPostSelectionContext, matchHydratedPost, type PostSelectionContext } from './post-identity.js';
 import { evaluatePost, firstUnlikedCandidate, profileSlug, sameConfirmedPublicId, type PostEvaluationCode } from './post-evaluation.js';
 export { evaluatePost, firstUnlikedCandidate, profileSlug, sameConfirmedPublicId } from './post-evaluation.js';
 export type { PostEvaluation, PostEvaluationStatus, PostEvaluationStage, PostEvaluationCode } from './post-evaluation.js';
@@ -265,21 +265,22 @@ async function discoverUnlikedPost(
     const ordered = [...seen.values()].filter((p) => !ignoredUrns.has(p.urn));
     let candidate = firstUnlikedCandidate(ordered, publicId, personName, settings, contextForPost);
     if (candidate.uncertain) {
-      // Reidratação deve preservar a MESMA posição e o mesmo conteúdo
-      // do primeiro candidato incerto, nunca substituir por outro posterior.
+      // Reidratação deve preservar o MESMO cartão por URN/conteúdo, não seu
+      // índice: uma viewport virtualizada pode inserir/remover cartões entre
+      // leituras sem que o usuário tenha mudado a seleção.
       const blockedIndex = ordered.findIndex((post) => post.liked !== true &&
         evaluatePost(post, publicId, settings, contextForPost(post)).status === 'REVIEW_REQUIRED');
       const original = blockedIndex >= 0 ? ordered[blockedIndex] : undefined;
-      for (let retry = 0; retry < 2 && candidate.uncertain && original; retry++) {
-        await new Promise((resolve) => setTimeout(resolve, 350));
+      for (let retry = 0; retry < 4 && candidate.uncertain && original; retry++) {
+        // Somente LEITURA: dar tempo à hidratação assíncrona sem navegar,
+        // interagir nem transformar identidades provisórias em confirmadas.
+        await new Promise((resolve) => setTimeout(resolve, 350 + 250 * retry));
         await d.driver.assertNotBlocked();
         const hydrated = (await d.driver.read(extractPosts,
           d.driver.sel as unknown as Record<string, readonly string[]>, 150))
           .filter((post) => !ignoredUrns.has(post.urn));
-        const updated = hydrated[blockedIndex];
-        if (!updated || updated.isReshare !== original.isReshare ||
-            (isCanonicalPostUrn(original.urn) && updated.urn !== original.urn) ||
-            (original.text.trim() && updated.text.trim() !== original.text.trim())) continue;
+        const updated = matchHydratedPost(original, hydrated);
+        if (!updated) continue;
         const reassessed = evaluatePost(updated, publicId, settings, contextForPost(updated));
         if (reassessed.status === 'ELIGIBLE') {
           candidate = {post: updated, why: ''};
@@ -287,9 +288,13 @@ async function discoverUnlikedPost(
         }
       }
     }
-    if (candidate.uncertain)
-      return { posts: ordered, why: candidate.why + '. Confirmação humana necessária.',
+    if (candidate.uncertain) {
+      const manual = candidate.code === 'POST_ID_PROVISIONAL' || candidate.code === 'AUTHOR_UNVERIFIED'
+        ? ' Abra a publicação pelo carimbo de data na janela do LINKLEADS e use a interação manual supervisionada. Não haverá clique automático nem tentativa repetida sem identidade comprovada.'
+        : '';
+      return { posts: ordered, why: candidate.why + '. Confirmação humana necessária.' + manual,
         uncertain: true, diagnosticCode: candidate.code };
+    }
     if (candidate.post) {
       const post = candidate.post;
       if (!isCanonicalPostUrn(post.urn))

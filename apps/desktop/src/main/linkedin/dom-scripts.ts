@@ -192,8 +192,31 @@ export function postsFilterClickGuard(expectedPublicId: string, x: number, y: nu
   catch { return false; }
   const node = document.elementFromPoint(x, y)?.closest('button, [role="tab"]');
   if (!node || node.matches('a[href]') || node.getAttribute('aria-disabled') === 'true' ||
-      (node instanceof HTMLButtonElement && node.disabled) ||
-      !(node.closest('nav, [role="tablist"]') || node.getAttribute('role') === 'tab')) return false;
+      (node instanceof HTMLButtonElement && node.disabled)) return false;
+  // O probe já aceita chips SDUI sem nav/role=tab. O guard deve validar
+  // o MESMO contrato, ou bloqueará sozinho o clique de navegação para
+  // Publicações e deixará a leitura presa em "Todas as atividades".
+  const isVerifiedFilter = (() => {
+    if (node.closest('nav, [role="tablist"]') || node.getAttribute('role') === 'tab')
+      return true;
+    const labelOf = (n: Element) => (n.getAttribute('aria-label') ||
+      (n as HTMLElement).innerText || n.textContent || '')
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/\s+/g, ' ').trim().toLowerCase();
+    const allowed = /^(?:posts|publicacoes|postagens|comentarios|comments|videos|imagens|images|reacoes|reactions)$/;
+    let parent = node.parentElement;
+    for (let depth = 0; parent && depth < 3; depth++, parent = parent.parentElement) {
+      const siblings = Array.from(parent.querySelectorAll('button,[role="tab"],[role="button"]'))
+        .filter((b) => { const r=b.getBoundingClientRect(); return r.width>0 && r.height>0 &&
+          b.getAttribute('aria-disabled') !== 'true' && allowed.test(labelOf(b)); });
+      const names = [...new Set(siblings.map(labelOf))];
+      if (siblings.includes(node) && names.length >= 3 &&
+          siblings.filter((b) => /^(?:posts|publicacoes|postagens)$/.test(labelOf(b))).length === 1)
+        return true;
+    }
+    return false;
+  })();
+  if (!isVerifiedFilter) return false;
   const label = (node.getAttribute('aria-label') || (node as HTMLElement).innerText || node.textContent || '')
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
   if (!/^(?:posts|publicacoes|postagens)(?:\s*\(\d+\))?$/.test(label)) return false;
@@ -357,11 +380,21 @@ export function llPostContainers(
     return false;
   };
   const identityOf = (card: Element): PostCardIdentity => {
-    const direct = new Set(
-      ['data-urn', 'data-id', 'data-activity-urn', 'componentkey']
-        .map((attr) => parseUrn(card.getAttribute(attr)))
-        .filter((value): value is string => !!value),
-    );
+    // No SDUI a URN pode estar no wrapper interno do cartão, enquanto o
+    // contêiner que contém autor + conteúdo + reação não possui data-urn.
+    // Examinar SOMENTE atributos de metadados próprios, excluindo comentário
+    // e conteúdo incorporado; candidatos discordantes ficam CONFLICT.
+    const ownMetadata = [card, ...Array.from(card.querySelectorAll(
+      '[data-urn], [data-id], [data-activity-urn], [data-post-urn], [componentkey]',
+    ))].filter((element) => element === card ||
+      (!element.matches(EMBED) && !embeddedWithin(element, card) &&
+       !element.closest(COMMENT) && !element.closest(
+         '.feed-shared-mini-update-v2, .update-components-mini-update-v2, [data-testid*="quoted"], [data-test-id*="reshared"]',
+       )));
+    const direct = new Set(ownMetadata.flatMap((element) =>
+      ['data-urn', 'data-id', 'data-activity-urn', 'data-post-urn', 'componentkey']
+        .map((attr) => parseUrn(element.getAttribute(attr)))
+        .filter((value): value is string => !!value)));
     const primaryLinks = (Array.from(card.querySelectorAll(POST_LINKS)) as HTMLAnchorElement[])
       .filter((a) => !embeddedWithin(a, card));
     const primaryPermalinks = new Set(primaryLinks.map((a) => parseUrn(a.getAttribute('href')))
@@ -432,8 +465,15 @@ export function llPostContainers(
       let node: Element | null = a.parentElement;
       for (let depth = 0; node && node !== card && depth < 6; depth++, node = node.parentElement) {
         if (node.matches(COMMENT) ||
-            node.querySelector('[dir="ltr"], .update-components-text, [contenteditable="true"]') ||
-            node.querySelector('button, [role="button"]')) return false;
+            node.querySelector('[dir="ltr"], .update-components-text, [contenteditable="true"]')) return false;
+        // Na faixa SDUI de autoria o botão "Seguir" pode estar ao lado do
+        // carimbo de data. Ele não transforma o bloco em toolbar de reação.
+        // Outros botões seguem impedindo inferência contextual de autoria.
+        const unsafeButtons = Array.from(node.querySelectorAll('button,[role="button"]'))
+          .some((button) => !/^(?:seguir|follow|mais|more|seguir pessoa)$/.test(
+            (button.getAttribute('aria-label') || (button as HTMLElement).innerText ||
+              button.textContent || '').replace(/\s+/g,' ').trim().toLowerCase()));
+        if (unsafeButtons) return false;
         const small = Array.from(node.querySelectorAll('span, p, time, a')).filter((el) =>
           el !== a && !a.contains(el) && el.children.length <= 2);
         if (small.some((el) => {
