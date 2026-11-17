@@ -189,17 +189,21 @@ export function postsFilterProbe(expectedPublicId: string): PostsFilterProbe {
       // apenas por diferença de cor ou foco.
       if (peers.some(semanticActive)) return false;
       const palettes = peers.map(stylePalette);
-      if (palettes.some((p) => !p)) return false;
-      const reference = palettes[0]!;
-      if (!palettes.every((p) => distance(p!, reference) < 35)) return false;
-      if (distance(own, reference) < 70) return false;
+      // Chips INATIVOS do SDUI podem ser transparentes; a ausência de
+      // fundo NÃO invalida a comparação quando todos os irmãos concordam.
+      const transparentPeers = palettes.every((p) => p === null);
+      const filledPeers = palettes.every((p) => p !== null);
+      if (!transparentPeers && !filledPeers) return false;
+      const reference = filledPeers ? palettes[0]! : null;
+      if (reference && !palettes.every((p) => distance(p!, reference) < 35)) return false;
+      if (reference && distance(own, reference) < 70) return false;
       const groupChips = Array.from(group.querySelectorAll('button,[role="button"],[role="tab"]'))
         .filter((x) => isVisible(x) && allowedChip.test(chipLabel(x)));
-      // Cor distinta deve identificar apenas o alvo; hover ou wrappers
-      // incompatíveis não são confirmação suficiente.
+      // Exigir UM só destaque, preservando bloqueio de chips ambíguos.
       const standouts = groupChips.filter((x) => {
         const p = stylePalette(x);
-        return !!p && distance(p, reference) >= 70;
+        return reference ? (p !== null && distance(p, reference) >= 70)
+          : p !== null;
       });
       return standouts.length === 1 && standouts[0] === n;
     }
@@ -546,7 +550,7 @@ export function llPostContainers(
         // carimbo de data. Ele não transforma o bloco em toolbar de reação.
         // Outros botões seguem impedindo inferência contextual de autoria.
         const unsafeButtons = Array.from(node.querySelectorAll('button,[role="button"]'))
-          .some((button) => !/^(?:seguir|follow|mais|more|seguir pessoa)$/.test(
+          .some((button) => !/^(?:seguir|follow|mais|more|seguir pessoa|conectar|connect|pendente|pending|mensagem|message|mais a[cç][oõ]es|abrir menu(?: de controle.*)?)$/.test(
             (button.getAttribute('aria-label') || (button as HTMLElement).innerText ||
               button.textContent || '').replace(/\s+/g,' ').trim().toLowerCase()));
         if (unsafeButtons) return false;
@@ -594,8 +598,15 @@ export function llPostContainers(
       .map((node) => (node as HTMLElement).innerText || node.textContent || '')
       .map((s) => s.normalize('NFC').replace(/\s+/g, ' ').trim())
       .find((s) => s.length >= 24 && s.length <= 6000) ?? '';
-    let source = [author?.href ?? '', visibleBody.slice(0, 128)].join('|');
-    const visualEligible = !primary && !conflicting && visibleBody.length >= 24;
+    // "…mais" pode expandir o texto: apenas o prefixo estável
+    // participa da chave visual. Se há expansão e menos de 64 caracteres,
+    // manter provisório em vez de gerar chave instável.
+    const hasExpand = Array.from(card.querySelectorAll('button,[role="button"],a,span[tabindex="0"]'))
+      .some((n) => /^(?:…|\.\.\.)?\s*(?:ver mais|see more|mostrar mais|more)\s*$/i.test(
+        (n.getAttribute('aria-label') || n.textContent || '').replace(/\s+/g, ' ').trim()));
+    const minFingerprintLength = hasExpand ? 64 : 24;
+    let source = [author?.href ?? '', visibleBody.slice(0, 64)].join('|');
+    const visualEligible = !primary && !conflicting && visibleBody.length >= minFingerprintLength;
     if (!visualEligible) source = [
       [...direct].sort().join(','), [...primaryPermalinks].sort().join(','),
       [...nestedUrns].sort().join(','), author?.href ?? '',
