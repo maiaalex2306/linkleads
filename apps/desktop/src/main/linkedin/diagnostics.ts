@@ -69,6 +69,8 @@ export interface DiagnosisReport {
   /** Contrato estrutural anonimizável, confrontado com baseline por página/idioma. */
   layout: { shape: LayoutShape; hash: string; comparison?: BaselineResult };
   primaryCode: DiagnosticCode | 'OK';
+  /** Etapa bloqueada e componente proprietário; nunca contém PII. */
+  primaryBlocker?: { code: DiagnosticCode; stage: string; module: string; ordinal: number; evidence: CardDecision['evidence'] };
   page: PageKind;
   /** caminho sem o identificador da pessoa/empresa */
   path: string;
@@ -94,7 +96,7 @@ export interface DiagnosisReport {
 /** Pura: estrutura em volta das datas dos posts ("há 1 sem") — tags, papéis, classes, nomes de atributos e rótulos de botões. */
 function postsProbe() {
   // Manter a sonda consistente com o extrator: incluir o separador "·" e unidades por extenso.
-  const TIME = /^(?:h[áa]\s+)?\d+\s*(?:min(?:utos?)?|h(?:oras?|rs?)?|d(?:ias?|ays?)?|sem(?:anas?)?|w(?:eeks?)?|mo(?:nths?)?|m[eê]s(?:es)?|mes(?:es)?|a(?:nos?)?|y(?:ears?|rs?)?|s(?:egundos?)?)\b(?:\s*[•·]\s*.*)?$/i;
+  const TIME = /^(?:h[áa]\s+)?\d+\s*(?:min(?:utos?)?|h(?:oras?|rs?)?|d(?:ias?|ays?)?|sem(?:anas?)?|w(?:eeks?)?|mo(?:nths?)?|m[eê]s(?:es)?|mes(?:es)?|m|a(?:nos?)?|y(?:ears?|rs?)?|s(?:egundos?)?)\b(?:\s*[•·]\s*.*)?$/i;
   const root = document.querySelector('main') || document.body;
   const cls = (el: Element) => (typeof el.className === 'string' ? el.className : '').trim().split(/\s+/).slice(0, 4).join('.');
   const times = (Array.from(root.querySelectorAll('span, time, a, div, p')) as HTMLElement[])
@@ -288,6 +290,17 @@ export async function diagnosePage(
     selectorConfiguration: selectorAudit(driver.sel),
     layout: { shape, hash: layoutHash(shape) },
     primaryCode: priority,
+    primaryBlocker: priority !== 'OK' && decisions.some((d) => d.status === 'REVIEW_REQUIRED')
+      ? (() => {
+          const item = decisions.find((d) => d.status === 'REVIEW_REQUIRED')!;
+          const module = item.code === 'CARD_ID_PROVISIONAL' || item.code === 'CARD_ID_CONFLICT'
+            ? 'dom-scripts.ts / post-identity.ts'
+            : item.code === 'AUTHOR_UNVERIFIED' ? 'dom-scripts.ts / post-evaluation.ts'
+            : item.code === 'POST_AGE_UNVERIFIED' ? 'relative-time.ts / post-evaluation.ts'
+            : 'post-evaluation.ts / executors.ts';
+          return { code: item.code, stage: item.stage, module,
+            ordinal: item.ordinal, evidence: item.evidence };
+        })() : undefined,
     page,
     path: diagnosticPath(url),
     uiLanguage,
