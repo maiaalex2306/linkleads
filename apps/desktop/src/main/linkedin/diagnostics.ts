@@ -1,8 +1,8 @@
 import { DEFAULT_LABELS, selectorAudit, type SelectorAudit, type LabelKey, type SelectorKey } from './selectors.js';
 import { evaluatePost, profileSlug, sameConfirmedPublicId } from './post-evaluation.js';
-import { cardDecision, diagnosticPath, layoutHash, layoutShape, type CardDecision, type DiagnosticCode, type LayoutShape } from './diagnostics-policy.js';
+import { cardDecision, diagnosticPath, layoutHash, layoutShape, postInventoryPrimaryCode, type CardDecision, type DiagnosticCode, type LayoutShape } from './diagnostics-policy.js';
 import type { BaselineResult } from './diagnostic-baselines.js';
-import { diagnoseKeys, visibleButtonLabels, extractPosts, type KeyDiagnosis } from './dom-scripts.js';
+import { diagnoseKeys, visibleButtonLabels, extractPosts, type KeyDiagnosis, type PostExtract } from './dom-scripts.js';
 import { isCanonicalPostUrn, buildPostSelectionContext } from './post-identity.js';
 import { parseRelativeAgeDays } from '@linkleads/core';
 import type { PageDriver } from './page-driver.js';
@@ -81,7 +81,7 @@ export interface DiagnosisReport {
   /** estrutura da página, sem textos: títulos (h1–h3) com classes e onde estão; para ajustar seletores */
   structure?: { hasMain: boolean; titleEndsWithLinkedIn: boolean; headings: Array<{ tag: string; classes: string; inMain: boolean; textLength: number; parents: string }> };
   /** posts: o que o app reconheceu e a estrutura em volta das DATAS dos posts (sem textos nem nomes) */
-  posts?: { recognized: number; decisions: CardDecision[]; probes: unknown[]; canonical: number; provisional: number;
+  posts?: { recognized: number; extractionFailed: boolean; decisions: CardDecision[]; probes: unknown[]; canonical: number; provisional: number;
     identityConflicts: number; missingCanonical: number;
     recognition: Array<{ ordinal: number; state: 'CONFIRMED' | 'PROVISIONAL' | 'CONFLICT'; reason: string }>;
     dated: number; undated: number; reactionKnown: number; reactionUnknown: number;
@@ -221,7 +221,12 @@ export async function diagnosePage(
   // Apenas contadores: não exportar textos, nomes ou URLs dos posts.
   // Diferenciar ausência de URN, data e estado de reação no diagnóstico.
   const isActivity = page === 'atividade' || page === 'post' || page === 'feed';
-  const extracted = isActivity ? await driver.read(extractPosts, sel, 150).catch(() => []) : [];
+  const inventory: { posts: PostExtract[]; extractionFailed: boolean } = isActivity
+    ? await driver.read(extractPosts, sel, 150)
+      .then((posts) => ({ posts, extractionFailed: false }))
+      .catch(() => ({ posts: [], extractionFailed: true }))
+    : { posts: [], extractionFailed: false };
+  const extracted = inventory.posts;
   // Fase 2: motivo estruturado por cartão, sem texto, nome ou URL.
   // Não confundir cartão descoberto com publicação canônica.
   const recognition = extracted.slice(0, 150).map((post, index) => {
@@ -278,9 +283,14 @@ export async function diagnosePage(
   const shape = layoutShape({
     page, language: uiLanguage, keys, structure,
   });
-  const priority: DiagnosticCode | 'OK' = isActivity && extracted.length === 0
-    ? 'CARD_NOT_FOUND'
-    : (decisions.find((item) => item.status === 'REVIEW_REQUIRED')?.code ?? 'OK');
+  const priority = postInventoryPrimaryCode({
+    isActivity,
+    extractionFailed: inventory.extractionFailed,
+    recognized: extracted.length,
+    reviewCodes: decisions
+      .filter((item) => item.status === 'REVIEW_REQUIRED')
+      .map((item) => item.code),
+  });
   return {
     at: new Date().toISOString(),
     appVersion,
@@ -296,7 +306,7 @@ export async function diagnosePage(
     labels,
     buttons,
     structure,
-    posts: isActivity ? { ...postCounts, recognition, decisions, firstUnliked,
+    posts: isActivity ? { ...postCounts, extractionFailed: inventory.extractionFailed, recognition, decisions, firstUnliked,
       probes: await driver.read(postsProbe).catch(() => []) } : undefined,
   };
 }
