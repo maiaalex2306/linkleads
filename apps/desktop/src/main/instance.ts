@@ -14,6 +14,7 @@ import { assertApprovalSafe } from './approval-policy.js';
 import { PageDriver } from './linkedin/page-driver.js';
 import { diagnosePage, type DiagnosisReport, type DiagnosisContext } from './linkedin/diagnostics.js';
 import { compareAndStoreBaseline } from './linkedin/diagnostic-baselines.js';
+import { evaluatePostPreflight } from './linkedin/diagnostics-policy.js';
 import { selectorAudit, loadSelectors } from './linkedin/selectors.js';
 import { now } from './clock.js';
 import { attachContextMenu } from './context-menu.js';
@@ -215,15 +216,25 @@ export class AccountInstance {
       },
       withBrowser: (fn) => this.withBrowser(fn),
       preflightPostContract: async (context?: DiagnosisContext) => {
-        // O diagnostico compara a estrutura corrente ANTES do evento nativo.
-        // Em E2E o contrato e exercitado com HTML sintetico e dados isolados.
         const r = await this.collectDiagnosis(context);
-        const comparison = r.layout.comparison?.status;
-        return !r.blocked.checkpoint && !r.blocked.loggedOut &&
-          comparison !== 'UI_CHANGED' && r.primaryCode !== 'UI_CHANGED';
-        // BASELINE_UNAVAILABLE nao significa controle alterado: guardar o
-        // diagnostico sem bloquear um DOM que os guardas de URN/autor/reacao
-        // ainda podem verificar individualmente antes do evento nativo.
+        const verdict = evaluatePostPreflight({
+          page: r.page, blocked: r.blocked,
+          layoutStatus: r.layout.comparison?.status,
+          selectorIssues: r.selectorConfiguration.issues.length,
+        });
+        // Um hash de página com drift NÃO autoriza o clique. A identidade,
+        // a reação e o pixel são verificados novamente no MESMO cartão pelo
+        // PageDriver. O pré-voo bloqueia checkpoint, logout e rota inválida.
+        if (!verdict.allowed) {
+          const file = join(accountDir(this.account.id),
+            `diagnostico-preflight-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
+          writeFileSync(file, JSON.stringify(r, null, 2), { mode: 0o600 });
+          this.log(`Preflight ${verdict.code}: nenhum clique enviado. Diagnóstico: ${file}`);
+          trace.record('diagnostics', 'post_preflight_blocked',
+            { code: verdict.code, page: r.page },
+            { accountId: this.account.id }, 'warn');
+        }
+        return verdict.allowed;
       },
       reportUnrecognized: async (context?: DiagnosisContext) => {
         const r = await this.collectDiagnosis(context);
@@ -708,14 +719,11 @@ export class AccountInstance {
       shape: report.layout.shape, healthy,
     });
     report.layout.comparison = baseline;
-    if (baseline.status === 'UI_CHANGED')
-      this.driver.setPageContractHealth(report.page, false);
-    // BASELINE_UNAVAILABLE nao prova quebra de contrato: somente o guard
-    // por post/autoria/reacao pode autorizar cliques, nunca o baseline ausente.
-    else if (baseline.status === 'MATCH' || baseline.status === 'BASELINE_CREATED')
-      this.driver.setPageContractHealth(report.page, true);
-    // DRIFT_DETECTED não é homologação automática: apenas registra e deixa
-    // os guardas de clique existentes comprovarem a identidade do controle.
+    // Baselines são telemetria: comparações de estruturas de páginas ou
+    // versões diferentes jamais deixam bloqueios residuais entre contatos.
+    // A autorização final fica nos guardas atômicos do post, que falham
+    // fechados se URN, autoria, reação, editor ou pixel forem incertos.
+    this.driver.setPageContractHealth(report.page, true);
     const selectorIssues = report.selectorConfiguration.issues;
     if (selectorIssues.length) {
       this.log('Configuração de seletores rejeitada: ' +
