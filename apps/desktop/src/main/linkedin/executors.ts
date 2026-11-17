@@ -369,16 +369,26 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
           const open = await gotoProfile(d, ctx.person, 'recent-activity/all/');
           if (open !== 'ok') return openFailed(open);
           let postSection = await openPostsSection(d, ctx.person.publicId ?? ctx.person.id);
-          if (postSection.status === 'POST_SECTION_UNAVAILABLE')
-            return { ok: false, reason: 'NO_REAL_EFFECT',
-              message: 'A secao de publicacoes nao ficou pronta; carregamento, rota ou layout devem ser verificados. Nenhuma curtida enviada.' };
+          if (postSection.status === 'POST_SECTION_UNAVAILABLE') {
+            // Feed visível pode não possuir cartão reconhecido na rota all/.
+            // Recuperação em rota conhecida, somente do mesmo perfil confirmado.
+            const recovered = await openPostsSection(
+              d, ctx.person.publicId ?? ctx.person.id, { recoverVerifiedPostsRoute: true });
+            if (recovered.status !== 'POST_SECTION_UNAVAILABLE') postSection = recovered;
+            else {
+              const file = await d.reportUnrecognized?.(diagnosisContext).catch(() => undefined);
+              return { ok: false, reason: 'NO_REAL_EFFECT',
+                message: 'Seção de publicações indisponível após recuperação segura. Nenhuma curtida enviada.' +
+                  (file ? ' Diagnóstico: ' + file : '') };
+            }
+          }
           diagnosisContext.sourceSection = postSection.source;
           if (postSection.status === 'POST_SECTION_EMPTY')
             return { ok: false, reason: 'NO_POST',
               message: 'A secao de publicacoes informa explicitamente que nao ha publicacoes visiveis.' };
           if (d.preflightPostContract && !(await d.preflightPostContract(diagnosisContext)))
             return { ok: false, reason: 'NO_REAL_EFFECT',
-              message: 'Contrato de layout não homologado nesta página: nenhum clique executado' };
+              message: 'Pré-validação bloqueada por sessão, checkpoint ou rota inválida: nenhum clique executado. Consulte Diagnóstico.' };
           const ignored = new Set<string>();
           for (let attempt = 0; attempt < 4; attempt++) {
             const found = await discoverUnlikedPost(d, ctx.person.publicId ?? ctx.person.id, s,
