@@ -790,22 +790,24 @@ export function extractPosts(sel: Record<string, readonly string[]>, limit: numb
     // Só ler se estiver no mesmo envelope pequeno do autor JA verificado;
     // jamais deduzir idade a partir de números escritos no corpo do post.
     const sduiAgeLabel = (() => {
-      if (!identity.primaryActorUrl || !it.closest('[data-sdui-screen]')) return null;
-      const links = Array.from(it.querySelectorAll('a[href*="/in/"]')) as HTMLAnchorElement[];
-      const owner = links.find((a) =>
-        a.href.replace(/\/$/, '') === identity.primaryActorUrl?.replace(/\/$/, ''));
-      if (!owner) return null;
-      for (let node = owner.parentElement, depth = 0; node && node !== it && depth < 5;
-        node = node.parentElement, depth++) {
-        if (node.querySelector('button, [role="button"], [dir="ltr"], [contenteditable]')) break;
-        const labels = Array.from(node.querySelectorAll('span, p, time, a'))
-          .filter((item) => item !== owner && item.children.length < 3);
-        const found = labels.map((item) =>
-          ((item as HTMLElement).innerText || item.textContent || '').replace(/\s+/g, ' ').trim())
-          .find((value) => value.length > 0 && value.length < 45 && AGE.test(value));
-        if (found) return found;
-      }
-      return null;
+      if (!it.closest('[data-sdui-screen]')) return null;
+      // A versão anterior condicionava a leitura da data à URL do autor.
+      // Esta dependência circular causou 37/38 posts "sem data" nos traces.
+      const reactionNode = reaction.element;
+      if (!reactionNode) return null;
+      const labels = Array.from(it.querySelectorAll('span, p, time, a, div'))
+        .filter((node) => !inEmbedded(node) &&
+          !node.closest('.comments-comment-entity, .comments-comment-item, [contenteditable]') &&
+          node.children.length <= 2 &&
+          !!(node.compareDocumentPosition(reactionNode) & Node.DOCUMENT_POSITION_FOLLOWING))
+        .slice(0, 100)
+        .map((node) =>
+          ((node as HTMLElement).innerText || node.textContent || '').replace(/\\s+/g, ' ').trim())
+        .filter((value) => value.length > 0 && value.length <= 42 && AGE.test(value));
+      // Aceitar somente UMA legenda temporal distinta ANTES do botão de reação.
+      // Duas datas significam conteúdo incorporado/ambíguo => revisão.
+      const unique = [...new Set(labels)];
+      return unique.length === 1 ? unique[0]! : null;
     })();
     const ageTxt = (labelled && /(?:^|\s)(?:h[áa]\s+)?\d+\s*(?:min|h|d|dia|day|sem|w|week|m[oêe]|mes|a|ano|y|year)\b/i.test(labelled)
       ? labelled : null) || absolute || permalinkAge || sduiAgeLabel || null;
