@@ -11,7 +11,7 @@ import { evaluatePost, firstUnlikedCandidate, profileSlug, sameConfirmedPublicId
 export { evaluatePost, firstUnlikedCandidate, profileSlug, sameConfirmedPublicId } from './post-evaluation.js';
 export type { PostEvaluation, PostEvaluationStatus, PostEvaluationStage, PostEvaluationCode } from './post-evaluation.js';
 import type { DiagnosisContext } from './diagnostics.js';
-import { cardDecision } from './diagnostics-policy.js';
+import { cardDecision, type CardDecision } from './diagnostics-policy.js';
 import { openPostsSection } from './posts-section.js';
 import { savePostSelectionProof, postSelectionProof, saveCommentDraftOnce } from '../phase56-store.js';
 import { parseSalesSource, profileResolutionRoutes, samePersonCompany, samePersonName, type ProfileRoute } from './profile-resolver.js';
@@ -235,7 +235,8 @@ async function discoverUnlikedPost(
   sourceSection: 'posts' | 'activity' = 'activity',
   personId: string = publicId,
 ): Promise<{ post?: PostExtract; posts: PostExtract[]; why: string; uncertain?: boolean;
-  diagnosticCode?: PostEvaluationCode | 'CARD_NOT_FOUND'; blockedOrdinal?: number | null }> {
+  diagnosticCode?: PostEvaluationCode | 'CARD_NOT_FOUND'; blockedOrdinal?: number | null;
+  blockedEvidence?: CardDecision['evidence'] }> {
   const seen = new Map<string, PostExtract>();
   const contextForPost = (post: PostExtract): PostSelectionContext =>
     buildPostSelectionContext(post, personId, publicId, sourceSection);
@@ -266,6 +267,7 @@ async function discoverUnlikedPost(
     const ordered = [...seen.values()].filter((p) => !ignoredUrns.has(p.urn));
     let candidate = firstUnlikedCandidate(ordered, publicId, personName, settings, contextForPost);
     let blockedOrdinal: number | null = null;
+    let blockedEvidence: CardDecision['evidence'] | undefined;
     if (candidate.uncertain) {
       // Reidratação deve preservar o MESMO cartão por URN/conteúdo, não seu
       // índice: uma viewport virtualizada pode inserir/remover cartões entre
@@ -274,6 +276,10 @@ async function discoverUnlikedPost(
         evaluatePost(post, publicId, settings, contextForPost(post)).status === 'REVIEW_REQUIRED');
       const original = blockedIndex >= 0 ? ordered[blockedIndex] : undefined;
       blockedOrdinal = blockedIndex >= 0 ? blockedIndex + 1 : null;
+      if (original && blockedOrdinal !== null) {
+        const assessment = evaluatePost(original, publicId, settings, contextForPost(original));
+        blockedEvidence = cardDecision(original, blockedOrdinal, assessment).evidence;
+      }
       for (let retry = 0; retry < 4 && candidate.uncertain && original; retry++) {
         // Somente LEITURA: dar tempo à hidratação assíncrona sem navegar,
         // interagir nem transformar identidades provisórias em confirmadas.
@@ -296,7 +302,7 @@ async function discoverUnlikedPost(
         ? ' Abra a publicação pelo carimbo de data na janela do LINKLEADS e use a interação manual supervisionada. Não haverá clique automático nem tentativa repetida sem identidade comprovada.'
         : '';
       return { posts: ordered, why: candidate.why + '. Confirmação humana necessária.' + manual,
-        uncertain: true, diagnosticCode: candidate.code, blockedOrdinal };
+        uncertain: true, diagnosticCode: candidate.code, blockedOrdinal, blockedEvidence };
     }
     if (candidate.post) {
       const post = candidate.post;
@@ -435,6 +441,7 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
                   stage: 'selection',
                   code: found.diagnosticCode ?? (unreadable ? 'CARD_NOT_FOUND' : 'UNKNOWN'),
                   ordinal: found.blockedOrdinal ?? null,
+                  evidence: found.blockedEvidence,
                 },
               };
               const file = (unreadable || found.uncertain) ?
