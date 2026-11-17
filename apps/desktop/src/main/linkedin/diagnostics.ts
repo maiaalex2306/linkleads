@@ -1,6 +1,6 @@
 import { DEFAULT_LABELS, selectorAudit, type SelectorAudit, type LabelKey, type SelectorKey } from './selectors.js';
 import { evaluatePost, profileSlug, sameConfirmedPublicId } from './post-evaluation.js';
-import { cardDecision, diagnosticPath, layoutHash, layoutShape, type CardDecision, type DiagnosticCode, type LayoutShape } from './diagnostics-policy.js';
+import { cardDecision, diagnosticPath, layoutHash, layoutShape, prioritizeDiagnosticCode, type CardDecision, type DiagnosticCode, type LayoutShape } from './diagnostics-policy.js';
 import type { BaselineResult } from './diagnostic-baselines.js';
 import { diagnoseKeys, visibleButtonLabels, extractPosts, postsFilterProbe, type KeyDiagnosis, type PostsFilterProbe } from './dom-scripts.js';
 import { isCanonicalPostUrn, buildPostSelectionContext } from './post-identity.js';
@@ -307,26 +307,10 @@ export async function diagnosePage(
   const aggregatePriority: DiagnosticCode | 'OK' = isActivity && extracted.length === 0
     ? 'CARD_NOT_FOUND'
     : (decisions.find((item) => item.status === 'REVIEW_REQUIRED')?.code ?? 'OK');
-  const attemptCode = (() : DiagnosticCode | null => {
-    if (!context.attempt) return null;
-    const mapping: Record<string, DiagnosticCode> = {
-      POST_ID_PROVISIONAL: 'CARD_ID_PROVISIONAL',
-      POST_ID_CONFLICT: 'CARD_ID_CONFLICT',
-      EMPTY_CONTENT: 'POST_EMPTY',
-      ELIGIBLE: 'POST_ELIGIBLE',
-      AUTHOR_CONFLICT: 'AUTHOR_UNVERIFIED',
-    };
-    const mapped = mapping[context.attempt.code] ?? context.attempt.code;
-    const allowed: DiagnosticCode[] = [
-      'CARD_NOT_FOUND','CARD_ID_PROVISIONAL','CARD_ID_CONFLICT',
-      'RESHARE_CLASSIFICATION_ERROR','RESHARE_EXCLUDED',
-      'AUTHOR_UNVERIFIED','AUTHOR_MISMATCH','REACTION_UNKNOWN',
-      'POST_AGE_UNVERIFIED','POST_TOO_OLD','ALREADY_LIKED','POST_EMPTY',
-      'POST_ELIGIBLE',
-    ];
-    return allowed.includes(mapped as DiagnosticCode) ? mapped as DiagnosticCode : null;
-  })();
-  const priority = attemptCode ?? aggregatePriority;
+  const priority = prioritizeDiagnosticCode(aggregatePriority, context.attempt?.code);
+  const attemptCode = context.attempt
+    ? prioritizeDiagnosticCode('OK', context.attempt.code)
+    : null;
   return {
     at: new Date().toISOString(),
     appVersion,
@@ -338,8 +322,9 @@ export async function diagnosePage(
     postsFilter,
     primaryBlocker: priority !== 'OK' && decisions.length > 0
       ? (() => {
-          const item = context.attempt?.ordinal
-            ? decisions.find((d) => d.ordinal === context.attempt!.ordinal)
+          const item = context.attempt
+            ? decisions.find((d) => d.ordinal === context.attempt!.ordinal &&
+                d.code === attemptCode)
             : decisions.find((d) => d.status === 'REVIEW_REQUIRED');
           if (!item) return undefined;
           const code = attemptCode ?? item.code;
