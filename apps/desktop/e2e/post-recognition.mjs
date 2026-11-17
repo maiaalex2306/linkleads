@@ -110,11 +110,18 @@ try {
     route.fulfill({status:200,contentType:'text/html',body:fixtureHtml()}));
   await page.goto('https://www.linkedin.com/in/jana/recent-activity/all/');
   let visualPosts = await scan();
+  const visualDebug = await page.evaluate(() => ({
+    location: location.pathname, htmlLength: document.body?.innerHTML.length,
+    cards: document.querySelectorAll('.sdui-card').length,
+    spans: Array.from(document.querySelectorAll('span')).map(x => x.textContent),
+    buttons: Array.from(document.querySelectorAll('button')).map(x => x.textContent),
+    cardText: document.querySelector('.sdui-card')?.textContent?.slice(0,130),
+  }));
   check(visualPosts.length === 1 && visualPosts[0].urn.startsWith('ll-vcard:jana:') &&
     visualPosts[0].cardIdentity.identityStatus === 'PROVISIONAL' &&
     visualPosts[0].age?.includes('4 m') && visualPosts[0].liked === false,
     'SDUI /all/ filtro Publicações: cartão sem URN vinculado por conteúdo/perfil e data',
-    visualPosts.map(p=>({urn:p.urn,age:p.age,liked:p.liked})));
+    {observed:visualPosts.map(p=>({urn:p.urn,age:p.age,liked:p.liked})),dom:visualDebug});
   let visualGuard = await probe(visualPosts[0].urn);
   check(visualGuard.guard && visualGuard.state === false,
     'SDUI sem URN: guard valida o botão original não curtido na mesma viewport');
