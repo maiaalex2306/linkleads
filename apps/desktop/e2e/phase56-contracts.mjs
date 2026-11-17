@@ -1,14 +1,15 @@
 // Fases 5 e 6 — contratos de evidência, migração aditiva e idempotência.
 // Somente SQLite isolado e objetos sintéticos; sem acesso a LinkedIn externo.
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openAccountDb, IntegrationCrm, SCHEMA_VERSION } from '@linkleads/db';
 import { ensurePhase56Schema, savePostSelectionProof, postSelectionProof, saveCommentDraftOnce, recognitionRetryCandidates56 } from '../dist/main/phase56-store.js';
 import { buildPostSelectionContext, contextualAuthorAccepted } from '../dist/main/linkedin/post-identity.js';
 import { evaluatePost } from '../dist/main/linkedin/post-evaluation.js';
-import { cardDecision } from '../dist/main/linkedin/diagnostics-policy.js';
+import { cardDecision, evaluatePostPreflight } from '../dist/main/linkedin/diagnostics-policy.js';
+import { compareAndStoreBaseline } from '../dist/main/linkedin/diagnostic-baselines.js';
 
 const root=mkdtempSync(join(tmpdir(),'linkleads-phase56-'));
 const file=join(root,'isolated.db');
@@ -24,6 +25,43 @@ const original={
     primaryActorUrl:null,primaryActorName:null,embeddedPostUrn:null,embeddedActorUrl:null},
 };
 try {
+  // A página SDUI não vira insegura apenas porque a baseline antiga
+  // aponta seletores legados. Mesmo com drift, cada clique ainda exige a
+  // verificação atômica de URN/autoria/reação no executor.
+  const shape = (selectors) => ({
+    page:'atividade', language:'pt-br', selectors,
+    hasMain:true, headingStructure:['h1|test|main'],
+  });
+  const reference = {page:'atividade',uiLanguage:'pt-BR',
+    selectorVersion:'2026.11.13-fase6',healthy:true,
+    shape:shape({postItem:'0',likeButton:'0',postText:'0'})};
+  const old = compareAndStoreBaseline(root,reference);
+  ok(old.status==='BASELINE_CREATED','baseline legada criada para a versao antiga');
+  const drift = compareAndStoreBaseline(root,{...reference,
+    shape:shape({postItem:'missing',likeButton:'0',postText:'0'})});
+  ok(drift.status==='UI_CHANGED','drift estrutural continua visivel em diagnostico');
+  const versioned = compareAndStoreBaseline(root,{...reference,
+    selectorVersion:'2026.11.16-sdui7',
+    shape:shape({postItem:'missing',likeButton:'0',postText:'0'})});
+  ok(versioned.status==='BASELINE_CREATED',
+    'nova versao nao herda reprovacao da baseline de seletores antigos');
+  const repeated = compareAndStoreBaseline(root,{...reference,
+    selectorVersion:'2026.11.16-sdui7',
+    shape:shape({postItem:'missing',likeButton:'0',postText:'0'})});
+  ok(repeated.status==='MATCH','baseline da mesma versao é estavel');
+  const stored = JSON.parse(readFileSync(join(root,'diagnostic-baselines.v1.json'),'utf8')).entries;
+  ok(Object.keys(stored).length===2,
+    'referencias por versao preservadas sem sobrescrever dados antigos');
+  ok(evaluatePostPreflight({page:'atividade',blocked:{checkpoint:false,loggedOut:false},
+    layoutStatus:'UI_CHANGED',selectorIssues:1}).allowed,
+    'drift de layout nao impede guardas atomicos do mesmo post');
+  ok(!evaluatePostPreflight({page:'atividade',blocked:{checkpoint:true,loggedOut:false}}).allowed,
+    'checkpoint continua bloqueando');
+  ok(!evaluatePostPreflight({page:'atividade',blocked:{checkpoint:false,loggedOut:true}}).allowed,
+    'logout continua bloqueando');
+  ok(!evaluatePostPreflight({page:'perfil',blocked:{checkpoint:false,loggedOut:false}}).allowed,
+    'rota de perfil sem post nao vira elegivel para curtida');
+
   db=openAccountDb(file);
   ensurePhase56Schema(db);
   ok(SCHEMA_VERSION===14,'contrato core schema versão 14 preservado');
