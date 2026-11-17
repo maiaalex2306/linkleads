@@ -30,6 +30,35 @@ export type DiagnosticCode =
   | 'POST_AGE_UNVERIFIED' | 'POST_TOO_OLD'
   | 'ALREADY_LIKED' | 'POST_EMPTY' | 'POST_ELIGIBLE';
 
+/** Prioriza o código IMUTÁVEL da tentativa de seleção sobre uma segunda
+ * inspeção agregada da página. Não confunde AUTHOR_MISMATCH de outro cartão
+ * com o motivo registrado pelo executor. Valores desconhecidos não entram.
+ */
+export function prioritizeDiagnosticCode(
+  aggregated: DiagnosticCode | 'OK',
+  attempt?: string,
+): DiagnosticCode | 'OK' {
+  if (!attempt) return aggregated;
+  const aliases: Record<string, DiagnosticCode> = {
+    POST_ID_PROVISIONAL: 'CARD_ID_PROVISIONAL',
+    POST_ID_CONFLICT: 'CARD_ID_CONFLICT',
+    EMPTY_CONTENT: 'POST_EMPTY',
+    ELIGIBLE: 'POST_ELIGIBLE',
+    AUTHOR_CONFLICT: 'AUTHOR_UNVERIFIED',
+  };
+  const candidate = aliases[attempt] ?? attempt;
+  const codes: readonly DiagnosticCode[] = [
+    'CARD_NOT_FOUND', 'CARD_ID_CONFLICT', 'CARD_ID_PROVISIONAL',
+    'RESHARE_CLASSIFICATION_ERROR', 'RESHARE_EXCLUDED',
+    'AUTHOR_UNVERIFIED', 'AUTHOR_MISMATCH',
+    'REACTION_UNKNOWN', 'LIKE_NOT_CONFIRMED',
+    'EDITOR_NOT_FOUND', 'COMMENT_SUBMISSION_UNCERTAIN',
+    'AI_NOT_READY', 'UI_CHANGED', 'POST_AGE_UNVERIFIED',
+    'POST_TOO_OLD', 'ALREADY_LIKED', 'POST_EMPTY', 'POST_ELIGIBLE',
+  ];
+  return codes.includes(candidate as DiagnosticCode) ? candidate as DiagnosticCode : aggregated;
+}
+
 export interface CardDecision {
   ordinal: number;
   code: DiagnosticCode;
