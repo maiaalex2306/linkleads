@@ -22,7 +22,11 @@ export function compareAndStoreBaseline(
   input: { page: string; uiLanguage: string; selectorVersion: string; shape: LayoutShape; healthy: boolean },
 ): BaselineResult {
   const filename = join(root, 'diagnostic-baselines.v1.json');
-  const key = [input.page, input.uiLanguage.toLowerCase().slice(0, 24)].join(':');
+  // Uma baseline de uma versão anterior de seletores não pode reprovar a
+  // interface reconhecida pela versão nova. Preservar o registro antigo e
+  // começar referência independente por versão, página e idioma.
+  const legacyKey = [input.page, input.uiLanguage.toLowerCase().slice(0, 24)].join(':');
+  const key = legacyKey + ':' + input.selectorVersion;
   let storage: BaselineStore = { schema: 'linkleads.diagnostic-baselines.v1', entries: {} };
   try {
     if (existsSync(filename)) {
@@ -33,7 +37,9 @@ export function compareAndStoreBaseline(
           typeof (parsed as BaselineStore).entries !== 'object') throw new Error('invalid_baseline');
       storage = parsed as BaselineStore;
     }
-    const previous = storage.entries[key];
+    const legacy = storage.entries[legacyKey];
+    const previous = storage.entries[key] ??
+      (legacy?.selectorsVersion === input.selectorVersion ? legacy : undefined);
     const comparison = compareLayout(previous?.shape ?? null, input.shape);
     if (previous) return {
       ...comparison,
