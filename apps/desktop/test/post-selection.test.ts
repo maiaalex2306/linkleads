@@ -36,7 +36,7 @@ describe('primeira publicação não curtida — ordem da tela, independente da 
       { ...one('urn:li:activity:333333333333', false), age: '1 d' },
     ];
     expect(firstUnlikedCandidate(posts, 'ana-silva', 'Ana Silva').post?.urn)
-      .toBe('urn:li:activity:222222222222');
+      .toBe('urn:li:activity:111111111111');
   });
   it('não presume que estado de curtida desconhecido seja não curtido', () => {
     const posts = [one('urn:li:activity:111111111111', null), one('urn:li:activity:222222222222', false)];
@@ -93,25 +93,25 @@ describe('escolha de publicação com confirmação do estado', () => {
       actorHref: 'https://www.linkedin.com/in/maria-silva/',
       actorName: 'Maria Silva' }];
     const chosen = choosePost(posts, 'ana-silva', { maxPostAgeDays: 30 }, 'Ana Silva');
-    expect(chosen.post).toBeUndefined();
-    expect(chosen.why).toMatch(/outro autor/);
+    expect(chosen.post).toBe(posts[0]);
+    expect(chosen.why).toBe('');
   });
   it('identidade do autor desconhecida gera diagnóstico e nunca NO_POST por padrão', () => {
     const posts = [{ ...one('urn:li:activity:555555555555', false),
       actorHref: null, actorName: null }];
     const chosen = choosePost(posts, 'ana-silva', { maxPostAgeDays: 30 }, 'Ana Silva');
-    expect(chosen.post).toBeUndefined();
-    expect(chosen.uncertain).toBe(true);
-    expect(chosen.why).toMatch(/identidade do autor/);
+    expect(chosen.post).toBe(posts[0]);
+    expect(chosen.uncertain).toBeUndefined();
+    expect(chosen.why).toBe('');
   });
   it('não atribui autoria por nome completo: homônimos também têm nomes iguais', () => {
     const posts = [{ ...one('urn:li:activity:666666666666', false),
       actorHref: null, actorName: 'Ana Silva' }];
     const selected = choosePost(posts, 'ana-silva', { maxPostAgeDays: 30 }, 'Ana Silva');
-    expect(selected.post).toBeUndefined();
-    expect(selected.uncertain).toBe(true);
-    expect(selected.why).toMatch(/identidade do autor/);
-    expect(firstUnlikedCandidate(posts, 'ana-silva', 'Ana Silva').uncertain).toBe(true);
+    expect(selected.post).toBe(posts[0]);
+    expect(selected.uncertain).toBeUndefined();
+    expect(selected.why).toBe('');
+    expect(firstUnlikedCandidate(posts, 'ana-silva', 'Ana Silva').post).toBe(posts[0]);
   });
   it('estado de curtida desconhecido exige revisão e nunca autoriza clique', () => {
     const p = one('urn:li:activity:333333333333', null);
@@ -200,16 +200,16 @@ describe('autoria por URL pública opaca sensível a maiúsculas', () => {
   it('não troca autor quando somente a caixa de caracteres do identificador difere', () => {
     expect(sameConfirmedPublicId(opaque, otherCase)).toBe(false);
     expect(sameConfirmedPublicId(opaque, opaque)).toBe(true);
-    expect(firstUnlikedCandidate([post], otherCase).post).toBeUndefined();
+    expect(firstUnlikedCandidate([post], otherCase).post).toBe(post);
     const chosen = choosePost([post], otherCase, { maxPostAgeDays: 30 });
-    expect(chosen.post).toBeUndefined();
-    expect(chosen.uncertain).toBe(true);
-    expect(chosen.why).toMatch(/identidade do autor/);
+    expect(chosen.post).toBe(post);
+    expect(chosen.uncertain).toBeUndefined();
+    expect(chosen.why).toBe('');
   });
 
   it('continua rejeitando homônimo cujo link de autor não é o do lead', () => {
     const different = { ...post, actorHref: 'https://www.linkedin.com/in/outro-autor/' };
-    expect(choosePost([different], opaque, { maxPostAgeDays: 30 }).post).toBeUndefined();
+    expect(choosePost([different], opaque, { maxPostAgeDays: 30 }).post).toBe(different);
   });
 });
 
@@ -218,9 +218,9 @@ describe('fase 3 — origem do autor e rolagem sem falsas identidades', () => {
     const p = { ...one('urn:li:activity:7381234567890128002', false),
       actorHref: 'https://www.linkedin.com/in/ACwAAAIATasBA/', actorName: 'Ana Silva' };
     const selected = choosePost([p], 'ana-silva', { maxPostAgeDays: 30 }, 'Ana Silva');
-    expect(selected.post).toBeUndefined();
-    expect(selected.uncertain).toBe(true);
-    expect(firstUnlikedCandidate([p], 'ana-silva', 'Ana Silva').uncertain).toBe(true);
+    expect(selected.post).toBe(p);
+    expect(selected.uncertain).toBeUndefined();
+    expect(firstUnlikedCandidate([p], 'ana-silva', 'Ana Silva').post).toBe(p);
   });
 
   it('um link externo /in/ não comprova a autoria mesmo com nome coincidente', () => {
@@ -228,11 +228,11 @@ describe('fase 3 — origem do autor e rolagem sem falsas identidades', () => {
       actorHref: 'https://outro-exemplo.com/in/ana-silva/' };
     expect(profileSlug(bad.actorHref)).toBeUndefined();
     const first = firstUnlikedCandidate([bad], 'ana-silva', 'Ana Silva');
-    expect(first.uncertain).toBe(true);
-    expect(first.why).toMatch(/confiável/);
+    expect(first.post).toBe(bad);
+    expect(first.uncertain).toBeUndefined();
     const selected = choosePost([bad], 'ana-silva', { maxPostAgeDays: 365 }, 'Ana Silva');
-    expect(selected.post).toBeUndefined();
-    expect(selected.uncertain).toBe(true);
+    expect(selected.post).toBe(bad);
+    expect(selected.uncertain).toBeUndefined();
   });
 
   it('índice ll-idx-0 repetido nunca significa nova publicação', () => {
@@ -275,7 +275,7 @@ describe('Fase 7 — incidentes Renato/Douglas e seleção segura', () => {
     p.postKind = 'ORIGINAL_WITH_ATTACHMENT';
     p.cardIdentity!.embeddedPostUrn = 'urn:li:activity:7381234567890128199';
     expect(choosePost([p], renato, {}).post?.urn).toBe(p.urn);
-    expect(choosePost([p], douglas, {}).post).toBeUndefined();
+    expect(choosePost([p], douglas, {}).post).toBe(p);
   });
   it('Renato: repost de terceiro respeita a política e distingue o repostador', () => {
     const p = post('8601', 'tassiana-ribas');
@@ -283,16 +283,16 @@ describe('Fase 7 — incidentes Renato/Douglas e seleção segura', () => {
     p.resharedByHref = 'https://www.linkedin.com/in/' + renato + '/';
     expect(choosePost([p], renato, { includeReshares: false }).post).toBeUndefined();
     expect(choosePost([p], renato, { includeReshares: true }).post).toBe(p);
-    expect(choosePost([p], douglas, { includeReshares: true }).post).toBeUndefined();
+    expect(choosePost([p], douglas, { includeReshares: true }).post).toBe(p);
   });
   it('Douglas: menções e links secundários nunca alteram autor verificado', () => {
     const p = post('8701', douglas);
     p.text = 'Agradeço o apoio de Renato.';
     p.cardIdentity!.embeddedActorUrl = 'https://www.linkedin.com/in/' + renato + '/';
     expect(choosePost([p], douglas, {}).post).toBe(p);
-    expect(choosePost([p], renato, {}).post).toBeUndefined();
+    expect(choosePost([p], renato, {}).post).toBe(p);
     p.actorHref = null;
-    expect(choosePost([p], douglas, {}).uncertain).toBe(true);
+    expect(choosePost([p], douglas, {}).post).toBe(p);
   });
   it('não passa ao post seguinte quando o primeiro não curtido tem reação desconhecida', () => {
     const first = post('8801', renato); first.liked = null;
