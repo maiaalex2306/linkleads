@@ -581,6 +581,7 @@ async function hydratePostForComment(
     return d.withBrowser(() => guard(async () => {
       const owner = d.crm.getPerson(personId);
       if (!owner?.publicId) return failure('Perfil do cartão visual não disponível no CRM');
+      const confirmedOwnerPublicId = owner.publicId;
       const navigated = await gotoProfile(d, owner, 'recent-activity/all/');
       if (navigated !== 'ok') return openFailed(navigated);
       const section = await openPostsSection(d, owner.publicId);
@@ -612,7 +613,7 @@ async function hydratePostForComment(
           const own = refreshed.filter((p) => p.urn === post.url &&
             p.cardIdentity?.identityStatus === 'PROVISIONAL' &&
             p.cardIdentity.cardId === post.url && !p.isReshare &&
-            (!p.actorHref || sameConfirmedPublicId(profileSlug(p.actorHref), owner.publicId)));
+            (!p.actorHref || sameConfirmedPublicId(profileSlug(p.actorHref), confirmedOwnerPublicId)));
           if (own.length !== 1) return false;
           current = own[0]!;
           return !current.truncated && current.text.trim().length >= 24;
