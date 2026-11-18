@@ -209,8 +209,24 @@ export function postsFilterProbe(expectedPublicId: string): PostsFilterProbe {
     }
     return false;
   };
+  // ARIA do próprio chip não basta quando outro filtro irmão também se
+  // declara selecionado. Dois filtros simultâneos tornam o estado ambíguo.
+  const hasContradictoryPeer = (candidate: Element): boolean => {
+    let group = candidate.parentElement;
+    for (let depth = 0; group && depth < 3; depth++, group = group.parentElement) {
+      const peers = Array.from(group.querySelectorAll('a,button,[role="button"],[role="tab"]'))
+        .filter((node) => node !== candidate && isVisible(node) &&
+          allowedChip.test(chipLabel(node)));
+      if (peers.length > 0) return peers.some(semanticActive);
+    }
+    return false;
+  };
   const semantic = candidates.filter(semanticActive);
-  if (semantic.length === 1) return { kind: 'ACTIVE', verification: 'SEMANTIC' };
+  if (semantic.length === 1) {
+    if (hasContradictoryPeer(semantic[0]!))
+      return { kind: 'UNAVAILABLE', verification: 'NONE' };
+    return { kind: 'ACTIVE', verification: 'SEMANTIC' };
+  }
   if (semantic.length > 1) return { kind: 'UNAVAILABLE', verification: 'NONE' };
   const visual = candidates.filter(visuallySelected);
   if (visual.length === 1) return { kind: 'ACTIVE', verification: 'SIBLING_STYLE' };

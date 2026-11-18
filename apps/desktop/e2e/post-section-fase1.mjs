@@ -17,7 +17,7 @@ const post = '<article data-post-fixture="true">Publicacao propria simulada</art
 function fixture(slug, mode, path, extra = {}) {
   const sdui = ['sduiSelected','sduiClickable','sduiUnselected',
     'sduiDarkSelected','sduiNestedSelected','sduiCommentsSelected',
-    'sduiTransparentSelected','sduiTransparentUnselected'].includes(mode);
+    'sduiTransparentSelected','sduiTransparentUnselected','sduiConflictingSemantic'].includes(mode);
   const posts = path.endsWith('/shares/') || path.endsWith('/posts/') ||
     ['sduiSelected','sduiClickable','sduiDarkSelected','sduiNestedSelected',
       'sduiTransparentSelected'].includes(mode);
@@ -33,10 +33,13 @@ function fixture(slug, mode, path, extra = {}) {
     const fg = darkMode || active ? 'rgb(255,255,255)' : 'rgb(20,20,20)';
     const click = mode === 'sduiClickable' && label === 'Publicações'
       ? ' onclick="this.setAttribute(\'aria-selected\',\'true\')"' : '';
+    const semantic = mode === 'sduiConflictingSemantic' &&
+      (label === 'Publicações' || label === 'Comentários')
+      ? ' aria-selected="true"' : '';
     return mode === 'sduiNestedSelected'
-      ? '<button' + click + '><span style="display:inline-block;padding:8px;background-color:' + bg +
+      ? '<button' + click + semantic + '><span style="display:inline-block;padding:8px;background-color:' + bg +
         ';color:' + fg + '">' + label + '</span></button>'
-      : '<button style="background-color:' + bg + ';color:' + fg + '"' + click + '>' + label + '</button>';
+      : '<button style="background-color:' + bg + ';color:' + fg + '"' + click + semantic + '>' + label + '</button>';
   }).join('');
   const filter = mode === 'link'
     ? '<nav aria-label="Filtros de atividades"><a role="tab" href="/in/' + slug + '/recent-activity/shares/">Posts</a></nav>'
@@ -152,6 +155,8 @@ try {
   await trial('SDUI: todos transparentes não confirmam Publicações',
     'sduiTransparentUnselected', { status:'POST_SECTION_READY', source:'activity', method:'FALLBACK' });
   await trial('SDUI: Comentários selecionado não se torna Publicações', 'sduiCommentsSelected',
+    { status:'POST_SECTION_READY', source:'activity', method:'FALLBACK' });
+  await trial('SDUI: ARIA contraditória em dois chips bloqueia Publicações', 'sduiConflictingSemantic',
     { status:'POST_SECTION_READY', source:'activity', method:'FALLBACK' });
   await trial('SDUI: chip Publicacoes clicavel sem nav ou role tab',
     'sduiClickable', { status:'POST_SECTION_READY', source:'posts', method:'BUTTON' });
