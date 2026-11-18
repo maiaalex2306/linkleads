@@ -467,7 +467,8 @@ try {
     '</div></main>'
   );
   posts = await scan();
-  check(posts.length === 1 && posts[0].urn.startsWith('ll-idx-') &&
+  check(posts.length === 1 && posts[0].urn.startsWith('ll-vcard:') &&
+    posts[0].cardIdentity?.postUrn === null &&
     posts[0].cardIdentity?.identityStatus === 'PROVISIONAL' &&
     posts[0].cardIdentity?.embeddedPostUrn === 'urn:li:activity:7381234567890128401',
     'URN exclusivamente incorporada não é promovida à publicação principal', posts);
