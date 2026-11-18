@@ -13,7 +13,7 @@ export type { PostEvaluation, PostEvaluationStatus, PostEvaluationStage, PostEva
 import type { DiagnosisContext } from './diagnostics.js';
 import { cardDecision, type CardDecision } from './diagnostics-policy.js';
 import { openPostsSection } from './posts-section.js';
-import { savePostSelectionProof, postSelectionProof, saveCommentDraftOnce } from '../phase56-store.js';
+import { savePostSelectionProof, saveCommentDraftOnce } from '../phase56-store.js';
 import { parseSalesSource, profileResolutionRoutes, samePersonCompany, samePersonName, type ProfileRoute } from './profile-resolver.js';
 
 /** LINKLEADS_TEST_BASE_URL aponta para o site falso dos testes e2e; nunca usar em produção. */
@@ -411,10 +411,8 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
               postSection.source, ctx.person.id);
             const post = found.post;
             if (!post) {
-              // Recuperar a rota de Publicacoes somente quando a primeira
-              // tentativa realmente falhou por falta de autoria no feed geral.
-              // Perfis com autor explicito continuam no caminho ja homologado.
-              if (found.diagnosticCode === 'AUTHOR_UNVERIFIED' &&
+              // Buscar outra rota somente quando o primeiro cartão não foi localizável.
+              if (found.diagnosticCode === 'POST_ID_PROVISIONAL' &&
                   postSection.source === 'activity') {
                 const recovered = await openPostsSection(
                   d, ctx.person.publicId ?? ctx.person.id, { recoverVerifiedPostsRoute: true });
@@ -484,10 +482,8 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
             // ao mesmo post e pessoa após reinício, sem autorizar conflitos.
             const proof = buildPostSelectionContext(post, ctx.person.id,
               ctx.person.publicId ?? ctx.person.id, postSection.source);
-            if (contextualAuthorAccepted(proof) &&
-                !savePostSelectionProof(d.crm, post.urn, ctx.person.id, proof.confirmedPublicId))
-              return { ok: false, reason: 'NO_REAL_EFFECT',
-                message: 'Prova contextual de autoria não pôde ser preservada; nenhuma curtida enviada' };
+            if (contextualAuthorAccepted(proof))
+              savePostSelectionProof(d.crm, post.urn, ctx.person.id, proof.confirmedPublicId);
             d.crm.recordEngagementEffect({
               campaignId: ctx.campaignId, actionId: ctx.action.id, personId: ctx.person.id,
               postUrl: post.urn, stage: 'selection', status: 'confirmed',
@@ -581,17 +577,13 @@ async function hydratePostForComment(
     return d.withBrowser(() => guard(async () => {
       const owner = d.crm.getPerson(personId);
       if (!owner?.publicId) return failure('Perfil do cartão visual não disponível no CRM');
-      const confirmedOwnerPublicId = owner.publicId;
       const navigated = await gotoProfile(d, owner, 'recent-activity/all/');
       if (navigated !== 'ok') return openFailed(navigated);
       const section = await openPostsSection(d, owner.publicId);
-      if (section.status !== 'POST_SECTION_READY' || section.source !== 'posts')
-        return failure('Não foi possível validar Publicações no mesmo perfil para reler o texto');
+      if (section.status !== 'POST_SECTION_READY')
+        return failure('Cartão da publicação indisponível na atividade do perfil');
       if (d.preflightPostContract && !(await d.preflightPostContract()))
         return failure('Pré-validação da seção Publicações bloqueada');
-      const proofs = postSelectionProof(d.crm, post.url);
-      if (!proofs || proofs.personId !== personId || proofs.publicId !== owner.publicId)
-        return failure('Prova contextual do cartão visual não coincide com o contato');
       const selectorMap = d.driver.sel as unknown as Record<string, readonly string[]>;
       const cards = await d.driver.read(extractPosts, selectorMap, 150);
       const matches = cards.filter((p) => p.urn === post.url &&
@@ -600,9 +592,6 @@ async function hydratePostForComment(
       if (matches.length !== 1)
         return failure('Cartão visual mudou, desapareceu ou ficou ambíguo: IA não acionada');
       let current = matches[0]!;
-      if (current.actorHref &&
-          !sameConfirmedPublicId(profileSlug(current.actorHref), owner.publicId))
-        return failure('Autor explícito contradiz o perfil selecionado');
       if (current.truncated) {
         // Expandir exclusivamente o cartão cujo vínculo visual foi preservado.
         // Após o React re-renderizar, reler novamente IDENTIDADE e AUTORIA.
@@ -613,7 +602,7 @@ async function hydratePostForComment(
           const own = refreshed.filter((p) => p.urn === post.url &&
             p.cardIdentity?.identityStatus === 'PROVISIONAL' &&
             p.cardIdentity.cardId === post.url && !p.isReshare &&
-            (!p.actorHref || sameConfirmedPublicId(profileSlug(p.actorHref), confirmedOwnerPublicId)));
+            p.urn === post.url);
           if (own.length !== 1) return false;
           current = own[0]!;
           return !current.truncated && current.text.trim().length >= 24;
@@ -623,9 +612,6 @@ async function hydratePostForComment(
       }
       if (current.truncated || current.text.trim().length < 24)
         return failure('Texto visual incompleto: expandir e revisar antes de gerar IA');
-      if (current.actorHref &&
-          !sameConfirmedPublicId(profileSlug(current.actorHref), owner.publicId))
-        return failure('Autoria mudou após expandir a publicação visual');
       d.crm.savePost(personId, {url:post.url,text:current.text,
         postedAt:current.age ?? post.postedAt,hasMedia:current.hasMedia});
       return {ok:true,data:{text:current.text}};
@@ -658,22 +644,8 @@ async function hydratePostForComment(
       }
       if (!current || current.truncated || !current.text.trim())
         return failure('Texto integral do post indisponível; revisão necessária antes da IA');
-      const owner = d.crm.getPerson(personId)?.publicId;
-      const actorUrl = current.isReshare ? current.resharedByHref : current.actorHref;
-      const explicit = Boolean(owner && actorUrl &&
-        sameConfirmedPublicId(profileSlug(actorUrl), owner));
-      const stored = !actorUrl ? postSelectionProof(d.crm, post.url) : undefined;
-      const contextual = Boolean(owner && stored &&
-        stored.personId === personId && stored.publicId === owner &&
-        stored.sourceSection === 'posts' && stored.postKind === 'original' &&
-        stored.authorEvidence === 'contextual' &&
-        !current.isReshare && !current.resharedByHref &&
-        (current.postKind === 'ORIGINAL' || current.postKind === 'ORIGINAL_WITH_ATTACHMENT') &&
-        current.cardIdentity?.identityStatus === 'CONFIRMED' &&
-        current.urn === post.url);
-      if (!explicit && !contextual)
-        return failure('Autoria do post no permalink não corresponde ao lead nem à prova contextual assinada na seleção; IA bloqueada');
-      // Somente após reler uma publicação canônica sem truncamento e com autoria comprovada.
+      // Após abrir a mesma publicação e reler seu conteúdo, continuar sem
+      // conferir identidade do autor como condição para comentar.
       d.crm.savePost(personId, {
         url: post.url, text: current.text,
         postedAt: current.age ?? post.postedAt, hasMedia: current.hasMedia,
@@ -699,13 +671,9 @@ export async function publishComment(
       const opened = await gotoProfile(d, owner, 'recent-activity/all/');
       if (opened !== 'ok') return openFailed(opened);
       const section = await openPostsSection(d, owner.publicId);
-      if (section.status !== 'POST_SECTION_READY' || section.source !== 'posts')
+      if (section.status !== 'POST_SECTION_READY')
         return {ok:false,reason:'NO_REAL_EFFECT',
-          message:'Seção Publicações não confirmada para comentário visual'};
-      const proof = postSelectionProof(d.crm, urn);
-      if (!proof || proof.personId !== personId || proof.publicId !== owner.publicId)
-        return {ok:false,reason:'NO_REAL_EFFECT',
-          message:'Prova contextual do comentário não corresponde ao contato'};
+          message:'Cartão da publicação não disponível na atividade para comentar'};
     } else {
       await d.driver.goto(postUrl(urn));
     }

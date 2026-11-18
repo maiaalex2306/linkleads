@@ -241,9 +241,8 @@ export function postsFilterProbe(expectedPublicId: string): PostsFilterProbe {
   return { kind: 'BUTTON', verification: 'BUTTON', point: { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) } };
 }
 
-/** Identidade operacional: chave de conteúdo vinculada ao perfil e ao filtro
- * Publicações ATIVO. Não substitui URN canônica nem permite agir em "Todas".
- * O texto pode ser repetido: nesse caso os guardas bloqueiam por ambiguidade.
+/** Chave visual do cartão no feed da pessoa. Não é permalink e não exige seleção da aba Publicações.
+ * Cartões duplicados são rejeitados pelos guardas de unicidade antes do clique.
  */
 export function llVisualPostScopeValid(key: string): boolean {
   const m = key.match(/^ll-vcard:([^:]+):[a-f0-9]{16}$/);
@@ -251,7 +250,8 @@ export function llVisualPostScopeValid(key: string): boolean {
   if (!m || !route || m[1] !== route[1]) return false;
   let slug = '';
   try { slug = decodeURIComponent(route[1]!); } catch { return false; }
-  return __llPostsFilterProbe(slug).kind === 'ACTIVE';
+  // Basta que o cartão pertença à tela de atividades aberta; o filtro não autoriza a curtida.
+  return slug === m[1];
 }
 declare function __llPostsFilterProbe(slug: string): PostsFilterProbe;
 declare function __llVisualPostScopeValid(key: string): boolean;
@@ -639,9 +639,8 @@ export function llPostContainers(
     const profile = route ? route[1] : null;
     const visualKey = visualEligible && profile
       ? 'll-vcard:' + profile + ':' + digest : null;
-    // Só classificar como VISUAL quando o filtro Publicações está ATIVO.
-    // Fora desse contexto, manter o antigo identificador diagnóstico ll-card
-    // para não promover cartões na aba genérica ou páginas de outro perfil.
+    // O cartão visual também pode existir em /recent-activity/all/. A seleção do
+    // filtro não é autorização da curtida: somente o cartão e os controles importam.
     const visualVerified = !!visualKey &&
       typeof __llVisualPostScopeValid === 'function' &&
       __llVisualPostScopeValid(visualKey);

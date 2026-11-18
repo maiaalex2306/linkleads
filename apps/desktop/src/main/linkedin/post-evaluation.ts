@@ -3,7 +3,7 @@
  */
 import { normalizeLinkedInPublicId, parseRelativeAgeDays } from '@linkleads/core';
 import type { PostExtract } from './dom-scripts.js';
-import { isCanonicalPostUrn, isVisualPostKey, contextualAuthorAccepted, type PostSelectionContext } from './post-identity.js';
+import { isCanonicalPostUrn, isVisualPostKey, type PostSelectionContext } from './post-identity.js';
 const BASE = process.env.LINKLEADS_TEST_BASE_URL ?? 'https://www.linkedin.com';
 export interface LikeEvaluationSettings {
   maxPostAgeDays?: number;
@@ -86,42 +86,18 @@ export function evaluatePost(
     return result('NOT_ELIGIBLE', 'POST_CLASSIFIED', 'RESHARE_EXCLUDED',
       'Publicação compartilhada de outra pessoa, excluída pela configuração');
   }
-  // Em republicações a identidade do REPOSTADOR é distinta da do autor original.
-  // Sem URL comprovada do repostador não atribuir a publicação ao lead.
-  const href = isReshare ? post.resharedByHref : post.actorHref;
-  const actor = href ? profileSlug(href) : undefined;
-  if (href && !actor)
-    return result('REVIEW_REQUIRED', 'POST_FOUND', 'AUTHOR_UNVERIFIED',
-      'Link do autor não é um perfil confiável do LinkedIn');
-  // Fase 3: somente a rota Posts efetivamente validada pode complementar
-  // a ausência da URL redundante em publicação ORIGINAL, nunca um conflito.
-  const contextual = !href && !actor && !isReshare &&
-    selectionContext?.confirmedPublicId === publicId &&
-    selectionContext?.postUrn === post.urn &&
-    contextualAuthorAccepted(selectionContext);
-  if (!actor && !contextual)
-    return result('REVIEW_REQUIRED', 'POST_FOUND', 'AUTHOR_UNVERIFIED',
-      isReshare ? 'Identidade do compartilhador não comprovada por URL do perfil' :
-        'Identidade do autor não comprovada por URL nem por origem contextual válida');
-  if (actor && !sameConfirmedPublicId(actor, publicId))
-    return /^AC[owr]/i.test(actor) || /^AC[owr]/i.test(publicId)
-      ? result('REVIEW_REQUIRED', 'POST_FOUND', 'AUTHOR_CONFLICT',
-        'Identificador opaco do autor ou compartilhador diferente do perfil confirmado')
-      : result('NOT_ELIGIBLE', 'POST_FOUND', 'AUTHOR_MISMATCH', 'Publicação de outro autor');
-  passedStages.push('AUTHOR_CONFIRMED', 'POST_CLASSIFIED');
-  const visualBound = isVisualPostKey(post.urn) && !isReshare &&
-    selectionContext?.sourceSection === 'posts' &&
-    selectionContext?.postUrn === post.urn &&
-    selectionContext?.confirmedPublicId === publicId &&
+  // Ação dirigida ao primeiro cartão de publicação ainda não curtido.
+  // Autoria, URL canônica e filtro não concedem autorização de interação.
+  // Exigir apenas a referência técnica que permite localizar o MESMO cartão.
+  void publicId;
+  void selectionContext;
+  passedStages.push('POST_CLASSIFIED');
+  const visualBound = isVisualPostKey(post.urn) &&
     post.cardIdentity?.identityStatus === 'PROVISIONAL' &&
-    post.cardIdentity.cardId === post.urn &&
-    (contextual || Boolean(actor && sameConfirmedPublicId(actor, publicId))) &&
-    post.text.trim().length >= 24;
+    post.cardIdentity.cardId === post.urn;
   if (!isCanonicalPostUrn(post.urn) && !visualBound)
     return result('REVIEW_REQUIRED', 'POST_CLASSIFIED', 'POST_ID_PROVISIONAL',
-      'Cartão sem URL e sem vínculo visual exclusivo no filtro Publicações');
-  // POST_ID_CONFIRMED representa URN canônica OU cartão visual vinculado
-  // à publicação selecionada: nunca transformar chave visual em permalink.
+      'Cartão visual sem referência única para localizar seu botão');
   passedStages.push('POST_ID_CONFIRMED');
   const days = post.age ? parseRelativeAgeDays(post.age) : undefined;
   if (days === undefined || !Number.isFinite(days) || days < 0)

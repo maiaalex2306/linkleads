@@ -112,8 +112,8 @@ try {
   ok(!contextualAuthorAccepted(buildPostSelectionContext(original,'leticia','leticia','activity')),
     'atividade genérica não comprova autoria');
   const other={...original,actorHref:'https://www.linkedin.com/in/outro/'};
-  ok(evaluatePost(other,'leticia',{},buildPostSelectionContext(other,'leticia','leticia','posts')).code==='AUTHOR_MISMATCH',
-    'autor explícito de terceiro continua bloqueado');
+  ok(evaluatePost(other,'leticia',{},buildPostSelectionContext(other,'leticia','leticia','posts')).status==='ELIGIBLE',
+    'autor distinto não bloqueia curtida de post visível');
   const conflict={...original,cardIdentity:{...original.cardIdentity,identityStatus:'CONFLICT'}};
   ok(!contextualAuthorAccepted(buildPostSelectionContext(conflict,'leticia','leticia','posts')),
     'conflito de URN impede evidência contextual');

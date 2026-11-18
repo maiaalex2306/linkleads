@@ -267,8 +267,17 @@ try {
     route.fulfill({status:200,contentType:'text/html',body:fixtureHtml('Comentários')}));
   await page.reload();
   visualPosts = await scan();
-  check(!visualPosts.some(p=>p.urn.startsWith('ll-vcard:')),
-    'SDUI: filtro Comentários selecionado jamais autoriza cartão visual');
+  check(visualPosts.length === 1 && visualPosts[0].urn.startsWith('ll-vcard:jana:'),
+    'SDUI: cartão continua localizável sem autorização do filtro Publicações');
+
+  // Regressão dos diagnósticos reais: publicação em /all/ sem filtro de Posts.
+  await page.setContent('<main><div data-sdui-screen>' + fixtureCard() + '</div></main>');
+  visualPosts = await scan();
+  check(visualPosts.length === 1 && visualPosts[0].urn.startsWith('ll-vcard:jana:'),
+    'sem filtro ativo: post recebe vínculo visual para o botão');
+  visualGuard = await probe(visualPosts[0].urn);
+  check(visualGuard.guard && visualGuard.state === false,
+    'sem filtro ativo: curtida no mesmo cartão passa guarda de pixel');
 
   await page.setContent(
     '<main><div class="feed-shared-update-v2" data-urn="urn:li:activity:7001">' +
