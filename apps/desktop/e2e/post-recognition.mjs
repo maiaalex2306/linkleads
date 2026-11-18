@@ -1,6 +1,6 @@
 // Fase 3: fixtures Chromium totalmente isoladas, sem rede externa/LinkedIn.
 import { createRequire } from 'node:module';
-import { extractPosts, likeState, llPostContainers, llIsReact, llReactionTarget, llReactionClickGuard, postsFilterProbe, llVisualPostScopeValid } from '../dist/main/linkedin/dom-scripts.js';
+import { extractPosts, likeState, llPostContainers, llIsReact, llReactionTarget, llReactionClickGuard, postsFilterProbe, llVisualPostScopeValid, llCommentControls, commentEvidence, commentClickGuard } from '../dist/main/linkedin/dom-scripts.js';
 const require = createRequire(import.meta.url);
 const { chromium } = require('playwright');
 const browser = await chromium.launch({ headless: true });
@@ -19,6 +19,8 @@ const functions = {
   reactionTarget: llReactionTarget.toString(), extract: extractPosts.toString(),
   likeState: likeState.toString(), clickGuard: llReactionClickGuard.toString(),
   filterProbe: postsFilterProbe.toString(), visualScope: llVisualPostScopeValid.toString(),
+  commentControls: llCommentControls.toString(), commentEvidence: commentEvidence.toString(),
+  commentClickGuard: commentClickGuard.toString(),
 };
 const check = (ok, message, evidence) => {
   if (!ok) throw Error('FALHOU: ' + message + (evidence === undefined ? '' : ' ' + JSON.stringify(evidence)));
@@ -56,9 +58,80 @@ const probe = (urn, clickPoint = null) => page.evaluate(({ fns, selectors, urn, 
   };
 }, { fns: functions, selectors: sel, urn, clickPoint });
 
+
+const commentProbe = (urn, text, selectors = sel) => page.evaluate(({ fns, selectors, urn, text }) => {
+  const __llIsReact = eval('(' + fns.reaction + ')');
+  const llIsReact = __llIsReact;
+  const __llPostsFilterProbe = eval('(' + fns.filterProbe + ')');
+  const __llVisualPostScopeValid = eval('(' + fns.visualScope + ')');
+  const __llPostContainers = eval('(' + fns.containers + ')');
+  const __llReactionTarget = eval('(' + fns.reactionTarget + ')');
+  const __llCommentControls = eval('(' + fns.commentControls + ')');
+  const read = eval('(' + fns.commentEvidence + ')');
+  const guard = eval('(' + fns.commentClickGuard + ')');
+  const c = __llCommentControls(selectors, urn);
+  const point = c.submit ? c.submit.getBoundingClientRect() : null;
+  const x = point ? point.left + point.width / 2 : 0;
+  const y = point ? point.top + point.height / 2 : 0;
+  return {
+    reason: c.reason, editor: !!c.editor, submit: !!c.submit,
+    text: c.editor?.innerText || c.editor?.textContent || '',
+    evidence: read(selectors, urn, text),
+    submitGuard: !!point && guard(selectors, urn, 'submit', x, y, text),
+  };
+}, { fns: functions, selectors, urn, text });
+
 const comment = 'Este texto de comentário não é a publicação. '.repeat(35);
 const noise = 'Ruído de comentário muito longo. '.repeat(50);
 try {
+  // P1 — editor SDUI role=generic, saída do compositor e confirmação
+  // no MESMO cartão. Estes testes não enviam comentários ao LinkedIn real.
+  const commentUrn = 'urn:li:activity:7381234567890199991';
+  const otherUrn = 'urn:li:activity:7381234567890199992';
+  const proposedComment = 'Excelente discussão sobre melhoria contínua e produtividade industrial.';
+  const ownPost = (urn, body) => '<div class="feed-shared-update-v2" data-urn="' + urn + '">' +
+    '<div class="update-components-actor"><a href="https://www.linkedin.com/in/autora-post/">Autora</a></div>' +
+    '<div class="update-components-text">Reflexão sobre inovação e colaboração.</div>' +
+    '<button aria-label="Like" aria-pressed="false">Like</button>' +
+    '<button aria-label="Comentar">Comentar</button>' + body + '</div>';
+  const composer = (text, twice = false) => '<div class="sdui-composer">' +
+    '<div contenteditable="true" role="generic">' + text + '</div>' +
+    (twice ? '<div contenteditable="true" role="generic">Outro editor</div>' : '') +
+    '<button type="button">Publicar</button></div>';
+  const commentRow = (profile) => '<div class="sdui-comment">' +
+    '<a href="https://www.linkedin.com/in/' + profile + '/">Autor do comentário</a>' +
+    '<p dir="ltr">' + proposedComment + '</p></div>';
+  const commentSel = {...sel, commentEditor:['.ql-editor[contenteditable="true"]'],
+    commentSubmit:['.comments-comment-box__submit-button']};
+  await page.setContent('<main>' + ownPost(commentUrn, composer('')) + '</main>');
+  let cp = await commentProbe(commentUrn, proposedComment, commentSel);
+  check(cp.editor && cp.submit && cp.reason === 'CONFIRMED' && !cp.submitGuard &&
+    cp.evidence.count === 0,
+    'SDUI: editor sem classe e role generic é detectado dentro do mesmo post', cp);
+  await page.setContent('<main>' + ownPost(commentUrn, composer(proposedComment)) + '</main>');
+  cp = await commentProbe(commentUrn, proposedComment, commentSel);
+  check(cp.submitGuard && cp.evidence.count === 0 && cp.evidence.ownedCount === 0,
+    'SDUI: texto ainda no editor NÃO é contado como comentário publicado', cp);
+  await page.setContent('<nav class="global-nav__me"><a href="https://www.linkedin.com/in/usuario-ativo/">Eu</a></nav>' +
+    '<main>' + ownPost(commentUrn, composer('') + commentRow('usuario-ativo')) + '</main>');
+  cp = await commentProbe(commentUrn, proposedComment, commentSel);
+  check(cp.evidence.cardConfirmed && cp.evidence.count === 1 &&
+    cp.evidence.ownedCount === 1 && cp.evidence.editorEmpty,
+    'SDUI: comentário visível no post e atribuído à conta ativa confirma envio', cp);
+  await page.setContent('<main>' + ownPost(commentUrn, composer('') + commentRow('usuario-sem-prova')) + '</main>');
+  cp = await commentProbe(commentUrn, proposedComment, commentSel);
+  check(cp.evidence.count === 1 && cp.evidence.ownedCount === 0,
+    'SDUI: sem prova de conta ativa a publicação permanece incerta', cp);
+  await page.setContent('<main>' + ownPost(commentUrn, composer('')) +
+    ownPost(otherUrn, composer('') + commentRow('usuario-ativo')) + '</main>');
+  cp = await commentProbe(commentUrn, proposedComment, commentSel);
+  check(cp.evidence.count === 0,
+    'SDUI: comentário em outro cartão não confirma o post escolhido', cp);
+  await page.setContent('<main>' + ownPost(commentUrn, composer('',true)) + '</main>');
+  cp = await commentProbe(commentUrn, proposedComment, commentSel);
+  check(cp.reason === 'MULTIPLE_EDITORS' && !cp.editor && !cp.submit,
+    'SDUI: dois editores concorrentes bloqueiam a ação', cp);
+
   // Caso SDUI observado em 17/11/2026: metadado de publicação em wrapper
   // interno, autor em faixa compacta com botão Seguir e data 'há 11 m'.
   const sduiUrn = 'urn:li:activity:7381234567890128988';
