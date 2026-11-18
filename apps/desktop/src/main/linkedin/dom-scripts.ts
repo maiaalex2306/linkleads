@@ -986,6 +986,9 @@ export function llCommentControls(
     '[data-test-id*="comment-editor"][contenteditable="true"]',
     '.tiptap.ProseMirror[contenteditable="true"]',
     '[role="textbox"][contenteditable="true"]',
+    // SDUI: o editor pode ser apenas div[contenteditable=true] role=generic.
+    // Continua restrito ao cartão único, visível e fora de comentários existentes.
+    'div[contenteditable="true"]', '[contenteditable="true"]',
   ];
   for (const selector of candidates) {
     try {
@@ -1094,8 +1097,39 @@ export function commentEvidence(
   if (!expected || cards.length !== 1)
     return { count: 0, ownedCount: 0, editorEmpty: false, cardConfirmed: false };
   const root = cards[0]!.el;
-  const rows = Array.from(root.querySelectorAll(
+  const legacyRows = Array.from(root.querySelectorAll(
     '.comments-comment-entity, .comments-comment-item, [data-testid="comment-item"], [data-test-id="comment-item"]'));
+  // SDUI pode entregar comentários sem classes legadas. Buscar o texto EXATO
+  // apenas dentro do post escolhido; localizar o MENOR ancestral próprio que
+  // contenha também o cabeçalho do comentarista, sem a barra de ações do post.
+  // Encontrar texto digitado no editor NUNCA conta como comentário publicado.
+  const structuralRows = new Set<Element>();
+  if (legacyRows.length === 0) {
+    const snippets = Array.from(root.querySelectorAll(
+      '[data-testid*="comment-text"], [data-test-id*="comment-text"], p, [dir="ltr"]'));
+    for (const snippet of snippets) {
+      if (snippet.closest('[contenteditable="true"], .update-components-actor, .feed-shared-actor') ||
+          norm((snippet as HTMLElement).innerText || snippet.textContent || '') !== expected) continue;
+      let row: Element | null = snippet.parentElement;
+      for (let depth = 0; row && row !== root && depth < 8; depth++, row = row.parentElement) {
+        const links = Array.from(row.querySelectorAll('a[href*="/in/"]'))
+          .filter((link) => !link.closest('[contenteditable="true"]'));
+        if (links.length !== 1 ||
+            row.querySelector('[contenteditable="true"], [data-urn], [data-activity-urn]') ||
+            row.querySelector('[role="toolbar"], .feed-shared-social-action-bar, .social-actions') ||
+            (row.textContent ?? '').length > 2500) continue;
+        // O cartão principal contém o botão de reação do post; um comentário
+        // não pode herdar essa barra somente por ter texto semelhante.
+        const postReaction = Array.from(row.querySelectorAll('button[aria-pressed],button[aria-checked]'))
+          .some((button) => /(?:gostei|curtir|like|react)/i.test(
+            button.getAttribute('aria-label') || button.textContent || ''));
+        if (postReaction) continue;
+        structuralRows.add(row);
+        break;
+      }
+    }
+  }
+  const rows = legacyRows.length > 0 ? legacyRows : [...structuralRows];
   let count = 0;
   let ownedCount = 0;
   const selfProfiles = new Set(
@@ -1107,11 +1141,15 @@ export function commentEvidence(
     }).filter(Boolean),
   );
   for (const row of rows) {
-    const childText = (Array.from(row.querySelectorAll(
-      '.comments-comment-item__main-content, .update-components-text, [data-testid="comment-text"], [data-test-id="comment-text"]',
-    )) as HTMLElement[])[0];
-    const ownText = norm(childText?.innerText ?? childText?.textContent ?? '');
-    if (ownText !== expected) continue;
+    const childNodes = Array.from(row.querySelectorAll(
+      '.comments-comment-item__main-content, .update-components-text, [data-testid="comment-text"], [data-test-id="comment-text"], p, [dir="ltr"]',
+    )) as HTMLElement[];
+    // Priorizar coincidência EXATA no nó de texto. Não aceitar substrings
+    // de cartões, de editores nem de conteúdos publicados por outras pessoas.
+    const matching = childNodes.some((node) =>
+      !node.closest('[contenteditable="true"]') &&
+      norm(node.innerText || node.textContent || '') === expected);
+    if (!matching) continue;
     count++;
     const selfMarked = row.matches(
       '.comments-comment-entity--mine, .comments-comment-entity--me, [data-author-self="true"], [data-testid="own-comment"]');
