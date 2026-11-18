@@ -71,6 +71,9 @@ export const DEFAULT_SELECTORS = {
     '[data-testid*="comment-editor"][contenteditable="true"]',
     '[data-test-id*="comment-editor"][contenteditable="true"]',
     '.comments-comment-box [contenteditable="true"]',
+    // Diagnóstico SDUI: o editor pode ter somente contenteditable.
+    // llCommentControls exige escopo de cartão, unicidade e editor visível.
+    'div[contenteditable="true"]',
   ],
   commentSubmit: [
     'button.comments-comment-box__submit-button--cr',
