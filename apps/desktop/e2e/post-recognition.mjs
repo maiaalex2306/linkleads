@@ -681,8 +681,8 @@ try {
     '<button aria-label="Like" aria-pressed="false">Like</button></article></main>');
   posts = await scan();
   check(posts.length === 1 && posts[0].cardIdentity?.identityStatus === 'PROVISIONAL' &&
-    posts[0].urn.startsWith('ll-idx-'),
-    'Fase 2: cartão visível sem autor, data ou URN permanece candidato provisório', posts);
+    posts[0].cardIdentity?.postUrn === null && posts[0].urn.startsWith('ll-vcard:'),
+    'Fase 2: cartão sem autor, data ou URL tem referência visual, mas idade continua incerta', posts);
 
   await page.setContent('<main><article data-testid="feed-post" data-urn="urn:li:ugcPost:7381234567890129871">' +
     '<div class="update-components-text">Publicação atual com mídia e sem hora.</div>' +
