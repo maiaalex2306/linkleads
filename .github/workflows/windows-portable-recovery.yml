@@ -295,3 +295,72 @@ jobs:
             --target "${SOURCE_SHA}" --latest \
             --title "LINKLEADS ${version} - Instalador Windows D:\LINKLEADS" \
             --notes "UNICO PADRAO WINDOWS: extraia o ZIP, execute INSTALAR-LINKLEADS.cmd na raiz; sempre instala em D:\LINKLEADS e cria atalho no desktop. Sem NSIS, backup verificado e rollback do codigo; sem exclusao de campanhas. Build/EXE/instalacao/atalho/janela homologados em Windows isolado. Operacao em conta LinkedIn real depende de homologacao do proprietario. Este pacote nao e assinado digitalmente."
+
+
+  publish-pr98-installer:
+    name: Link direto - pre-lancamento do instalador PR98
+    if: github.event_name == 'pull_request' && github.event.pull_request.number == 98 && github.event.pull_request.head.repo.full_name == github.repository
+    needs: portable-windows
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      actions: read
+      pull-requests: read
+    env:
+      PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: LinkLeads-INSTALADOR-D-LINKLEADS-${{ env.SOURCE_SHA }}
+          path: portable-package
+      - name: Confirmar revisao e suite CI do mesmo PR
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f portable-package/INSTALAR-LINKLEADS.cmd
+          test -f portable-package/PRESERVAR-LINKLEADS.cmd
+          test -f portable-package/LinkLeads/LinkLeads.exe
+          test -f portable-package/manifesto.json
+          actual="$(jq -r '.sha' portable-package/manifesto.json)"
+          [[ "$actual" == "$SOURCE_SHA" ]] || { echo "Manifesto nao corresponde ao instalador"; exit 1; }
+          for i in $(seq 1 40); do
+            current="$(gh api "repos/${GH_REPO}/pulls/${PR_NUMBER}" --jq '.head.sha')"
+            [[ "$current" == "$PR_HEAD_SHA" ]] || { echo "PR atualizado: pacote obsoleto, nao publicar."; exit 1; }
+            result="$(gh api "repos/${GH_REPO}/actions/runs?head_sha=${PR_HEAD_SHA}&per_page=50" --jq '[.workflow_runs[] | select(.name == "CI" and .event == "pull_request")] | sort_by(.created_at) | last | (.conclusion // "pending")')"
+            if [[ "$result" == "success" ]]; then
+              echo "CI_APROVADO: $PR_HEAD_SHA"
+              exit 0
+            fi
+            if [[ "$result" == "failure" || "$result" == "timed_out" || "$result" == "cancelled" ]]; then
+              echo "CI nao aprovado para $PR_HEAD_SHA: $result"
+              exit 1
+            fi
+            sleep 20
+          done
+          echo "CI nao concluiu dentro da janela de verificacao"
+          exit 1
+      - name: Publicar ZIP testavel em URL estavel sem login
+        shell: bash
+        run: |
+          set -euo pipefail
+          short="${PR_HEAD_SHA:0:8}"
+          tag="linkleads-pr98-${short}"
+          zipfile="LINKLEADS-INSTALADOR-PR98-${short}.zip"
+          (
+            cd portable-package
+            zip -q -r "../${zipfile}" .
+          )
+          sha256sum "${zipfile}" > "${zipfile}.sha256"
+          if gh release view "$tag" --json url >/dev/null 2>&1; then
+            echo "Pre-release ja existe; nao substituir os bytes."
+            exit 0
+          fi
+          gh release create "$tag" "${zipfile}" "${zipfile}.sha256" \
+            --target "$PR_HEAD_SHA" --prerelease \
+            --title "LINKLEADS PR #98 - instalador para homologacao (${short})" \
+            --notes "CANDIDATO DE TESTE, NAO HOMOLOGADO EM CONTA LINKEDIN REAL. O CI completo e os testes Windows passaram antes desta publicacao. Extraia o ZIP, execute PRESERVAR-LINKLEADS.cmd para confirmar BACKUP_VERIFICADO e depois INSTALAR-LINKLEADS.cmd na raiz. Destino D:\\LINKLEADS. Atalho na area de trabalho. Sem exclusao de banco, campanhas ou usuarios; instalador nao assinado digitalmente."
+          echo "DOWNLOAD=https://github.com/${GH_REPO}/releases/download/${tag}/${zipfile}"
