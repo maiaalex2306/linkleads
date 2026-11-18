@@ -598,12 +598,33 @@ async function hydratePostForComment(
         p.cardIdentity.cardId === post.url && !p.isReshare);
       if (matches.length !== 1)
         return failure('Cartão visual mudou, desapareceu ou ficou ambíguo: IA não acionada');
-      const current = matches[0]!;
+      let current = matches[0]!;
       if (current.actorHref &&
           !sameConfirmedPublicId(profileSlug(current.actorHref), owner.publicId))
         return failure('Autor explícito contradiz o perfil selecionado');
+      if (current.truncated) {
+        // Expandir exclusivamente o cartão cujo vínculo visual foi preservado.
+        // Após o React re-renderizar, reler novamente IDENTIDADE e AUTORIA.
+        if (!(await d.driver.clickVerifiedPostMore(post.url)))
+          return failure('O botão …mais não foi identificado univocamente no cartão visual');
+        const expanded = await d.driver.waitUntil(async () => {
+          const refreshed = await d.driver.read(extractPosts, selectorMap, 150);
+          const own = refreshed.filter((p) => p.urn === post.url &&
+            p.cardIdentity?.identityStatus === 'PROVISIONAL' &&
+            p.cardIdentity.cardId === post.url && !p.isReshare &&
+            (!p.actorHref || sameConfirmedPublicId(profileSlug(p.actorHref), owner.publicId)));
+          if (own.length !== 1) return false;
+          current = own[0]!;
+          return !current.truncated && current.text.trim().length >= 24;
+        }, 8_000);
+        if (!expanded)
+          return failure('A expansão mudou ou tornou ambíguo o cartão visual; IA bloqueada');
+      }
       if (current.truncated || current.text.trim().length < 24)
         return failure('Texto visual incompleto: expandir e revisar antes de gerar IA');
+      if (current.actorHref &&
+          !sameConfirmedPublicId(profileSlug(current.actorHref), owner.publicId))
+        return failure('Autoria mudou após expandir a publicação visual');
       d.crm.savePost(personId, {url:post.url,text:current.text,
         postedAt:current.age ?? post.postedAt,hasMedia:current.hasMedia});
       return {ok:true,data:{text:current.text}};
