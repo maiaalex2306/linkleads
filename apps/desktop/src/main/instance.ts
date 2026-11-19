@@ -787,7 +787,8 @@ export class AccountInstance {
       case 'message':
         return this.withBrowser(() => sendMessageNow(this.deps, person, text));
       default:
-        return this.withBrowser(() => publishComment(this.deps, draft.postUrl, text));
+        // CORREÇÃO: o caminho visual (ll-vcard) precisa do lead para reabrir o cartão.
+        return this.withBrowser(() => publishComment(this.deps, draft.postUrl, text, draft.personId));
     }
   }
 

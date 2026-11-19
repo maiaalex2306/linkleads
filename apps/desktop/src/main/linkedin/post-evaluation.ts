@@ -47,7 +47,8 @@ export type PostEvaluationStatus = 'ELIGIBLE' | 'NOT_ELIGIBLE' | 'REVIEW_REQUIRE
 export type PostEvaluationCode = 'EMPTY_CONTENT' | 'RESHARE_EXCLUDED' |
   'AUTHOR_UNVERIFIED' | 'AUTHOR_CONFLICT' | 'AUTHOR_MISMATCH' |
   'POST_ID_CONFLICT' | 'POST_ID_PROVISIONAL' | 'RESHARE_CLASSIFICATION_ERROR' | 'POST_AGE_UNVERIFIED' |
-  'POST_TOO_OLD' | 'REACTION_UNKNOWN' | 'ALREADY_LIKED' | 'ELIGIBLE';
+  'POST_TOO_OLD' | 'REACTION_UNKNOWN' | 'ALREADY_LIKED' | 'ELIGIBLE' |
+  'NOT_LEAD_POST' | 'AUTHOR_NOT_PROVEN_IN_ALL';
 
 export interface PostEvaluation {
   post: PostExtract;
@@ -86,11 +87,23 @@ export function evaluatePost(
     return result('NOT_ELIGIBLE', 'POST_CLASSIFIED', 'RESHARE_EXCLUDED',
       'Publicação compartilhada de outra pessoa, excluída pela configuração');
   }
-  // Ação dirigida ao primeiro cartão de publicação ainda não curtido.
-  // Autoria, URL canônica e filtro não concedem autorização de interação.
-  // Exigir apenas a referência técnica que permite localizar o MESMO cartão.
-  void publicId;
-  void selectionContext;
+  // CORREÇÃO (estudo 19/11) — SELEÇÃO DE OBJETO, não autorização.
+  // "Todas as atividades" mistura posts do lead com posts de TERCEIROS que ele
+  // comentou ou reagiu. Esses cartões nunca são alvo.
+  if (post.activityHeader === 'COMMENT' || post.activityHeader === 'REACTION')
+    return result('NOT_ELIGIBLE', 'POST_FOUND', 'NOT_LEAD_POST',
+      'Cartão de atividade: post de outra pessoa em que o lead comentou/reagiu');
+  if (selectionContext?.sourceSection === 'activity' && !isReshare) {
+    // Na aba geral, só é alvo o cartão cujo autor é comprovadamente o lead.
+    // Sem prova, o cartão é PULADO (NOT_ELIGIBLE) — não bloqueia a campanha:
+    // o executor segue para o próximo cartão ou para a rota Publicações.
+    const observed = post.actorHref ? profileSlug(post.actorHref) : undefined;
+    if (!sameConfirmedPublicId(observed, publicId))
+      return result('NOT_ELIGIBLE', 'POST_FOUND',
+        observed ? 'AUTHOR_MISMATCH' : 'AUTHOR_NOT_PROVEN_IN_ALL',
+        observed ? 'Cartão de outro autor na aba Todas as atividades'
+          : 'Autor não comprovado na aba Todas as atividades; usar a aba Publicações');
+  }
   passedStages.push('POST_CLASSIFIED');
   const visualBound = isVisualPostKey(post.urn) &&
     post.cardIdentity?.identityStatus === 'PROVISIONAL' &&

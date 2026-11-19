@@ -92,6 +92,9 @@ const CODE_MAP: Record<PostEvaluation['code'], DiagnosticCode> = {
   REACTION_UNKNOWN: 'REACTION_UNKNOWN',
   ALREADY_LIKED: 'ALREADY_LIKED',
   ELIGIBLE: 'POST_ELIGIBLE',
+  // Cartões de terceiros na aba Todas: seleção de objeto, mapeados a códigos já existentes.
+  NOT_LEAD_POST: 'AUTHOR_MISMATCH',
+  AUTHOR_NOT_PROVEN_IN_ALL: 'AUTHOR_UNVERIFIED',
 };
 
 /** O parecer é sempre do MESMO avaliador que governa o clique.

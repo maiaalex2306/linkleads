@@ -213,6 +213,8 @@ export function choosePost(
     count('POST_TOO_OLD') && count('POST_TOO_OLD') + ' com mais de ' + maxAge + ' dias',
     count('RESHARE_EXCLUDED') && count('RESHARE_EXCLUDED') + ' compartilhado(s) de outras pessoas',
     count('AUTHOR_MISMATCH') && count('AUTHOR_MISMATCH') + ' de outro autor',
+    count('NOT_LEAD_POST') && count('NOT_LEAD_POST') + ' de terceiros (comentados/reagidos pelo lead)',
+    count('AUTHOR_NOT_PROVEN_IN_ALL') && count('AUTHOR_NOT_PROVEN_IN_ALL') + ' sem autor comprovado na aba Todas',
     count('EMPTY_CONTENT') && count('EMPTY_CONTENT') + ' sem texto ou mídia',
   ].filter(Boolean);
   return { why: 'Achei ' + posts.length + ' post(s), nenhum elegível: ' + parts.join(', ') };
@@ -354,6 +356,18 @@ async function discoverUnlikedPost(
   };
 }
 
+
+/** CORREÇÃO (estudo 19/11): abre a aba Publicações sempre que possível; "Todas as
+ * atividades" fica como último recurso. Usado na curtida, na releitura e no envio. */
+async function openPreferredPostsSection(d: ExecutorDeps, publicId: string) {
+  let section = await openPostsSection(d, publicId);
+  if (section.source === 'activity' && section.status !== 'POST_SECTION_EMPTY') {
+    const postsRoute = await openPostsSection(d, publicId, { recoverVerifiedPostsRoute: true });
+    if (postsRoute.source === 'posts' && postsRoute.status !== 'POST_SECTION_UNAVAILABLE') section = postsRoute;
+  }
+  return section;
+}
+
 export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
   return {
     type: 'LikePosts',
@@ -396,6 +410,15 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
                 message: 'Seção de publicações indisponível após recuperação segura. Nenhuma curtida enviada.' +
                   (file ? ' Diagnóstico: ' + file : '') };
             }
+          }
+          // CORREÇÃO (estudo 19/11): preferir SEMPRE a aba Publicações.
+          // "Todas as atividades" mistura comentários e reações do lead em posts
+          // de terceiros. Só permanecer em all/ se a rota Publicações não abrir.
+          if (postSection.source === 'activity' && postSection.status === 'POST_SECTION_READY') {
+            const postsRoute = await openPostsSection(
+              d, ctx.person.publicId ?? ctx.person.id, { recoverVerifiedPostsRoute: true });
+            if (postsRoute.source === 'posts' && postsRoute.status !== 'POST_SECTION_UNAVAILABLE')
+              postSection = postsRoute;
           }
           diagnosisContext.sourceSection = postSection.source;
           if (postSection.status === 'POST_SECTION_EMPTY')
@@ -579,7 +602,7 @@ async function hydratePostForComment(
       if (!owner?.publicId) return failure('Perfil do cartão visual não disponível no CRM');
       const navigated = await gotoProfile(d, owner, 'recent-activity/all/');
       if (navigated !== 'ok') return openFailed(navigated);
-      const section = await openPostsSection(d, owner.publicId);
+      const section = await openPreferredPostsSection(d, owner.publicId);
       if (section.status !== 'POST_SECTION_READY')
         return failure('Cartão da publicação indisponível na atividade do perfil');
       if (d.preflightPostContract && !(await d.preflightPostContract()))
@@ -670,7 +693,7 @@ export async function publishComment(
         message: 'Comentário visual exige pessoa confirmada da campanha' };
       const opened = await gotoProfile(d, owner, 'recent-activity/all/');
       if (opened !== 'ok') return openFailed(opened);
-      const section = await openPostsSection(d, owner.publicId);
+      const section = await openPreferredPostsSection(d, owner.publicId);
       if (section.status !== 'POST_SECTION_READY')
         return {ok:false,reason:'NO_REAL_EFFECT',
           message:'Cartão da publicação não disponível na atividade para comentar'};

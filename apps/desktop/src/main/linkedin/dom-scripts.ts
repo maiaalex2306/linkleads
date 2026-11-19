@@ -70,6 +70,9 @@ export interface PostExtract {
   liked: boolean | null;
   /** Indicador de conteúdo recolhido, nunca remover só o marcador para alimentar IA. */
   truncated?: boolean;
+  /** Cabeçalho de atividade acima do autor ("Fulano comentou isto", "gostou", "republicou").
+   * COMMENT/REACTION = o cartão mostra o post de OUTRA pessoa em que o lead interagiu. */
+  activityHeader?: 'REPOST' | 'COMMENT' | 'REACTION' | null;
 }
 
 
@@ -605,21 +608,37 @@ export function llPostContainers(
     // Chave visual de uma publicação SEM URN, somente enquanto o filtro
     // Publicações está selecionado no perfil. O texto vem do corpo PRÓPRIO,
     // não do rodapé (contadores mudam após Curtir/Comentar) nem de citações.
-    const visibleBody = Array.from(card.querySelectorAll(
+    // CORREÇÃO (estudo 19/11): o SDUI coloca o botão "…mais" DENTRO do
+    // parágrafo do post. A regra antiga descartava esse parágrafo e o cartão
+    // ficava sem chave (ll-idx → POST_ID_PROVISIONAL). Agora o controle de
+    // expansão é ignorado no texto e os parágrafos-raiz são concatenados.
+    const EXPAND_LABEL = /^(?:…|\.\.\.)?\s*(?:ver mais|mais|see more|mostrar mais|more)\s*$/i;
+    const isExpandControl = (n: Element): boolean => EXPAND_LABEL.test(
+      (n.getAttribute('aria-label') || n.textContent || '').replace(/\s+/g, ' ').trim());
+    const bodyNodes = Array.from(card.querySelectorAll(
       '.update-components-text, .feed-shared-text, [data-testid*="post-text"], [data-test-id*="commentary"], [dir="ltr"], p',
     )).filter((node) => !embeddedWithin(node, card) &&
       !node.closest(COMMENT) && !node.closest(AUTHOR_HEADER) &&
       !node.closest('button, [role="button"], [role="toolbar"]') &&
-      !node.querySelector('button, [role="button"], [contenteditable]'))
-      .map((node) => (node as HTMLElement).innerText || node.textContent || '')
-      .map((s) => s.normalize('NFC').replace(/\s+/g, ' ').trim())
-      .find((s) => s.length >= 24 && s.length <= 6000) ?? '';
+      !node.querySelector('[contenteditable]') &&
+      Array.from(node.querySelectorAll('button, [role="button"]')).every(isExpandControl));
+    const bodyRoots = bodyNodes.filter((n) => !bodyNodes.some((o) => o !== n && o.contains(n)));
+    const ownText = (node: Element): string =>
+      ((node as HTMLElement).innerText || node.textContent || '')
+        .normalize('NFC').replace(/\s+/g, ' ')
+        .replace(/\s*(?:…|\.\.\.)?\s*(?:ver mais|mais|see more|mostrar mais|more)\s*$/i, '')
+        .replace(/(?:…|\.\.\.)\s*$/, '').trim();
+    const texts = bodyRoots.map(ownText).filter((s) => s.length > 0);
     // "…mais" pode expandir o texto: apenas o prefixo estável
     // participa da chave visual. Se há expansão e menos de 64 caracteres,
     // manter provisório em vez de gerar chave instável.
     const hasExpand = Array.from(card.querySelectorAll('button,[role="button"],a,span[tabindex="0"]'))
-      .some((n) => /^(?:…|\.\.\.)?\s*(?:ver mais|mais|see more|mostrar mais|more)\s*$/i.test(
-        (n.getAttribute('aria-label') || n.textContent || '').replace(/\s+/g, ' ').trim()));
+      .some((n) => isExpandControl(n));
+    // Compatível com chaves já gravadas: o 1º bloco suficiente continua sendo
+    // a fonte; só quando ele é curto demais usa-se o corpo concatenado.
+    const single = texts.find((s) => s.length >= 24 && s.length <= 6000) ?? '';
+    const visibleBody = single.length >= (hasExpand ? 64 : 24)
+      ? single : texts.join(' ').slice(0, 6000);
     const minFingerprintLength = hasExpand ? 64 : 24;
     let source = [author?.href ?? '', visibleBody.slice(0, 64)].join('|');
     const visualEligible = !primary && !conflicting && visibleBody.length >= minFingerprintLength;
@@ -908,10 +927,35 @@ export function extractPosts(sel: Record<string, readonly string[]>, limit: numb
       '.update-components-header, .feed-shared-header, [data-test-id*="reshared-header"]',
     )) as HTMLElement[]).filter((h) => !inEmbedded(h));
     const actionRegex = /\b(compartilhou|republicou|repostou|reposted|shared)\b/i;
-    const actionHeader = headers.find((h) => actionRegex.test((h.innerText || h.textContent || '').slice(0, 240)));
-    const isReshare = Boolean(actionHeader);
+    const legacyHeader = headers.find((h) => actionRegex.test((h.innerText || h.textContent || '').slice(0, 240)));
+    // CORREÇÃO (estudo 19/11): no SDUI o cabeçalho "Fulano comentou isto /
+    // gostou / republicou" não tem classe. Ele fica ACIMA do link do autor
+    // principal. Em "Todas as atividades" esse cartão é o post de OUTRA pessoa.
+    const COMMENT_RE = /\b(?:comentou|commented)\b/i;
+    const REACTION_RE = /\b(?:gostou|curtiu|reagiu|celebrou|apoiou|amou|achou (?:isso |isto )?(?:interessante|engra[cç]ado)|likes? this|liked|reacted|celebrates|supports|loves|finds this)\b/i;
+    const authorAnchor = identity.primaryActorUrl
+      ? (Array.from(it.querySelectorAll('a[href*="/in/"]')) as HTMLAnchorElement[])
+          .find((a) => !inEmbedded(a) && a.href.replace(/\/$/, '') === identity.primaryActorUrl!.replace(/\/$/, '')) ?? null
+      : null;
+    const headerNodes = (Array.from(it.querySelectorAll('span, p, div, h2, h3, header')) as HTMLElement[])
+      .filter((n) => !inEmbedded(n) && n.children.length <= 3 &&
+        !n.closest('.comments-comment-entity, .comments-comment-item, [contenteditable]') &&
+        (authorAnchor ? (!n.contains(authorAnchor) &&
+          !!(n.compareDocumentPosition(authorAnchor) & Node.DOCUMENT_POSITION_FOLLOWING)) : false))
+      .slice(0, 40);
+    const firstLine = ((it as HTMLElement).innerText || '').split('\n').map((s) => s.trim()).find(Boolean) ?? '';
+    const headerTexts = [...headerNodes.map((n) => (n.innerText || n.textContent || '').replace(/\s+/g, ' ').trim()),
+      ...(firstLine.length <= 160 ? [firstLine] : [])].filter((t) => t.length > 0 && t.length <= 160);
+    const activityHeader: PostExtract['activityHeader'] =
+      legacyHeader || headerTexts.some((t) => actionRegex.test(t)) ? 'REPOST'
+        : headerTexts.some((t) => COMMENT_RE.test(t)) ? 'COMMENT'
+          : headerTexts.some((t) => REACTION_RE.test(t)) ? 'REACTION' : null;
+    const actionHeader = legacyHeader ??
+      (activityHeader === 'REPOST' ? headerNodes.find((n) => actionRegex.test(n.innerText || '')) ?? null : null);
+    const isReshare = activityHeader === 'REPOST';
     const sharers = actionHeader
-      ? (Array.from(actionHeader.querySelectorAll('a[href*="/in/"]')) as HTMLAnchorElement[])
+      ? (Array.from((actionHeader.closest('div') ?? actionHeader).querySelectorAll('a[href*="/in/"]')) as HTMLAnchorElement[])
+          .filter((a) => a !== authorAnchor)
       : [];
     const validSharer = (href: string): string | null => {
       try {
@@ -955,6 +999,7 @@ export function extractPosts(sel: Record<string, readonly string[]>, limit: numb
       isReshare,
       liked: reaction.state,
       truncated,
+      activityHeader,
     });
     if (out.length >= limit) break;
   }

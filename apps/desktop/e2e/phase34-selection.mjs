@@ -31,8 +31,14 @@ check(evaluatePost(own, 'leticia', settings).status === 'ELIGIBLE',
   'post sem autoria não é bloqueado por autorização');
 check(!contextualAuthorAccepted(context(own, {sourceSection:'activity'})),
   'feed de atividade genérico não vira prova de autoria');
-check(evaluatePost(own, 'leticia', settings, context(own,{sourceSection:'activity'})).status === 'ELIGIBLE',
-  'post na atividade fica elegível sem autorização extra');
+// CONTRATO REVISTO (estudo 19/11): em "Todas as atividades" o autor serve para
+// ESCOLHER o objeto certo (a aba mistura posts de terceiros). Sem prova, o cartão
+// é pulado — NOT_ELIGIBLE, nunca REVIEW_REQUIRED —, e a campanha segue.
+check(evaluatePost(own, 'leticia', settings, context(own,{sourceSection:'activity'})).code === 'AUTHOR_NOT_PROVEN_IN_ALL',
+  'em Todas, cartão sem autor comprovado é pulado (não bloqueia a campanha)');
+const ownInAll = make({actorHref:'https://www.linkedin.com/in/leticia/'});
+check(evaluatePost(ownInAll, 'leticia', settings, context(ownInAll,{sourceSection:'activity'})).status === 'ELIGIBLE',
+  'em Todas, cartão com autor = lead é elegível sem URL canônica extra');
 const different = make({actorHref:'https://www.linkedin.com/in/outro-perfil/'});
 check(evaluatePost(different, 'leticia', settings, context(different)).status === 'ELIGIBLE',
   'autor diferente não bloqueia interação no cartão selecionado');
@@ -50,8 +56,9 @@ const visual = make({urn:visualKey,actorHref:null,cardIdentity:{
   ...own.cardIdentity,cardId:visualKey,postUrn:null,identityStatus:'PROVISIONAL'}});
 check(evaluatePost(visual,'leticia',settings,context(visual)).status==='ELIGIBLE',
   'cartão sem URN, com texto estável, filtro Posts e contexto próprio é elegível');
-check(evaluatePost(visual,'leticia',settings,context(visual,{sourceSection:'activity'})).status==='ELIGIBLE',
-  'cartão visual em Todas está pronto sem autorização de autoria');
+check(evaluatePost({...visual,actorHref:'https://www.linkedin.com/in/leticia/'},'leticia',settings,
+  context(visual,{sourceSection:'activity'})).status==='ELIGIBLE',
+  'cartão visual em Todas, com autor = lead, é elegível');
 check(evaluatePost(visual,'leticia',settings).status==='ELIGIBLE',
   'cartão visual não exige contexto autorizador');
 check(evaluatePost(make({...visual,cardIdentity:{...visual.cardIdentity,
