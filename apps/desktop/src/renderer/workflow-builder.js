@@ -26,15 +26,15 @@ function wbField(field, value, changed) {
       onchange: (ev) => changed(ev.target.value) },
     ...(field.options || []).map((option) => h('option', { value: option.value }, option.label)));
   } else if (field.kind === 'textarea') {
-    control = h('textarea', { value: String(field.key === 'maxPostAgeDays' && field.min === field.max ? field.default : value ?? field.default ?? ''),
-      readOnly: field.kind === 'number' && field.min === field.max,
+    control = h('textarea', { value: String(field.key === 'maxPostAgeDays' && field.default === 1826 ? field.default : value ?? field.default ?? ''),
+      readOnly: (field.kind === 'number' && field.min === field.max) || (field.key === 'maxPostAgeDays' && field.default === 1826),
       oninput: (ev) => changed(ev.target.value), rows: 3 });
   } else {
     control = h('input', {
       type: field.kind === 'number' ? 'number' : 'text',
       min: field.min, max: field.max,
-      value: String(field.key === 'maxPostAgeDays' && field.min === field.max ? field.default : value ?? field.default ?? ''),
-      readOnly: field.kind === 'number' && field.min === field.max,
+      value: String(field.key === 'maxPostAgeDays' && field.default === 1826 ? field.default : value ?? field.default ?? ''),
+      readOnly: (field.kind === 'number' && field.min === field.max) || (field.key === 'maxPostAgeDays' && field.default === 1826),
       oninput: (ev) => changed(field.kind === 'number' ? Number(ev.target.value) : ev.target.value),
     });
   }
