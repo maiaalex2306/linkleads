@@ -1,4 +1,5 @@
 import type { Campaign, FailureReason } from '../types.js';
+import { effectiveLikePostAgeDays } from './post-age-policy.js';
 
 export interface EngagementCampaignOptions {
   id: string;
@@ -30,7 +31,7 @@ export function engagementCampaign(o: EngagementCampaignOptions): Campaign {
         name: 'Curtir e comentar publicações',
         coolDown: 0, maxResults: -1,
         settings: {
-          likesPerProfile: 1, likeArticlesCount: 0, maxPostAgeDays: o.maxPostAgeDays ?? 30,
+          likesPerProfile: 1, likeArticlesCount: 0, maxPostAgeDays: effectiveLikePostAgeDays(o.maxPostAgeDays),
           includeReshares: false, commentEnabled: true, commentMethod: 'ai',
           mode: o.commentMode, tone: o.tone ?? 'profissional',
           aboutMe: o.aboutMe ?? '', extraInstructions: o.extraInstructions ?? '', maxChars: 400,
@@ -163,7 +164,7 @@ export function prospectingSequence(o: ProspectingSequenceOptions): Campaign {
         name: 'Curtir e comentar publicações',
         coolDown: 0, maxResults: -1,
         settings: {
-          likesPerProfile: 1, likeArticlesCount: 0, maxPostAgeDays: o.maxPostAgeDays ?? 30,
+          likesPerProfile: 1, likeArticlesCount: 0, maxPostAgeDays: effectiveLikePostAgeDays(o.maxPostAgeDays),
           includeReshares: false, commentEnabled: true, commentMethod: 'ai',
           mode: o.commentMode, tone: o.tone ?? 'profissional',
           aboutMe: o.aboutMe ?? '', extraInstructions: o.extraInstructions ?? '', maxChars: 400,

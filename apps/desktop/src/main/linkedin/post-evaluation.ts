@@ -1,7 +1,7 @@
 /** Contratos puros: sem dependência de Electron, DOM ou I/O.
  * Executores, diagnósticos e fixtures devem usar a mesma avaliação.
  */
-import { normalizeLinkedInPublicId, parseRelativeAgeDays } from '@linkleads/core';
+import { POST_LIKE_WINDOW_DAYS, normalizeLinkedInPublicId, parseRelativeAgeDays } from '@linkleads/core';
 import type { PostExtract } from './dom-scripts.js';
 import { isCanonicalPostUrn, isVisualPostKey, type PostSelectionContext } from './post-identity.js';
 const BASE = process.env.LINKLEADS_TEST_BASE_URL ?? 'https://www.linkedin.com';
@@ -116,7 +116,7 @@ export function evaluatePost(
   if (days === undefined || !Number.isFinite(days) || days < 0)
     return result('REVIEW_REQUIRED', 'POST_ID_CONFIRMED', 'POST_AGE_UNVERIFIED',
       'Publicação com data não verificável');
-  const maxAge = Math.max(1, Math.min(365, settings.maxPostAgeDays ?? 365));
+  const maxAge = Math.max(1, Math.min(POST_LIKE_WINDOW_DAYS, settings.maxPostAgeDays ?? POST_LIKE_WINDOW_DAYS));
   if (days > maxAge)
     return result('NOT_ELIGIBLE', 'POST_ID_CONFIRMED', 'POST_TOO_OLD',
       'Publicação com mais de ' + maxAge + ' dias');

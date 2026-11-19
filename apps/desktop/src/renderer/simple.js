@@ -191,7 +191,7 @@ function intentionPicker() {
   const start = (kind) => {
     state.creating = true;
     state.chooseCampaignType = false;
-    state.wiz = { step: 1, campaignType: kind, approve: true, maxPostAgeDays: 365 };
+    state.wiz = { step: 1, campaignType: kind, approve: true, maxPostAgeDays: 1826 };
     state.g = 'campaign';
     renderView();
   };
@@ -230,21 +230,21 @@ async function engagementWizard(a, cols, w) {
         h('button', { onclick: () => { state.g = 'lists'; renderView(); } }, 'Importar lista'),
         h('button', { class: 'primary', disabled: !col, onclick: () => next(2) }, 'Definir parâmetros →')));
   } else if (w.step === 2) {
-    const age = h('input', { type: 'number', min: 1, max: 365, value: String(w.maxPostAgeDays ?? 365) });
+    const age = h('input', { type: 'number', min: 1, max: 1826, value: '1826', readOnly: true });
     const instructions = h('textarea', { rows: 3,
       placeholder: 'Qual é o objetivo comercial do comentário?',
       value: w.extraInstructions || '' });
     const approve = h('input', { type: 'checkbox', checked: w.approve !== false });
     body = h('div', { class: 'stack' },
       h('h3', {}, '2. Defina a ação de curtir e comentar'),
-      h('p', { class: 'muted' }, 'Uma publicação recente por lead. Comentários por IA; artigos e múltiplos posts ainda não estão disponíveis.'),
-      h('label', {}, 'Ignorar posts com mais de quantos dias?', age),
+      h('p', { class: 'muted' }, 'Uma publicação com até 5 anos por lead. Comentários por IA; artigos e múltiplos posts ainda não estão disponíveis.'),
+      h('label', {}, 'Validade dos posts para Curtir: 5 anos (1.826 dias)', age),
       h('label', {}, 'Orientações para a IA', instructions),
       h('label', { class: 'choice' }, approve, 'Aprovar manualmente cada comentário (recomendado)'),
       h('div', { class: 'row' },
         h('button', { onclick: () => next(1) }, '← Lista'),
         h('button', { class: 'primary', onclick: () => {
-          w.maxPostAgeDays = Math.max(1, Math.min(365, Number(age.value) || 365));
+          w.maxPostAgeDays = 1826;
           w.extraInstructions = instructions.value.trim();
           w.approve = approve.checked;
           next(3);
@@ -269,7 +269,7 @@ async function engagementWizard(a, cols, w) {
             name: name.value.trim() || 'Engajamento', collectionId: w.colId,
             commentMode: w.approve ? 'manual' : 'auto',
             tone: 'profissional', extraInstructions: w.extraInstructions || '',
-            maxPostAgeDays: w.maxPostAgeDays ?? 365,
+            maxPostAgeDays: w.maxPostAgeDays ?? 1826,
           }));
           if (!result) { e.target.disabled = false; return; }
           state.creating = false; state.wiz = null;
@@ -508,20 +508,20 @@ async function campaignPage(a, cols, camps, stats) {
 function postAgeNotice(a, campaign) {
   const affected = (campaign?.actions || []).filter((act) =>
     (act.type === 'LikePosts' || act.type === 'LikeAndComment') &&
-    Number(act.settings?.maxPostAgeDays) > 0 && Number(act.settings.maxPostAgeDays) < 365);
+    Number(act.settings?.maxPostAgeDays) > 0 && Number(act.settings.maxPostAgeDays) < 1826);
   if (!affected.length) return null;
   const age = Math.min(...affected.map((act) => Number(act.settings.maxPostAgeDays)));
   return h('div', { class: 'card stack attention' },
     h('strong', {}, 'Esta campanha ainda considera somente ' + age + ' dias de publicações'),
-    h('p', { class: 'muted' }, 'O programa preservou o parâmetro gravado. Alterar para um ano requer confirmação e não modifica outras contas ou etapas.'),
+    h('p', { class: 'muted' }, 'O valor antigo permanece gravado, mas o executor já aplica 5 anos. Atualizar a gravação é opcional e não modifica outras etapas.'),
     h('div', {}, h('button', { class: 'primary', onclick: async () => {
-      if (!window.confirm('Alterar o limite de posts desta campanha para 365 dias, sem modificar as outras etapas?')) return;
+      if (!window.confirm('Atualizar o parâmetro gravado desta campanha para 1.826 dias (aproximadamente 5 anos), sem modificar as outras etapas?')) return;
       const next = { ...campaign, actions: campaign.actions.map((act) =>
         act.type === 'LikePosts' || act.type === 'LikeAndComment'
-          ? { ...act, settings: { ...(act.settings || {}), maxPostAgeDays: 365 } } : act) };
-      const saved = await safe(() => api.updateCampaign(a.id, next), 'Limite de 365 dias salvo');
+          ? { ...act, settings: { ...(act.settings || {}), maxPostAgeDays: 1826 } } : act) };
+      const saved = await safe(() => api.updateCampaign(a.id, next), 'Limite de 5 anos salvo');
       if (saved?.ok) refresh();
-    } }, 'Corrigir esta campanha para 365 dias')));
+    } }, 'Atualizar esta campanha para 5 anos')));
 }
 
 // ── ③ Configurações ──────────────────────────────────────────────────────

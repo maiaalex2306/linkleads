@@ -4,7 +4,7 @@ import { cardDecision, diagnosticPath, layoutHash, layoutShape, prioritizeDiagno
 import type { BaselineResult } from './diagnostic-baselines.js';
 import { diagnoseKeys, visibleButtonLabels, extractPosts, postsFilterProbe, type KeyDiagnosis, type PostsFilterProbe } from './dom-scripts.js';
 import { isCanonicalPostUrn, buildPostSelectionContext } from './post-identity.js';
-import { parseRelativeAgeDays } from '@linkleads/core';
+import { effectiveLikePostAgeDays, parseRelativeAgeDays } from '@linkleads/core';
 import type { PageDriver } from './page-driver.js';
 
 export type PageKind = 'perfil' | 'atividade' | 'post' | 'mensagens' | 'empresa_pessoas' | 'empresa_vagas' | 'contato' | 'feed' | 'outra';
@@ -277,7 +277,7 @@ export async function diagnosePage(
     context.expectedPublicId
       ? evaluatePost(post, context.expectedPublicId, {
           includeReshares: context.includeReshares === true,
-          maxPostAgeDays: context.maxPostAgeDays ?? 365,
+          maxPostAgeDays: effectiveLikePostAgeDays(context.maxPostAgeDays),
         }, buildPostSelectionContext(post, context.personId ?? context.expectedPublicId,
           context.expectedPublicId, verifiedPosts ? 'posts' : 'activity')) : undefined,
   ));

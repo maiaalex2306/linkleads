@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { ActionExecutor, BudgetKey, ExecutionContext, ExecutionResult, Person, PostSnapshot } from '@linkleads/core';
-import { detectJobChange, getActionDefinition, memberIdFromBasicOpaquePublicId, memberIdFromSalesHash, normalizeLinkedInPublicId, parseRelativeAgeDays, publicIdFromUrl } from '@linkleads/core';
+import { effectiveLikePostAgeDays, POST_LIKE_WINDOW_DAYS, detectJobChange, getActionDefinition, memberIdFromBasicOpaquePublicId, memberIdFromSalesHash, normalizeLinkedInPublicId, parseRelativeAgeDays, publicIdFromUrl } from '@linkleads/core';
 import type { CommentSettings, LlmClient, PostInterpreter } from '@linkleads/ai';
 import type { IntegrationCrm } from '@linkleads/db';
 import type { EnrichmentProvider } from '@linkleads/integrations';
@@ -208,7 +208,7 @@ export function choosePost(
   if (count('ALREADY_LIKED')) return {
     why: 'Todas as publicações elegíveis já foram curtidas; nenhuma ação adicional necessária',
   };
-  const maxAge = Math.max(1, Math.min(365, settings.maxPostAgeDays ?? 365));
+  const maxAge = Math.max(1, Math.min(POST_LIKE_WINDOW_DAYS, settings.maxPostAgeDays ?? POST_LIKE_WINDOW_DAYS));
   const parts = [
     count('POST_TOO_OLD') && count('POST_TOO_OLD') + ' com mais de ' + maxAge + ' dias',
     count('RESHARE_EXCLUDED') && count('RESHARE_EXCLUDED') + ' compartilhado(s) de outras pessoas',
@@ -243,7 +243,7 @@ async function discoverUnlikedPost(
   const contextForPost = (post: PostExtract): PostSelectionContext =>
     buildPostSelectionContext(post, personId, publicId, sourceSection);
   const start = Date.now();
-  const ageLimit = Math.max(1, Math.min(365, settings.maxPostAgeDays ?? 365));
+  const ageLimit = Math.max(1, Math.min(POST_LIKE_WINDOW_DAYS, settings.maxPostAgeDays ?? POST_LIKE_WINDOW_DAYS));
   // Publicações antigas podem exigir várias cargas da timeline.
   const maxScrolls = Math.min(90, Math.max(20, Math.ceil(ageLimit / 5)));
   let stalled = 0;
@@ -374,11 +374,13 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
     execute: (ctx) =>
       d.withBrowser(() =>
         guard(async () => {
-          const s = ctx.action.settings as LikeSettings;
+          // Janela de 5 anos aplicada na execução; preservar parâmetro legado no banco.
+          const s = { ...(ctx.action.settings as LikeSettings),
+            maxPostAgeDays: effectiveLikePostAgeDays((ctx.action.settings as LikeSettings).maxPostAgeDays) };
           const diagnosisContext: DiagnosisContext = {
             expectedPublicId: ctx.person.publicId ?? ctx.person.id,
             includeReshares: s.includeReshares === true,
-            maxPostAgeDays: s.maxPostAgeDays ?? 365,
+            maxPostAgeDays: s.maxPostAgeDays ?? POST_LIKE_WINDOW_DAYS,
             personId: ctx.person.id,
           };
           const previous = d.crm.latestLikeAttempt(ctx.person.id, ctx.campaignId, ctx.action.id);

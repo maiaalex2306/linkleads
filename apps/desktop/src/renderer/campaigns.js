@@ -213,7 +213,7 @@ function engagementForm(a, cols) {
       h('label', {}, 'Coleção', h('select', { name: 'collectionId', required: true }, ...cols.map((c) => h('option', { value: c.id }, `${c.name} (${c.size})`)))),
       h('label', {}, 'Comentários', h('select', { name: 'commentMode' }, h('option', { value: 'manual' }, 'Eu aprovo cada um (recomendado)'), h('option', { value: 'auto' }, 'Publicar automaticamente'))),
       h('label', {}, 'Tom', h('select', { name: 'tone' }, h('option', { value: 'profissional' }, 'Profissional'), h('option', { value: 'consultivo' }, 'Consultivo'), h('option', { value: 'caloroso' }, 'Caloroso'))),
-      h('label', {}, 'Post de até (dias)', h('input', { name: 'maxPostAgeDays', type: 'number', min: 1, max: 365, value: '365', style: 'width:90px' })),
+      h('label', {}, 'Post de até 5 anos (dias)', h('input', { name: 'maxPostAgeDays', type: 'number', min: 1, max: 1826, value: '1826', readOnly: true, style: 'width:90px' })),
     ),
     h('label', {}, 'Instruções extras para a IA (opcional)', h('textarea', { name: 'extraInstructions', placeholder: 'Ex.: quando fizer sentido, conecte com eficiência hídrica e saneamento.' })),
     h('div', {}, h('button', { class: 'primary', disabled: !cols.length }, 'Criar campanha')),
@@ -233,18 +233,18 @@ function campaignEditor(a, c, onDone) {
       // Importante para campanhas antigas: valores de 30 dias já salvos não
       // devem ser alterados silenciosamente na instalação da versão 0.5.1.
       // O usuário pode ampliá-los explicitamente aqui até um ano.
-      const age = h('input', { type: 'number', min: 1, max: 365,
-        value: String(Math.max(1, Math.min(365, Number(s.maxPostAgeDays ?? 365)))),
+      const age = h('input', { type: 'number', min: 1, max: 1826, min: 1826, readOnly: true,
+        value: '1826',
         style: 'width:85px' });
       extraEl = h('div', { class: 'stack' },
         h('label', { class: 'row', style: 'display:flex;align-items:center;gap:8px' },
-          'Buscar publicações de até', age, 'dias (máximo 365)'),
-        Number(s.maxPostAgeDays) > 0 && Number(s.maxPostAgeDays) < 365 &&
+          'Buscar publicações de até', age, 'dias (5 anos, política atual)'),
+        Number(s.maxPostAgeDays) > 0 && Number(s.maxPostAgeDays) < 1826 &&
           h('div', { class: 'muted', style: 'color:var(--warn)' },
             'Esta campanha possui um limite antigo de ' + s.maxPostAgeDays +
-            ' dias. Para incluir publicações de até 1 ano, altere para 365 e salve as etapas.'));
+            ' dias. A execução já considera 5 anos; salve as etapas para atualizar o valor gravado.'));
       readExtra = () => ({
-        maxPostAgeDays: Math.max(1, Math.min(365, Math.round(Number(age.value) || 365))),
+        maxPostAgeDays: 1826,
       });
     }
     if (act.type === 'CheckConnection') {
