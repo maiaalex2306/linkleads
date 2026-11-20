@@ -70,6 +70,9 @@ export interface PostExtract {
   liked: boolean | null;
   /** Indicador de conteúdo recolhido, nunca remover só o marcador para alimentar IA. */
   truncated?: boolean;
+  /** Cabeçalho de atividade acima do autor ("Fulano comentou isto", "gostou", "republicou").
+   * COMMENT/REACTION = o cartão mostra o post de OUTRA pessoa em que o lead interagiu. */
+  activityHeader?: 'REPOST' | 'COMMENT' | 'REACTION' | null;
 }
 
 
@@ -84,6 +87,8 @@ export interface PostsFilterProbe {
   kind: 'ACTIVE' | 'LINK' | 'BUTTON' | 'UNAVAILABLE';
   href?: string;
   point?: { x: number; y: number };
+  /** Como o filtro foi identificado. Apenas códigos, sem texto nem perfil. */
+  verification?: 'ROUTE' | 'SEMANTIC' | 'SIBLING_STYLE' | 'LINK' | 'BUTTON' | 'NONE';
 }
 export function postsFilterProbe(expectedPublicId: string): PostsFilterProbe {
   const route = location.pathname.match(/^\/in\/([^/]+)\/recent-activity\/(all|posts|shares)\/?$/i);
@@ -92,7 +97,7 @@ export function postsFilterProbe(expectedPublicId: string): PostsFilterProbe {
   try { slug = decodeURIComponent(route[1]!); }
   catch { return { kind: 'UNAVAILABLE' }; }
   if (slug !== expectedPublicId) return { kind: 'UNAVAILABLE' };
-  if (/^(?:posts|shares)$/i.test(route[2]!)) return { kind: 'ACTIVE' };
+  if (/^(?:posts|shares)$/i.test(route[2]!)) return { kind: 'ACTIVE', verification: 'ROUTE' };
   const root: ParentNode = document.querySelector('main') ?? document;
   const matchLabel = (node: Element): boolean => {
     const label = (node.getAttribute('aria-label') || (node as HTMLElement).innerText || node.textContent || '')
@@ -140,53 +145,107 @@ export function postsFilterProbe(expectedPublicId: string): PostsFilterProbe {
     (safeHref(n) || n.matches('button,[role="button"],[role="tab"]') ||
       !!n.closest('nav,[role="tablist"]')));
   if (!candidates.length) return { kind: 'UNAVAILABLE' };
+  // Gemini acertou ao recomendar comparação com chips IRMÃOS.
+  // Diferença de cor isolada não prova seleção: exigir >=2 alternativas
+  // consistentes, nenhuma seleção semântica contrária e um único destaque.
+  // Suporta cores no span interno e temas claro/escuro, sem RGB absoluto.
+  const stylePalette = (el: Element): number[] | null => {
+    const visible = (item: Element): boolean => {
+      const r = item.getBoundingClientRect();
+      return r.width > 0 && r.height > 0;
+    };
+    const color = (value: string): number[] | null => {
+      const m = value.match(/^rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)(?:[,\s\/]+([\d.]+))?/i);
+      return m && (m[4] === undefined || Number(m[4]) >= .5)
+        ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
+    };
+    const own = color(getComputedStyle(el).backgroundColor);
+    const descendants = Array.from(el.querySelectorAll('span, div')).slice(0, 5);
+    // Em SDUI a cor pode estar apenas no span. Um contraste forte entre
+    // botão e span indica que o filho (não a cor padrão ButtonFace) é a pílula.
+    for (const item of descendants) {
+      if (!visible(item)) continue;
+      const bg = color(getComputedStyle(item).backgroundColor);
+      if (bg && (!own || Math.sqrt(bg.reduce(
+        (sum, value, i) => sum + (value - own[i]!) ** 2, 0)) > 40)) return bg;
+    }
+    return own;
+  };
+  const distance = (a: number[], b: number[]) =>
+    Math.sqrt(a.reduce((sum, value, i) => sum + (value - b[i]!) ** 2, 0));
+  const semanticActive = (node: Element) =>
+    node.getAttribute('aria-selected') === 'true' ||
+    node.getAttribute('aria-pressed') === 'true' ||
+    node.getAttribute('data-state') === 'active' ||
+    node.getAttribute('data-selected') === 'true' ||
+    node.getAttribute('aria-current') === 'page';
   const visuallySelected = (n: Element): boolean => {
     if (!n.matches('button,[role="button"],[role="tab"]')) return false;
-    const bg = getComputedStyle(n).backgroundColor;
-    const fg = getComputedStyle(n).color;
-    const rgb = (value: string): number[] | null => {
-      const m = value.match(/^rgba?\((\d+)[,\s]+(\d+)[,\s]+(\d+)/i);
-      return m ? [Number(m[1]),Number(m[2]),Number(m[3])] : null;
-    };
-    const b = rgb(bg), c = rgb(fg);
-    if (!b || !c) return false;
-    const dark = b.reduce((a,x) => a+x,0)/3 < 175;
-    const lightText = c.reduce((a,x) => a+x,0)/3 > 195;
-    if (!dark || !lightText) return false;
-    let group: Element | null = n.parentElement;
-    for (let i=0;group && i<3;i++,group=group.parentElement) {
-      const siblings=Array.from(group.querySelectorAll('button,[role="button"],[role="tab"]'))
-        .filter((x)=>x!==n && allowedChip.test(chipLabel(x)) && isVisible(x));
-      if (siblings.length < 2) continue;
-      const lightAlternatives = siblings.filter((x) => {
-        const sb=rgb(getComputedStyle(x).backgroundColor);
-        return sb && sb.reduce((a,y)=>a+y,0)/3 > 215;
+    const own = stylePalette(n);
+    if (!own) return false;
+    let group = n.parentElement;
+    for (let depth = 0; group && depth < 3; depth++, group = group.parentElement) {
+      const peers = Array.from(group.querySelectorAll('button,[role="button"],[role="tab"]'))
+        .filter((x) => x !== n && isVisible(x) && allowedChip.test(chipLabel(x)));
+      if (peers.length < 2) continue;
+      // Se Comentários tiver seleção semântica, nunca promover Publicações
+      // apenas por diferença de cor ou foco.
+      if (peers.some(semanticActive)) return false;
+      const palettes = peers.map(stylePalette);
+      // Chips INATIVOS do SDUI podem ser transparentes; a ausência de
+      // fundo NÃO invalida a comparação quando todos os irmãos concordam.
+      const transparentPeers = palettes.every((p) => p === null);
+      const filledPeers = palettes.every((p) => p !== null);
+      if (!transparentPeers && !filledPeers) return false;
+      const reference = filledPeers ? palettes[0]! : null;
+      if (reference && !palettes.every((p) => distance(p!, reference) < 35)) return false;
+      if (reference && distance(own, reference) < 70) return false;
+      const groupChips = Array.from(group.querySelectorAll('button,[role="button"],[role="tab"]'))
+        .filter((x) => isVisible(x) && allowedChip.test(chipLabel(x)));
+      // Exigir UM só destaque, preservando bloqueio de chips ambíguos.
+      const standouts = groupChips.filter((x) => {
+        const p = stylePalette(x);
+        return reference ? (p !== null && distance(p, reference) >= 70)
+          : p !== null;
       });
-      return lightAlternatives.length>=2;
+      return standouts.length === 1 && standouts[0] === n;
     }
     return false;
   };
-  const active = candidates.filter((n) =>
-    n.getAttribute('aria-selected') === 'true' ||
-    n.getAttribute('aria-pressed') === 'true' ||
-    n.getAttribute('data-state') === 'active' ||
-    n.getAttribute('data-selected') === 'true' ||
-    n.getAttribute('aria-current') === 'page' ||
-    visuallySelected(n));
-  if (active.length === 1) return { kind: 'ACTIVE' };
+  // ARIA do próprio chip não basta quando outro filtro irmão também se
+  // declara selecionado. Dois filtros simultâneos tornam o estado ambíguo.
+  const hasContradictoryPeer = (candidate: Element): boolean => {
+    let group = candidate.parentElement;
+    for (let depth = 0; group && depth < 3; depth++, group = group.parentElement) {
+      const peers = Array.from(group.querySelectorAll('a,button,[role="button"],[role="tab"]'))
+        .filter((node) => node !== candidate && isVisible(node) &&
+          allowedChip.test(chipLabel(node)));
+      if (peers.length > 0) return peers.some(semanticActive);
+    }
+    return false;
+  };
+  const semantic = candidates.filter(semanticActive);
+  if (semantic.length === 1) {
+    if (hasContradictoryPeer(semantic[0]!))
+      return { kind: 'UNAVAILABLE', verification: 'NONE' };
+    return { kind: 'ACTIVE', verification: 'SEMANTIC' };
+  }
+  if (semantic.length > 1) return { kind: 'UNAVAILABLE', verification: 'NONE' };
+  const visual = candidates.filter(visuallySelected);
+  if (visual.length === 1) return { kind: 'ACTIVE', verification: 'SIBLING_STYLE' };
+  if (visual.length > 1) return { kind: 'UNAVAILABLE', verification: 'NONE' };
   const urls = [...new Set(candidates.map(safeHref).filter((u): u is string => !!u))];
   // Dois destinos diferentes para a mesma aba significam ambiguidade.
   if (urls.length > 1) return { kind: 'UNAVAILABLE' };
-  if (urls.length === 1) return { kind: 'LINK', href: urls[0]! };
+  if (urls.length === 1) return { kind: 'LINK', href: urls[0]!, verification: 'LINK' };
   const buttons = candidates.filter((n) => n.matches('button, [role="tab"]') && !n.matches('a[href]'));
   if (buttons.length !== 1) return { kind: 'UNAVAILABLE' };
   const r = buttons[0]!.getBoundingClientRect();
-  return { kind: 'BUTTON', point: { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) } };
+  return { kind: 'BUTTON', verification: 'BUTTON', point: { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) } };
 }
 
-/** Identidade operacional: chave de conteúdo vinculada ao perfil e ao filtro
- * Publicações ATIVO. Não substitui URN canônica nem permite agir em "Todas".
- * O texto pode ser repetido: nesse caso os guardas bloqueiam por ambiguidade.
+/** Chave visual do cartão no feed da pessoa. Não é permalink e não exige seleção da aba Publicações.
+ * Cartões duplicados são rejeitados pelos guardas de unicidade antes do clique.
  */
 export function llVisualPostScopeValid(key: string): boolean {
   const m = key.match(/^ll-vcard:([^:]+):[a-f0-9]{16}$/);
@@ -194,7 +253,8 @@ export function llVisualPostScopeValid(key: string): boolean {
   if (!m || !route || m[1] !== route[1]) return false;
   let slug = '';
   try { slug = decodeURIComponent(route[1]!); } catch { return false; }
-  return __llPostsFilterProbe(slug).kind === 'ACTIVE';
+  // Basta que o cartão pertença à tela de atividades aberta; o filtro não autoriza a curtida.
+  return slug === m[1];
 }
 declare function __llPostsFilterProbe(slug: string): PostsFilterProbe;
 declare function __llVisualPostScopeValid(key: string): boolean;
@@ -330,6 +390,47 @@ declare function __llReactionTarget(card: Element, configured: readonly string[]
   element: HTMLElement | null; state: boolean | null; reason: string;
 };
 
+/** 0.5.22 — Algumas contas recebem o botão "Mostrar mais resultados" em vez de
+ * rolagem infinita. Devolve o centro do ÚNICO botão de paginação visível, fora de
+ * qualquer cartão de post; null se não houver ou se houver mais de um. */
+export function loadMorePoint(): { x: number; y: number } | null {
+  const LABEL = /^(?:mostrar mais resultados|exibir mais resultados|carregar mais|ver mais publica[cç][oõ]es|show more results|load more|see more posts)$/i;
+  const nodes = (Array.from(document.querySelectorAll('button, [role="button"]')) as HTMLElement[]).filter((b) => {
+    const label = (b.getAttribute('aria-label') || b.innerText || '').replace(/\s+/g, ' ').trim();
+    if (!LABEL.test(label) || b.closest('[data-urn], [componentkey] [contenteditable]')) return false;
+    let n: Element | null = b.parentElement;
+    for (let i = 0; n && i < 6; i++, n = n.parentElement)
+      if (Array.from(n.querySelectorAll('button')).some((x) => /situa[cç][aã]o do bot[aã]o de rea|reaction button state/i.test(x.getAttribute('aria-label') ?? ''))) return false;
+    const r = b.getBoundingClientRect();
+    return r.width > 0 && r.height > 0 && r.top >= 0 && r.bottom <= window.innerHeight;
+  });
+  if (nodes.length !== 1) return null;
+  const r = nodes[0]!.getBoundingClientRect();
+  return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
+}
+
+/** 0.5.22 — Diagnóstico somente-leitura de POR QUE o botão de reação do post
+ * selecionado não pôde ser localizado. Não clica, não rola e não grava texto.
+ */
+export function reactionLookupDiagnosis(
+  sel: Record<string, readonly string[]>, urn: string,
+): { code: string; cards: number; sameKey: number; accepted: number; buttonTop: number | null; viewport: number } {
+  const all = __llPostContainers({ postItem: sel.postItem!, likeButton: sel.likeButton! });
+  const same = all.filter((c) => c.urn === urn);
+  const accepted = same.filter((c) => c.identity.identityStatus === 'CONFIRMED' ||
+    (urn.startsWith('ll-vcard:') && c.identity.identityStatus === 'PROVISIONAL' && c.identity.cardId === urn));
+  const base = { cards: all.length, sameKey: same.length, accepted: accepted.length,
+    buttonTop: null as number | null, viewport: window.innerHeight };
+  if (!same.length) return { code: 'CARD_NOT_MOUNTED', ...base };
+  if (accepted.length > 1) return { code: 'DUPLICATE_CARD', ...base };
+  if (!accepted.length) return { code: 'CARD_IDENTITY_CHANGED', ...base };
+  const target = __llReactionTarget(accepted[0]!.el, sel.likeButton!);
+  if (!target.element) return { code: 'REACTION_' + target.reason, ...base };
+  const r = target.element.getBoundingClientRect();
+  if (!(r.width > 0 && r.height > 0)) return { code: 'REACTION_ZERO_SIZE', ...base, buttonTop: Math.round(r.top) };
+  return { code: 'OK', ...base, buttonTop: Math.round(r.top) };
+}
+
 /** Última barreira P1: o pixel de clique deve pertencer ao botão do MESMO post,
  * que ainda precisa apresentar estado NÃO CURTIDO imediatamente antes do mouseDown.
  */
@@ -455,17 +556,37 @@ export function llPostContainers(
         return u.origin.toLowerCase() + u.pathname.replace(/\/$/, '');
       } catch { return null; }
     };
+    // O Gemini acertou no ISOLAMENTO DO CABEÇALHO, não na regra
+    // "primeiro /in/ antes do botão": menções também aparecem antes de Curtir.
+    // Localizar o início do corpo próprio; só links ANTERIORES a ele podem
+    // concorrer à autoria. Sem limite seguro, os filtros semânticos continuam.
+    const bodyBoundary = card.closest('[data-sdui-screen]')
+      ? Array.from(card.querySelectorAll([
+          '.update-components-text', '.feed-shared-text',
+          '[data-testid*="post-text"]', '[data-test-id*="commentary"]',
+          '[dir="ltr"]', 'p',
+        ].join(', '))).find((n) => !n.closest(COMMENT) &&
+          !n.closest(AUTHOR_HEADER) &&
+          ((n as HTMLElement).innerText || n.textContent || '').trim().length >= 20 &&
+          !n.querySelector('button, [role="button"], [contenteditable="true"]')) ?? null
+      : null;
+    const headerAuthorLinks = bodyBoundary
+      ? authorLinks.filter((a) =>
+          a !== bodyBoundary &&
+          Boolean(a.compareDocumentPosition(bodyBoundary) & Node.DOCUMENT_POSITION_FOLLOWING) &&
+          !bodyBoundary.contains(a))
+      : authorLinks;
     // A área de autoria tem precedência sobre cabeçalhos amplos. Um nome
-    // citado num header, comentário ou anexo nunca substitui o autor principal.
-    const specific = authorLinks.filter((a) =>
+    // citado no corpo ou anexo nunca substitui o autor principal.
+    const specific = headerAuthorLinks.filter((a) =>
       a.matches('.update-components-actor__meta-link, .feed-shared-actor__meta-link') ||
       !!a.closest('.update-components-actor, .feed-shared-actor, [data-testid*="actor"], [data-test-id*="actor"]'));
-    const general = authorLinks.filter((a) => !!a.closest('header') &&
+    const general = headerAuthorLinks.filter((a) => !!a.closest('header') &&
       !a.closest('.update-components-header, .feed-shared-header'));
     // Layout moderno: o bloco compacto da autoria pode não ser <header>,
     // mas contém o link do membro JUNTO do permalink temporal do post.
     // Nunca subir até o corpo com [dir=ltr], menções ou barra de reações.
-    const adjacentToPostMetadata = authorLinks.filter((a) => {
+    const adjacentToPostMetadata = headerAuthorLinks.filter((a) => {
       let node: Element | null = a.parentElement;
       for (let depth = 0; node && node !== card && depth < 4; depth++, node = node.parentElement) {
         if (node.matches(COMMENT) ||
@@ -480,7 +601,7 @@ export function llPostContainers(
     // classes update-components. O link do autor pode estar JUNTO do
     // carimbo temporal em um pequeno bloco semantico.
     const sduiAge = /^(?:h[áa]\s+)?\d+\s*(?:min(?:utos?)?|h(?:oras?)?|d(?:ias?)?|sem(?:anas?)?|w(?:eeks?)?|m[eê]s(?:es)?|mes(?:es)?|m|a(?:nos?)?|y(?:ears?)?)\b/i;
-    const sduiAdjacent = card.closest('[data-sdui-screen]') ? authorLinks.filter((a) => {
+    const sduiAdjacent = card.closest('[data-sdui-screen]') ? headerAuthorLinks.filter((a) => {
       let node: Element | null = a.parentElement;
       for (let depth = 0; node && node !== card && depth < 6; depth++, node = node.parentElement) {
         if (node.matches(COMMENT) ||
@@ -489,7 +610,7 @@ export function llPostContainers(
         // carimbo de data. Ele não transforma o bloco em toolbar de reação.
         // Outros botões seguem impedindo inferência contextual de autoria.
         const unsafeButtons = Array.from(node.querySelectorAll('button,[role="button"]'))
-          .some((button) => !/^(?:seguir|follow|mais|more|seguir pessoa)$/.test(
+          .some((button) => !/^(?:seguir|follow|mais|more|seguir pessoa|conectar|connect|pendente|pending|mensagem|message|mais a[cç][oõ]es|abrir menu(?: de controle.*)?)$/.test(
             (button.getAttribute('aria-label') || (button as HTMLElement).innerText ||
               button.textContent || '').replace(/\s+/g,' ').trim().toLowerCase()));
         if (unsafeButtons) return false;
@@ -509,16 +630,9 @@ export function llPostContainers(
     // vem antes do texto, e a citacao de Leticia aparece DEPOIS dele.
     // Links de perfil dentro da citacao nao concorrem com o autor principal.
     // Se nao houver uma separacao visivel, conservar autoria ambigua.
-    const bodyBoundary = card.closest('[data-sdui-screen]') ? card.querySelector([
-      '.update-components-text', '.feed-shared-text',
-      '[data-testid*="post-text"]', '[data-test-id*="commentary"]',
-      '[dir="ltr"]', 'a[href*="lnkd.in/"]',
-    ].join(', ')) : null;
-    const beforeBody = (a: Element): boolean =>
-      !!bodyBoundary && a !== bodyBoundary &&
-      !!(a.compareDocumentPosition(bodyBoundary) & Node.DOCUMENT_POSITION_FOLLOWING);
-    const topAuthors = candidates.filter(beforeBody);
-    const authorCandidates = topAuthors.length === 1 ? topAuthors : candidates;
+    // NUNCA recorrer a links posteriores ao corpo depois de detectar o
+    // cabeçalho: isso era a fonte do falso AUTHOR_MISMATCH em alguns cartões.
+    const authorCandidates = candidates;
     const authors = new Map<string, HTMLAnchorElement>();
     for (const a of authorCandidates) {
       const url = validProfile(a);
@@ -535,17 +649,40 @@ export function llPostContainers(
     // Chave visual de uma publicação SEM URN, somente enquanto o filtro
     // Publicações está selecionado no perfil. O texto vem do corpo PRÓPRIO,
     // não do rodapé (contadores mudam após Curtir/Comentar) nem de citações.
-    const visibleBody = Array.from(card.querySelectorAll(
+    // CORREÇÃO (estudo 19/11): o SDUI coloca o botão "…mais" DENTRO do
+    // parágrafo do post. A regra antiga descartava esse parágrafo e o cartão
+    // ficava sem chave (ll-idx → POST_ID_PROVISIONAL). Agora o controle de
+    // expansão é ignorado no texto e os parágrafos-raiz são concatenados.
+    const EXPAND_LABEL = /^(?:…|\.\.\.)?\s*(?:ver mais|mais|see more|mostrar mais|more)\s*$/i;
+    const isExpandControl = (n: Element): boolean => EXPAND_LABEL.test(
+      (n.getAttribute('aria-label') || n.textContent || '').replace(/\s+/g, ' ').trim());
+    const bodyNodes = Array.from(card.querySelectorAll(
       '.update-components-text, .feed-shared-text, [data-testid*="post-text"], [data-test-id*="commentary"], [dir="ltr"], p',
     )).filter((node) => !embeddedWithin(node, card) &&
       !node.closest(COMMENT) && !node.closest(AUTHOR_HEADER) &&
       !node.closest('button, [role="button"], [role="toolbar"]') &&
-      !node.querySelector('button, [role="button"], [contenteditable]'))
-      .map((node) => (node as HTMLElement).innerText || node.textContent || '')
-      .map((s) => s.normalize('NFC').replace(/\s+/g, ' ').trim())
-      .find((s) => s.length >= 24 && s.length <= 6000) ?? '';
-    let source = [author?.href ?? '', visibleBody.slice(0, 128)].join('|');
-    const visualEligible = !primary && !conflicting && visibleBody.length >= 24;
+      !node.querySelector('[contenteditable]') &&
+      Array.from(node.querySelectorAll('button, [role="button"]')).every(isExpandControl));
+    const bodyRoots = bodyNodes.filter((n) => !bodyNodes.some((o) => o !== n && o.contains(n)));
+    const ownText = (node: Element): string =>
+      ((node as HTMLElement).innerText || node.textContent || '')
+        .normalize('NFC').replace(/\s+/g, ' ')
+        .replace(/\s*(?:…|\.\.\.)?\s*(?:ver mais|mais|see more|mostrar mais|more)\s*$/i, '')
+        .replace(/(?:…|\.\.\.)\s*$/, '').trim();
+    const texts = bodyRoots.map(ownText).filter((s) => s.length > 0);
+    // "…mais" pode expandir o texto: apenas o prefixo estável
+    // participa da chave visual. Se há expansão e menos de 64 caracteres,
+    // manter provisório em vez de gerar chave instável.
+    const hasExpand = Array.from(card.querySelectorAll('button,[role="button"],a,span[tabindex="0"]'))
+      .some((n) => isExpandControl(n));
+    // Compatível com chaves já gravadas: o 1º bloco suficiente continua sendo
+    // a fonte; só quando ele é curto demais usa-se o corpo concatenado.
+    const single = texts.find((s) => s.length >= 24 && s.length <= 6000) ?? '';
+    const visibleBody = single.length >= (hasExpand ? 64 : 24)
+      ? single : texts.join(' ').slice(0, 6000);
+    const minFingerprintLength = hasExpand ? 64 : 24;
+    let source = [author?.href ?? '', visibleBody.slice(0, 64)].join('|');
+    const visualEligible = !primary && !conflicting && visibleBody.length >= minFingerprintLength;
     if (!visualEligible) source = [
       [...direct].sort().join(','), [...primaryPermalinks].sort().join(','),
       [...nestedUrns].sort().join(','), author?.href ?? '',
@@ -562,9 +699,8 @@ export function llPostContainers(
     const profile = route ? route[1] : null;
     const visualKey = visualEligible && profile
       ? 'll-vcard:' + profile + ':' + digest : null;
-    // Só classificar como VISUAL quando o filtro Publicações está ATIVO.
-    // Fora desse contexto, manter o antigo identificador diagnóstico ll-card
-    // para não promover cartões na aba genérica ou páginas de outro perfil.
+    // O cartão visual também pode existir em /recent-activity/all/. A seleção do
+    // filtro não é autorização da curtida: somente o cartão e os controles importam.
     const visualVerified = !!visualKey &&
       typeof __llVisualPostScopeValid === 'function' &&
       __llVisualPostScopeValid(visualKey);
@@ -776,7 +912,7 @@ export function extractPosts(sel: Record<string, readonly string[]>, limit: numb
       'button, a, [role="button"], .feed-shared-inline-show-more-text__see-more-less-toggle',
     )).filter((node) => !inEmbedded(node) &&
       !node.closest('.comments-comment-entity, .comments-comment-item') &&
-      /^(?:…|\.\.\.)?\s*(?:ver mais|see more|mostrar mais|more)\s*$/i.test(
+      /^(?:…|\.\.\.)?\s*(?:ver mais|mais|see more|mostrar mais|more)\s*$/i.test(
         (node.getAttribute('aria-label') || node.textContent || '').replace(/\s+/g, ' ').trim()));
     const truncated = moreControls.length > 0 ||
       /(?:…|\.\.\.)\s*(?:mais|more)$/i.test(text);
@@ -832,10 +968,37 @@ export function extractPosts(sel: Record<string, readonly string[]>, limit: numb
       '.update-components-header, .feed-shared-header, [data-test-id*="reshared-header"]',
     )) as HTMLElement[]).filter((h) => !inEmbedded(h));
     const actionRegex = /\b(compartilhou|republicou|repostou|reposted|shared)\b/i;
-    const actionHeader = headers.find((h) => actionRegex.test((h.innerText || h.textContent || '').slice(0, 240)));
-    const isReshare = Boolean(actionHeader);
+    const legacyHeader = headers.find((h) => actionRegex.test((h.innerText || h.textContent || '').slice(0, 240)));
+    // CORREÇÃO (estudo 19/11): no SDUI o cabeçalho "Fulano comentou isto /
+    // gostou / republicou" não tem classe. Ele fica ACIMA do link do autor
+    // principal. Em "Todas as atividades" esse cartão é o post de OUTRA pessoa.
+    // 0.5.22: verbos de atividade do LinkedIn PT/EN ampliados (comentários,
+    // respostas e as seis reações). Só valem no cabeçalho acima do autor.
+    const COMMENT_RE = /\b(?:comentou|respondeu|commented|replied)\b/i;
+    const REACTION_RE = /\b(?:gostou|curtiu|curte|reagiu|celebrou|celebra|parabenizou|apoiou|apoia|amou|ama|achou (?:isso |isto )?(?:interessante|engra[cç]ado|genial)|likes? this|liked|reacted|celebrates|supports|loves|finds this)\b/i;
+    const authorAnchor = identity.primaryActorUrl
+      ? (Array.from(it.querySelectorAll('a[href*="/in/"]')) as HTMLAnchorElement[])
+          .find((a) => !inEmbedded(a) && a.href.replace(/\/$/, '') === identity.primaryActorUrl!.replace(/\/$/, '')) ?? null
+      : null;
+    const headerNodes = (Array.from(it.querySelectorAll('span, p, div, h2, h3, header')) as HTMLElement[])
+      .filter((n) => !inEmbedded(n) && n.children.length <= 3 &&
+        !n.closest('.comments-comment-entity, .comments-comment-item, [contenteditable]') &&
+        (authorAnchor ? (!n.contains(authorAnchor) &&
+          !!(n.compareDocumentPosition(authorAnchor) & Node.DOCUMENT_POSITION_FOLLOWING)) : false))
+      .slice(0, 40);
+    const firstLine = ((it as HTMLElement).innerText || '').split('\n').map((s) => s.trim()).find(Boolean) ?? '';
+    const headerTexts = [...headerNodes.map((n) => (n.innerText || n.textContent || '').replace(/\s+/g, ' ').trim()),
+      ...(firstLine.length <= 160 ? [firstLine] : [])].filter((t) => t.length > 0 && t.length <= 160);
+    const activityHeader: PostExtract['activityHeader'] =
+      legacyHeader || headerTexts.some((t) => actionRegex.test(t)) ? 'REPOST'
+        : headerTexts.some((t) => COMMENT_RE.test(t)) ? 'COMMENT'
+          : headerTexts.some((t) => REACTION_RE.test(t)) ? 'REACTION' : null;
+    const actionHeader = legacyHeader ??
+      (activityHeader === 'REPOST' ? headerNodes.find((n) => actionRegex.test(n.innerText || '')) ?? null : null);
+    const isReshare = activityHeader === 'REPOST';
     const sharers = actionHeader
-      ? (Array.from(actionHeader.querySelectorAll('a[href*="/in/"]')) as HTMLAnchorElement[])
+      ? (Array.from((actionHeader.closest('div') ?? actionHeader).querySelectorAll('a[href*="/in/"]')) as HTMLAnchorElement[])
+          .filter((a) => a !== authorAnchor)
       : [];
     const validSharer = (href: string): string | null => {
       try {
@@ -879,6 +1042,7 @@ export function extractPosts(sel: Record<string, readonly string[]>, limit: numb
       isReshare,
       liked: reaction.state,
       truncated,
+      activityHeader,
     });
     if (out.length >= limit) break;
   }
@@ -899,18 +1063,37 @@ export function likeState(sel: Record<string, readonly string[]>, urn: string): 
 export function llCommentControls(
   sel: Record<string, readonly string[]>, urn: string,
 ): { root: Element | null; editor: HTMLElement | null; submit: HTMLButtonElement | null; reason: string } {
-  const cards = __llPostContainers({ postItem: sel.postItem!, likeButton: sel.likeButton! })
+  const allCards = __llPostContainers({ postItem: sel.postItem!, likeButton: sel.likeButton! });
+  const cards = allCards
     .filter((c) => c.urn === urn && (c.identity.identityStatus === 'CONFIRMED' || (urn.startsWith('ll-vcard:') && c.identity.identityStatus === 'PROVISIONAL' && c.identity.cardId === urn)));
   if (cards.length !== 1) return { root: null, editor: null, submit: null, reason: 'CARD_UNVERIFIED' };
   const root = cards[0]!.el;
+  // 0.5.22: no SDUI a seção de comentários pode ser desenhada como IRMÃ do
+  // cartão (fora do contêiner do post). Regiões aceitas: irmãos seguintes do
+  // cartão, até 3 níveis acima, parando no próximo post (que tem Compartilhar).
+  const isOtherPost = (el: Element): boolean => {
+    if (allCards.some((c) => c.el !== root && (el === c.el || el.contains(c.el) || c.el.contains(el)))) return true;
+    const buttons = Array.from(el.querySelectorAll('button, [role="button"]'));
+    return buttons.some((b) => /situa[cç][aã]o do bot[aã]o de rea|reaction button state/i.test(b.getAttribute('aria-label') ?? '')) &&
+      buttons.some((b) => /^(?:compartilhar|share|repost|republicar)/i.test((b.getAttribute('aria-label') || (b as HTMLElement).innerText || '').trim()));
+  };
+  const regions: Element[] = [];
+  regionScan: for (let level: Element | null = root, up = 0; level && up < 3; up++, level = level.parentElement) {
+    for (let sib = level.nextElementSibling, n = 0; sib && n < 3; n++, sib = sib.nextElementSibling) {
+      if (isOtherPost(sib)) break regionScan;
+      regions.push(sib);
+    }
+    if (level.parentElement && Array.from(level.parentElement.children).some((c) => c !== level && isOtherPost(c))) break;
+  }
   const embedded = '.feed-shared-mini-update-v2, .update-components-mini-update-v2, .feed-shared-article, .update-components-article, [data-testid*="quoted"], [data-test-id*="reshared"]';
+  let scope: Element = root;
   const own = (node: Element): boolean => {
     let parent = node.parentElement;
-    while (parent && parent !== root) {
+    while (parent && parent !== scope) {
       if (parent.matches(embedded) || parent.matches('[data-urn], [data-activity-urn]')) return false;
       parent = parent.parentElement;
     }
-    return parent === root;
+    return parent === scope;
   };
   const visible = (node: Element): boolean => {
     const rect = node.getBoundingClientRect();
@@ -925,30 +1108,40 @@ export function llCommentControls(
     '[data-test-id*="comment-editor"][contenteditable="true"]',
     '.tiptap.ProseMirror[contenteditable="true"]',
     '[role="textbox"][contenteditable="true"]',
+    // SDUI: o editor pode ser apenas div[contenteditable=true] role=generic.
+    // Continua restrito ao cartão único, visível e fora de comentários existentes.
+    'div[contenteditable="true"]', '[contenteditable="true"]',
   ];
-  for (const selector of candidates) {
-    try {
-      for (const node of Array.from(root.querySelectorAll(selector))) {
-        if (!(node instanceof HTMLElement) ||
-          node.getAttribute('contenteditable') !== 'true' ||
-          node.closest('.comments-comment-entity, .comments-comment-item') ||
-          !own(node) || !visible(node)) continue;
-        editors.add(node);
-      }
-    } catch { /* configuração de seletor inválida: nunca ampliar o escopo */ }
-  }
+  const collect = (area: Element): void => {
+    scope = area;
+    for (const selector of candidates) {
+      try {
+        for (const node of Array.from(area.querySelectorAll(selector))) {
+          if (!(node instanceof HTMLElement) ||
+            node.getAttribute('contenteditable') !== 'true' ||
+            node.closest('.comments-comment-entity, .comments-comment-item') ||
+            !own(node) || !visible(node)) continue;
+          editors.add(node);
+        }
+      } catch { /* configuração de seletor inválida: nunca ampliar o escopo */ }
+    }
+  };
+  collect(root);
+  if (!editors.size) for (const area of regions) collect(area);
   if (editors.size !== 1) return { root, editor: null, submit: null,
     reason: editors.size ? 'MULTIPLE_EDITORS' : 'EDITOR_NOT_FOUND' };
   const editor = [...editors][0]!;
+  scope = root.contains(editor) ? root : regions.find((area) => area.contains(editor)) ?? root;
   let ancestor: Element | null = editor.closest('form') ??
     editor.closest('.comments-comment-box, [data-testid*="comment-box"], [data-test-id*="comment-box"]') ??
     editor.parentElement;
   // Para editores sem form, subir apenas até um envelope que possua botão
   // exclusivamente de envio, nunca escolher um botão global do cartão.
-  for (let depth = 0; ancestor && (ancestor === root || root.contains(ancestor)) && depth < 8;
+  for (let depth = 0; ancestor && (ancestor === scope || scope.contains(ancestor)) && depth < 8;
     depth++, ancestor = ancestor.parentElement) {
     // Sem <form> é aceitável um envelope de comentários, nunca o cartão
     // inteiro (que pode conter botões de publicação de outra funcionalidade).
+    // Numa região irmã (seção de comentários), a própria região é o envelope.
     if (!editor.closest('form') && ancestor === root) break;
     const isForm = ancestor.matches('form');
     const submits = new Set<HTMLButtonElement>();
@@ -1028,13 +1221,63 @@ export function commentEvidence(
 ): { count: number; ownedCount: number; editorEmpty: boolean; cardConfirmed: boolean } {
   const norm = (s: string): string => s.replace(/\s+/g, ' ').trim().toLocaleLowerCase();
   const expected = norm(commentText);
-  const cards = __llPostContainers({ postItem: sel.postItem!, likeButton: sel.likeButton! })
+  const allCards = __llPostContainers({ postItem: sel.postItem!, likeButton: sel.likeButton! });
+  const cards = allCards
     .filter((c) => c.urn === urn && (c.identity.identityStatus === 'CONFIRMED' || (urn.startsWith('ll-vcard:') && c.identity.identityStatus === 'PROVISIONAL' && c.identity.cardId === urn)));
   if (!expected || cards.length !== 1)
     return { count: 0, ownedCount: 0, editorEmpty: false, cardConfirmed: false };
   const root = cards[0]!.el;
-  const rows = Array.from(root.querySelectorAll(
-    '.comments-comment-entity, .comments-comment-item, [data-testid="comment-item"], [data-test-id="comment-item"]'));
+  // 0.5.22: no SDUI a seção de comentários pode ser desenhada como IRMÃ do
+  // cartão (fora do contêiner do post). Regiões aceitas: irmãos seguintes do
+  // cartão, até 3 níveis acima, parando no próximo post (que tem Compartilhar).
+  const isOtherPost = (el: Element): boolean => {
+    if (allCards.some((c) => c.el !== root && (el === c.el || el.contains(c.el) || c.el.contains(el)))) return true;
+    const buttons = Array.from(el.querySelectorAll('button, [role="button"]'));
+    return buttons.some((b) => /situa[cç][aã]o do bot[aã]o de rea|reaction button state/i.test(b.getAttribute('aria-label') ?? '')) &&
+      buttons.some((b) => /^(?:compartilhar|share|repost|republicar)/i.test((b.getAttribute('aria-label') || (b as HTMLElement).innerText || '').trim()));
+  };
+  const regions: Element[] = [];
+  regionScan: for (let level: Element | null = root, up = 0; level && up < 3; up++, level = level.parentElement) {
+    for (let sib = level.nextElementSibling, n = 0; sib && n < 3; n++, sib = sib.nextElementSibling) {
+      if (isOtherPost(sib)) break regionScan;
+      regions.push(sib);
+    }
+    if (level.parentElement && Array.from(level.parentElement.children).some((c) => c !== level && isOtherPost(c))) break;
+  }
+  const scopes: Element[] = [root, ...regions];
+  const legacyRows = scopes.flatMap((area) => Array.from(area.querySelectorAll(
+    '.comments-comment-entity, .comments-comment-item, [data-testid="comment-item"], [data-test-id="comment-item"]')));
+  // SDUI pode entregar comentários sem classes legadas. Buscar o texto EXATO
+  // apenas dentro do post escolhido; localizar o MENOR ancestral próprio que
+  // contenha também o cabeçalho do comentarista, sem a barra de ações do post.
+  // Encontrar texto digitado no editor NUNCA conta como comentário publicado.
+  const structuralRows = new Set<Element>();
+  if (legacyRows.length === 0) {
+    const snippets = scopes.flatMap((area) => Array.from(area.querySelectorAll(
+      '[data-testid*="comment-text"], [data-test-id*="comment-text"], p, [dir="ltr"]')));
+    for (const snippet of snippets) {
+      if (snippet.closest('[contenteditable="true"], .update-components-actor, .feed-shared-actor') ||
+          norm((snippet as HTMLElement).innerText || snippet.textContent || '') !== expected) continue;
+      let row: Element | null = snippet.parentElement;
+      for (let depth = 0; row && !scopes.includes(row) && depth < 8; depth++, row = row.parentElement) {
+        const links = Array.from(row.querySelectorAll('a[href*="/in/"]'))
+          .filter((link) => !link.closest('[contenteditable="true"]'));
+        if (links.length !== 1 ||
+            row.querySelector('[contenteditable="true"], [data-urn], [data-activity-urn]') ||
+            row.querySelector('[role="toolbar"], .feed-shared-social-action-bar, .social-actions') ||
+            (row.textContent ?? '').length > 2500) continue;
+        // O cartão principal contém o botão de reação do post; um comentário
+        // não pode herdar essa barra somente por ter texto semelhante.
+        const postReaction = Array.from(row.querySelectorAll('button[aria-pressed],button[aria-checked]'))
+          .some((button) => /(?:gostei|curtir|like|react)/i.test(
+            button.getAttribute('aria-label') || button.textContent || ''));
+        if (postReaction) continue;
+        structuralRows.add(row);
+        break;
+      }
+    }
+  }
+  const rows = legacyRows.length > 0 ? legacyRows : [...structuralRows];
   let count = 0;
   let ownedCount = 0;
   const selfProfiles = new Set(
@@ -1046,11 +1289,15 @@ export function commentEvidence(
     }).filter(Boolean),
   );
   for (const row of rows) {
-    const childText = (Array.from(row.querySelectorAll(
-      '.comments-comment-item__main-content, .update-components-text, [data-testid="comment-text"], [data-test-id="comment-text"]',
-    )) as HTMLElement[])[0];
-    const ownText = norm(childText?.innerText ?? childText?.textContent ?? '');
-    if (ownText !== expected) continue;
+    const childNodes = Array.from(row.querySelectorAll(
+      '.comments-comment-item__main-content, .update-components-text, [data-testid="comment-text"], [data-test-id="comment-text"], p, [dir="ltr"]',
+    )) as HTMLElement[];
+    // Priorizar coincidência EXATA no nó de texto. Não aceitar substrings
+    // de cartões, de editores nem de conteúdos publicados por outras pessoas.
+    const matching = childNodes.some((node) =>
+      !node.closest('[contenteditable="true"]') &&
+      norm(node.innerText || node.textContent || '') === expected);
+    if (!matching) continue;
     count++;
     const selfMarked = row.matches(
       '.comments-comment-entity--mine, .comments-comment-entity--me, [data-author-self="true"], [data-testid="own-comment"]');
@@ -1147,6 +1394,8 @@ export function postExpandPoint(
     '.feed-shared-inline-show-more-text button',
     '.feed-shared-inline-show-more-text__see-more-less-toggle',
     '[data-testid="post-text"] button', '[data-test-id="post-text"] button',
+    '[dir="ltr"] span[role="button"]', '[dir="ltr"] span[tabindex="0"]',
+    'p span[role="button"]', 'p span[tabindex="0"]',
   ];
   const candidates = [...new Set(selectors.flatMap((selector) => {
     try { return Array.from(root.querySelectorAll(selector)); }
@@ -1161,7 +1410,7 @@ export function postExpandPoint(
     }
     const label = (node.getAttribute('aria-label') || node.textContent || '').replace(/\s+/g, ' ').trim();
     const r = node.getBoundingClientRect();
-    return /^(?:…|\.\.\.)?\s*(?:ver mais|see more|mostrar mais|more)\s*$/i.test(label) &&
+    return /^(?:…|\.\.\.)?\s*(?:ver mais|mais|see more|mostrar mais|more)\s*$/i.test(label) &&
       r.width > 0 && r.height > 0;
   });
   if (controls.length !== 1) return null;
@@ -1179,9 +1428,9 @@ export function postExpandGuard(
   if (!point || Math.abs(point.x - x) > 20 || Math.abs(point.y - y) > 20) return false;
   const hit = document.elementFromPoint(x, y);
   if (!hit) return false;
-  const candidates = ['button', '[role="button"]', 'a'];
+  const candidates = ['button', '[role="button"]', 'a', 'span[tabindex="0"]'];
   const el = hit.closest(candidates.join(', '));
-  return !!el && /^(?:…|\.\.\.)?\s*(?:ver mais|see more|mostrar mais|more)\s*$/i.test(
+  return !!el && /^(?:…|\.\.\.)?\s*(?:ver mais|mais|see more|mostrar mais|more)\s*$/i.test(
     (el.getAttribute('aria-label') || el.textContent || '').replace(/\s+/g, ' ').trim());
 }
 

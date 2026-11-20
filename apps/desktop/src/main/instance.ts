@@ -95,7 +95,7 @@ const DOING: Record<string, string> = {
   EnrichProfile: 'Enriquecendo contato de',
 };
 const REASON_PT: Record<string, string> = {
-  NO_REAL_EFFECT: 'não deu para confirmar o efeito', EXCLUDED: 'excluída', REJECTED: 'rejeitado na aprovação', REPLIED: 'respondeu',
+  NO_REAL_EFFECT: 'não concluído (veja o motivo)', EXCLUDED: 'excluída', REJECTED: 'rejeitado na aprovação', REPLIED: 'respondeu',
   OPTED_OUT: 'pediu para parar', NOT_FOUND: 'perfil não encontrado', IDENTITY_UNVERIFIED: 'identidade do perfil pendente de revisão', LIMIT_REACHED: 'limite do dia', THROTTLED: 'a plataforma bloqueou',
   ERROR: 'erro', AWAITING_APPROVAL: 'aguardando sua aprovação (aba Aprovações)', AI_SKIPPED: 'IA preferiu não agir', NO_POST: 'sem post recente',
   ICP_REJECTED: 'fora do ICP', RETRY_LATER: 'vai conferir de novo', NOT_ACCEPTED: 'convite não aceito', ALREADY_CONNECTED: 'já era conexão', NOT_CONNECTED: 'não é conexão',
@@ -787,7 +787,8 @@ export class AccountInstance {
       case 'message':
         return this.withBrowser(() => sendMessageNow(this.deps, person, text));
       default:
-        return this.withBrowser(() => publishComment(this.deps, draft.postUrl, text));
+        // CORREÇÃO: o caminho visual (ll-vcard) precisa do lead para reabrir o cartão.
+        return this.withBrowser(() => publishComment(this.deps, draft.postUrl, text, draft.personId));
     }
   }
 

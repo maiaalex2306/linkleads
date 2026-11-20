@@ -15,7 +15,32 @@ function check(ok, message, detail) {
 }
 const post = '<article data-post-fixture="true">Publicacao propria simulada</article>';
 function fixture(slug, mode, path, extra = {}) {
-  const posts = path.endsWith('/shares/') || path.endsWith('/posts/') || mode === 'sduiSelected' || mode === 'sduiClickable';
+  const sdui = ['sduiSelected','sduiClickable','sduiUnselected',
+    'sduiDarkSelected','sduiNestedSelected','sduiCommentsSelected',
+    'sduiTransparentSelected','sduiTransparentUnselected','sduiConflictingSemantic'].includes(mode);
+  const posts = path.endsWith('/shares/') || path.endsWith('/posts/') ||
+    ['sduiSelected','sduiClickable','sduiDarkSelected','sduiNestedSelected',
+      'sduiTransparentSelected'].includes(mode);
+  const selected = mode === 'sduiCommentsSelected' ? 'Comentários' : 'Publicações';
+  const darkMode = mode === 'sduiDarkSelected';
+  const sduiMarkup = ['Publicações','Comentários','Vídeos','Imagens','Reações'].map(label => {
+    const active = label === selected && mode !== 'sduiUnselected' &&
+      mode !== 'sduiClickable' && mode !== 'sduiTransparentUnselected';
+    const transparent = mode === 'sduiTransparentSelected' || mode === 'sduiTransparentUnselected';
+    const bg = active ? (darkMode ? 'rgb(0,110,72)' : 'rgb(4,129,90)') :
+      (transparent ? 'rgba(0,0,0,0)' :
+        darkMode ? 'rgb(36,36,36)' : 'rgb(245,245,245)');
+    const fg = darkMode || active ? 'rgb(255,255,255)' : 'rgb(20,20,20)';
+    const click = mode === 'sduiClickable' && label === 'Publicações'
+      ? ' onclick="this.setAttribute(\'aria-selected\',\'true\')"' : '';
+    const semantic = mode === 'sduiConflictingSemantic' &&
+      (label === 'Publicações' || label === 'Comentários')
+      ? ' aria-selected="true"' : '';
+    return mode === 'sduiNestedSelected'
+      ? '<button' + click + semantic + '><span style="display:inline-block;padding:8px;background-color:' + bg +
+        ';color:' + fg + '">' + label + '</span></button>'
+      : '<button style="background-color:' + bg + ';color:' + fg + '"' + click + semantic + '>' + label + '</button>';
+  }).join('');
   const filter = mode === 'link'
     ? '<nav aria-label="Filtros de atividades"><a role="tab" href="/in/' + slug + '/recent-activity/shares/">Posts</a></nav>'
     : mode === 'button'
@@ -26,18 +51,7 @@ function fixture(slug, mode, path, extra = {}) {
           ? '<nav><a role="tab" href="https://external.example/posts">Posts</a></nav>'
           : mode === 'ambiguous'
             ? '<nav><a role="tab" href="/in/' + slug + '/recent-activity/shares/">Posts</a><a role="tab" href="/in/' + slug + '/recent-activity/posts/">Posts</a></nav>'
-            : mode === 'sduiSelected' || mode === 'sduiUnselected' || mode === 'sduiClickable'
-              ? '<div class="activity-filters">' +
-                '<button style="' + (mode === 'sduiSelected'
-                  ? 'background-color:rgb(4,129,90);color:rgb(255,255,255)'
-                  : 'background-color:rgb(255,255,255);color:rgb(20,20,20)') +
-                '"' + (mode === 'sduiClickable'
-                  ? ' onclick="this.setAttribute(\'aria-selected\',\'true\')"'
-                  : '') + '>Publicações</button>' +
-                '<button style="background:white;color:black">Comentários</button>' +
-                '<button style="background:white;color:black">Vídeos</button>' +
-                '<button style="background:white;color:black">Imagens</button>' +
-                '<button style="background:white;color:black">Reações</button></div>'
+            : sdui ? '<div class="activity-filters">' + sduiMarkup + '</div>'
               : '';
   const delayedTab = mode === 'delayed' && !posts
     ? '<nav id="tabs"></nav><script>setTimeout(()=>{document.getElementById("tabs").innerHTML=' +
@@ -132,6 +146,18 @@ try {
   await trial('botao Publicacoes', 'button', { status:'POST_SECTION_READY', source:'posts', method:'BUTTON' });
   await trial('SDUI: aba Publicacoes verde sem mudar rota all', 'sduiSelected',
     { status:'POST_SECTION_READY', source:'posts', method:'ACTIVE' });
+  await trial('SDUI: filtro verde por contraste de irmãos em tema escuro', 'sduiDarkSelected',
+    { status:'POST_SECTION_READY', source:'posts', method:'ACTIVE' });
+  await trial('SDUI: destaque pintado em span filho', 'sduiNestedSelected',
+    { status:'POST_SECTION_READY', source:'posts', method:'ACTIVE' });
+  await trial('SDUI: irmãos transparentes reconhecem Publicações preenchido',
+    'sduiTransparentSelected', { status:'POST_SECTION_READY', source:'posts', method:'ACTIVE' });
+  await trial('SDUI: todos transparentes não confirmam Publicações',
+    'sduiTransparentUnselected', { status:'POST_SECTION_READY', source:'activity', method:'FALLBACK' });
+  await trial('SDUI: Comentários selecionado não se torna Publicações', 'sduiCommentsSelected',
+    { status:'POST_SECTION_READY', source:'activity', method:'FALLBACK' });
+  await trial('SDUI: ARIA contraditória em dois chips bloqueia Publicações', 'sduiConflictingSemantic',
+    { status:'POST_SECTION_READY', source:'activity', method:'FALLBACK' });
   await trial('SDUI: chip Publicacoes clicavel sem nav ou role tab',
     'sduiClickable', { status:'POST_SECTION_READY', source:'posts', method:'BUTTON' });
   await trial('SDUI: aba Publicacoes visivel mas nao selecionada', 'sduiUnselected',

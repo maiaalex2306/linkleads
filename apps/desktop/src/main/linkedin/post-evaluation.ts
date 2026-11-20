@@ -1,9 +1,9 @@
 /** Contratos puros: sem dependência de Electron, DOM ou I/O.
  * Executores, diagnósticos e fixtures devem usar a mesma avaliação.
  */
-import { normalizeLinkedInPublicId, parseRelativeAgeDays } from '@linkleads/core';
+import { POST_LIKE_WINDOW_DAYS, normalizeLinkedInPublicId, parseRelativeAgeDays } from '@linkleads/core';
 import type { PostExtract } from './dom-scripts.js';
-import { isCanonicalPostUrn, isVisualPostKey, contextualAuthorAccepted, type PostSelectionContext } from './post-identity.js';
+import { isCanonicalPostUrn, isVisualPostKey, type PostSelectionContext } from './post-identity.js';
 const BASE = process.env.LINKLEADS_TEST_BASE_URL ?? 'https://www.linkedin.com';
 export interface LikeEvaluationSettings {
   maxPostAgeDays?: number;
@@ -47,7 +47,8 @@ export type PostEvaluationStatus = 'ELIGIBLE' | 'NOT_ELIGIBLE' | 'REVIEW_REQUIRE
 export type PostEvaluationCode = 'EMPTY_CONTENT' | 'RESHARE_EXCLUDED' |
   'AUTHOR_UNVERIFIED' | 'AUTHOR_CONFLICT' | 'AUTHOR_MISMATCH' |
   'POST_ID_CONFLICT' | 'POST_ID_PROVISIONAL' | 'RESHARE_CLASSIFICATION_ERROR' | 'POST_AGE_UNVERIFIED' |
-  'POST_TOO_OLD' | 'REACTION_UNKNOWN' | 'ALREADY_LIKED' | 'ELIGIBLE';
+  'POST_TOO_OLD' | 'REACTION_UNKNOWN' | 'ALREADY_LIKED' | 'ELIGIBLE' |
+  'NOT_LEAD_POST' | 'AUTHOR_NOT_PROVEN_IN_ALL';
 
 export interface PostEvaluation {
   post: PostExtract;
@@ -86,48 +87,38 @@ export function evaluatePost(
     return result('NOT_ELIGIBLE', 'POST_CLASSIFIED', 'RESHARE_EXCLUDED',
       'Publicação compartilhada de outra pessoa, excluída pela configuração');
   }
-  // Em republicações a identidade do REPOSTADOR é distinta da do autor original.
-  // Sem URL comprovada do repostador não atribuir a publicação ao lead.
-  const href = isReshare ? post.resharedByHref : post.actorHref;
-  const actor = href ? profileSlug(href) : undefined;
-  if (href && !actor)
-    return result('REVIEW_REQUIRED', 'POST_FOUND', 'AUTHOR_UNVERIFIED',
-      'Link do autor não é um perfil confiável do LinkedIn');
-  // Fase 3: somente a rota Posts efetivamente validada pode complementar
-  // a ausência da URL redundante em publicação ORIGINAL, nunca um conflito.
-  const contextual = !href && !actor && !isReshare &&
-    selectionContext?.confirmedPublicId === publicId &&
-    selectionContext?.postUrn === post.urn &&
-    contextualAuthorAccepted(selectionContext);
-  if (!actor && !contextual)
-    return result('REVIEW_REQUIRED', 'POST_FOUND', 'AUTHOR_UNVERIFIED',
-      isReshare ? 'Identidade do compartilhador não comprovada por URL do perfil' :
-        'Identidade do autor não comprovada por URL nem por origem contextual válida');
-  if (actor && !sameConfirmedPublicId(actor, publicId))
-    return /^AC[owr]/i.test(actor) || /^AC[owr]/i.test(publicId)
-      ? result('REVIEW_REQUIRED', 'POST_FOUND', 'AUTHOR_CONFLICT',
-        'Identificador opaco do autor ou compartilhador diferente do perfil confirmado')
-      : result('NOT_ELIGIBLE', 'POST_FOUND', 'AUTHOR_MISMATCH', 'Publicação de outro autor');
-  passedStages.push('AUTHOR_CONFIRMED', 'POST_CLASSIFIED');
-  const visualBound = isVisualPostKey(post.urn) && !isReshare &&
-    selectionContext?.sourceSection === 'posts' &&
-    selectionContext?.postUrn === post.urn &&
-    selectionContext?.confirmedPublicId === publicId &&
+  // CORREÇÃO (estudo 19/11) — SELEÇÃO DE OBJETO, não autorização.
+  // "Todas as atividades" mistura posts do lead com posts de TERCEIROS que ele
+  // comentou ou reagiu. Esses cartões nunca são alvo.
+  if (post.activityHeader === 'COMMENT' || post.activityHeader === 'REACTION')
+    return result('NOT_ELIGIBLE', 'POST_FOUND', 'NOT_LEAD_POST',
+      'Cartão de atividade: post de outra pessoa em que o lead comentou/reagiu');
+  if (selectionContext?.sourceSection === 'activity' && !isReshare) {
+    // 0.5.22: em 2026 a página /recent-activity/all/ abre com o filtro
+    // Publicações selecionado por padrão, e o app nem sempre reconhece o chip.
+    // Na página de atividade do PRÓPRIO lead, um cartão sem cabeçalho de
+    // atividade ("comentou", "gostou", "republicou") é publicação dele.
+    // Só pular quando há prova POSITIVA de outro autor. Autor não detectado
+    // deixou de bloquear (caso Wallison: "2 sem autor comprovado na aba Todas").
+    const observed = post.actorHref ? profileSlug(post.actorHref) : undefined;
+    const opaque = (id: string | undefined) => !!id && /^AC[owr][A-Za-z0-9_-]{20,}$/.test(id);
+    if (observed && !opaque(observed) && !opaque(publicId) && !sameConfirmedPublicId(observed, publicId))
+      return result('NOT_ELIGIBLE', 'POST_FOUND', 'AUTHOR_MISMATCH',
+        'Cartão de outro autor na página de atividade do lead');
+  }
+  passedStages.push('POST_CLASSIFIED');
+  const visualBound = isVisualPostKey(post.urn) &&
     post.cardIdentity?.identityStatus === 'PROVISIONAL' &&
-    post.cardIdentity.cardId === post.urn &&
-    (contextual || Boolean(actor && sameConfirmedPublicId(actor, publicId))) &&
-    post.text.trim().length >= 24;
+    post.cardIdentity.cardId === post.urn;
   if (!isCanonicalPostUrn(post.urn) && !visualBound)
     return result('REVIEW_REQUIRED', 'POST_CLASSIFIED', 'POST_ID_PROVISIONAL',
-      'Cartão sem URL e sem vínculo visual exclusivo no filtro Publicações');
-  // POST_ID_CONFIRMED representa URN canônica OU cartão visual vinculado
-  // à publicação selecionada: nunca transformar chave visual em permalink.
+      'Cartão visual sem referência única para localizar seu botão');
   passedStages.push('POST_ID_CONFIRMED');
   const days = post.age ? parseRelativeAgeDays(post.age) : undefined;
   if (days === undefined || !Number.isFinite(days) || days < 0)
     return result('REVIEW_REQUIRED', 'POST_ID_CONFIRMED', 'POST_AGE_UNVERIFIED',
       'Publicação com data não verificável');
-  const maxAge = Math.max(1, Math.min(365, settings.maxPostAgeDays ?? 365));
+  const maxAge = Math.max(1, Math.min(POST_LIKE_WINDOW_DAYS, settings.maxPostAgeDays ?? POST_LIKE_WINDOW_DAYS));
   if (days > maxAge)
     return result('NOT_ELIGIBLE', 'POST_ID_CONFIRMED', 'POST_TOO_OLD',
       'Publicação com mais de ' + maxAge + ' dias');

@@ -1,6 +1,6 @@
 // Fase 3: fixtures Chromium totalmente isoladas, sem rede externa/LinkedIn.
 import { createRequire } from 'node:module';
-import { extractPosts, likeState, llPostContainers, llIsReact, llReactionTarget, llReactionClickGuard, postsFilterProbe, llVisualPostScopeValid } from '../dist/main/linkedin/dom-scripts.js';
+import { extractPosts, likeState, llPostContainers, llIsReact, llReactionTarget, llReactionClickGuard, postsFilterProbe, llVisualPostScopeValid, llCommentControls, commentEvidence, commentClickGuard } from '../dist/main/linkedin/dom-scripts.js';
 const require = createRequire(import.meta.url);
 const { chromium } = require('playwright');
 const browser = await chromium.launch({ headless: true });
@@ -19,6 +19,8 @@ const functions = {
   reactionTarget: llReactionTarget.toString(), extract: extractPosts.toString(),
   likeState: likeState.toString(), clickGuard: llReactionClickGuard.toString(),
   filterProbe: postsFilterProbe.toString(), visualScope: llVisualPostScopeValid.toString(),
+  commentControls: llCommentControls.toString(), commentEvidence: commentEvidence.toString(),
+  commentClickGuard: commentClickGuard.toString(),
 };
 const check = (ok, message, evidence) => {
   if (!ok) throw Error('FALHOU: ' + message + (evidence === undefined ? '' : ' ' + JSON.stringify(evidence)));
@@ -56,9 +58,80 @@ const probe = (urn, clickPoint = null) => page.evaluate(({ fns, selectors, urn, 
   };
 }, { fns: functions, selectors: sel, urn, clickPoint });
 
+
+const commentProbe = (urn, text, selectors = sel) => page.evaluate(({ fns, selectors, urn, text }) => {
+  const __llIsReact = eval('(' + fns.reaction + ')');
+  const llIsReact = __llIsReact;
+  const __llPostsFilterProbe = eval('(' + fns.filterProbe + ')');
+  const __llVisualPostScopeValid = eval('(' + fns.visualScope + ')');
+  const __llPostContainers = eval('(' + fns.containers + ')');
+  const __llReactionTarget = eval('(' + fns.reactionTarget + ')');
+  const __llCommentControls = eval('(' + fns.commentControls + ')');
+  const read = eval('(' + fns.commentEvidence + ')');
+  const guard = eval('(' + fns.commentClickGuard + ')');
+  const c = __llCommentControls(selectors, urn);
+  const point = c.submit ? c.submit.getBoundingClientRect() : null;
+  const x = point ? point.left + point.width / 2 : 0;
+  const y = point ? point.top + point.height / 2 : 0;
+  return {
+    reason: c.reason, editor: !!c.editor, submit: !!c.submit,
+    text: c.editor?.innerText || c.editor?.textContent || '',
+    evidence: read(selectors, urn, text),
+    submitGuard: !!point && guard(selectors, urn, 'submit', x, y, text),
+  };
+}, { fns: functions, selectors, urn, text });
+
 const comment = 'Este texto de comentário não é a publicação. '.repeat(35);
 const noise = 'Ruído de comentário muito longo. '.repeat(50);
 try {
+  // P1 — editor SDUI role=generic, saída do compositor e confirmação
+  // no MESMO cartão. Estes testes não enviam comentários ao LinkedIn real.
+  const commentUrn = 'urn:li:activity:7381234567890199991';
+  const otherUrn = 'urn:li:activity:7381234567890199992';
+  const proposedComment = 'Excelente discussão sobre melhoria contínua e produtividade industrial.';
+  const ownPost = (urn, body) => '<div class="feed-shared-update-v2" data-urn="' + urn + '">' +
+    '<div class="update-components-actor"><a href="https://www.linkedin.com/in/autora-post/">Autora</a></div>' +
+    '<div class="update-components-text">Reflexão sobre inovação e colaboração.</div>' +
+    '<button aria-label="Like" aria-pressed="false">Like</button>' +
+    '<button aria-label="Comentar">Comentar</button>' + body + '</div>';
+  const composer = (text, twice = false) => '<div class="sdui-composer">' +
+    '<div contenteditable="true" role="generic">' + text + '</div>' +
+    (twice ? '<div contenteditable="true" role="generic">Outro editor</div>' : '') +
+    '<button type="button">Publicar</button></div>';
+  const commentRow = (profile) => '<div class="sdui-comment">' +
+    '<a href="https://www.linkedin.com/in/' + profile + '/">Autor do comentário</a>' +
+    '<p dir="ltr">' + proposedComment + '</p></div>';
+  const commentSel = {...sel, commentEditor:['.ql-editor[contenteditable="true"]'],
+    commentSubmit:['.comments-comment-box__submit-button']};
+  await page.setContent('<main>' + ownPost(commentUrn, composer('')) + '</main>');
+  let cp = await commentProbe(commentUrn, proposedComment, commentSel);
+  check(cp.editor && cp.submit && cp.reason === 'CONFIRMED' && !cp.submitGuard &&
+    cp.evidence.count === 0,
+    'SDUI: editor sem classe e role generic é detectado dentro do mesmo post', cp);
+  await page.setContent('<main>' + ownPost(commentUrn, composer(proposedComment)) + '</main>');
+  cp = await commentProbe(commentUrn, proposedComment, commentSel);
+  check(cp.submitGuard && cp.evidence.count === 0 && cp.evidence.ownedCount === 0,
+    'SDUI: texto ainda no editor NÃO é contado como comentário publicado', cp);
+  await page.setContent('<nav class="global-nav__me"><a href="https://www.linkedin.com/in/usuario-ativo/">Eu</a></nav>' +
+    '<main>' + ownPost(commentUrn, composer('') + commentRow('usuario-ativo')) + '</main>');
+  cp = await commentProbe(commentUrn, proposedComment, commentSel);
+  check(cp.evidence.cardConfirmed && cp.evidence.count === 1 &&
+    cp.evidence.ownedCount === 1 && cp.evidence.editorEmpty,
+    'SDUI: comentário visível no post e atribuído à conta ativa confirma envio', cp);
+  await page.setContent('<main>' + ownPost(commentUrn, composer('') + commentRow('usuario-sem-prova')) + '</main>');
+  cp = await commentProbe(commentUrn, proposedComment, commentSel);
+  check(cp.evidence.count === 1 && cp.evidence.ownedCount === 0,
+    'SDUI: sem prova de conta ativa a publicação permanece incerta', cp);
+  await page.setContent('<main>' + ownPost(commentUrn, composer('')) +
+    ownPost(otherUrn, composer('') + commentRow('usuario-ativo')) + '</main>');
+  cp = await commentProbe(commentUrn, proposedComment, commentSel);
+  check(cp.evidence.count === 0,
+    'SDUI: comentário em outro cartão não confirma o post escolhido', cp);
+  await page.setContent('<main>' + ownPost(commentUrn, composer('',true)) + '</main>');
+  cp = await commentProbe(commentUrn, proposedComment, commentSel);
+  check(cp.reason === 'MULTIPLE_EDITORS' && !cp.editor && !cp.submit,
+    'SDUI: dois editores concorrentes bloqueiam a ação', cp);
+
   // Caso SDUI observado em 17/11/2026: metadado de publicação em wrapper
   // interno, autor em faixa compacta com botão Seguir e data 'há 11 m'.
   const sduiUrn = 'urn:li:activity:7381234567890128988';
@@ -92,6 +165,39 @@ try {
   check(sduiRead.length === 1 && sduiRead[0].cardIdentity?.identityStatus === 'CONFLICT' &&
     sduiRead[0].urn.startsWith('ll-idx-'),
     'SDUI: dois metadados primários conflitantes continuam bloqueados',sduiRead.map(p=>p.cardIdentity));
+
+  // Regressão dos relatórios reais: perfis mencionados dentro do texto
+  // não devem substituir o autor do cabeçalho SDUI, nem virar falso mismatch.
+  const mentionCard = (header) => '<div class="sdui-card">' +
+    header + '<div dir="ltr">Obrigado à <a href="https://www.linkedin.com/in/terceira-pessoa/">' +
+    'terceira pessoa</a> pela parceria no projeto de inovação industrial.</div>' +
+    '<button aria-label="Gostei" aria-pressed="false">Gostei</button>' +
+    '<button aria-label="Comentar">Comentar</button></div>';
+  await page.setContent('<main><div data-sdui-screen>' + mentionCard(
+    '<div class="header-area"><a href="https://www.linkedin.com/in/lucia-fernandes/">' +
+    'Lucia Fernandes</a><span>há 2 d</span><button>Seguir</button></div>') +
+    '</div></main>');
+  let mentionResult = await scan();
+  check(mentionResult.length === 1 &&
+    mentionResult[0].actorHref?.endsWith('/lucia-fernandes/') &&
+    mentionResult[0].liked === false,
+    'SDUI: link mencionado no corpo não substitui autora do cabeçalho',
+    mentionResult.map(p => ({actor:p.actorHref,urn:p.urn})));
+  await page.setContent('<main><div data-sdui-screen>' + mentionCard(
+    '<div class="header-area"><a href="https://www.linkedin.com/in/lucia-fernandes/">' +
+    'Lucia Fernandes</a><span>há 2 d</span><button>Conectar</button></div>') +
+    '</div></main>');
+  mentionResult = await scan();
+  check(mentionResult.length === 1 &&
+    mentionResult[0].actorHref?.endsWith('/lucia-fernandes/'),
+    'SDUI: Conectar no cabeçalho não elimina autoria da publicação');
+  await page.setContent('<main><div data-sdui-screen>' +
+    mentionCard('<div class="header-area"><span>há 2 d</span></div>') +
+    '</div></main>');
+  mentionResult = await scan();
+  check(mentionResult.length === 1 && mentionResult[0].actorHref === null,
+    'SDUI: se não há link no cabeçalho, não promover pessoa mencionada',
+    mentionResult.map(p => ({actor:p.actorHref})));
 
   // FASE 0.5.20: página que permanece /all/ com Publicações em verde.
   const fixtureCard = () => '<section class="sdui-card">' +
@@ -129,6 +235,25 @@ try {
   visualGuard = await probe(visualPosts[0].urn);
   check(visualGuard.state === true && visualGuard.guard === false,
     'SDUI: confirmação da curtida impede clicar novamente');
+  // Prefixo de 64 caracteres: expansão da descrição NÃO muda a chave
+  // do cartão, contanto que o trecho inicial seja suficientemente estável.
+  const prefix = 'Este post apresenta uma melhoria operacional importante com resultados de produtividade e eficiência. ';
+  const fixtureLong = (expanded) => '<section class="sdui-card">' +
+    '<div class="author"><a href="https://www.linkedin.com/in/jana/">Jana Barbosa</a>' +
+    '<span>há 4 m · Editado</span></div>' +
+    '<p dir="ltr">' + prefix + (expanded ? 'Mais detalhes sobre a implantação no setor automotivo.' : '') + '</p>' +
+    (expanded ? '' : '<button type="button">…mais</button>') +
+    '<button aria-label="Curtir" aria-pressed="false">Curtir</button>' +
+    '<button aria-label="Comentar">Comentar</button></section>';
+  await page.setContent(fixtureHtml().replace(fixtureCard(), fixtureLong(false)));
+  const beforeMore = await scan();
+  check(beforeMore.length === 1 && beforeMore[0].urn.startsWith('ll-vcard:'),
+    'SDUI: post longo antes de expandir tem vínculo visual único',beforeMore.map(p=>p.urn));
+  await page.setContent(fixtureHtml().replace(fixtureCard(), fixtureLong(true)));
+  const afterMore = await scan();
+  check(afterMore.length === 1 && afterMore[0].urn === beforeMore[0].urn,
+    'SDUI: expansão do conteúdo preserva chave visual do mesmo cartão',afterMore.map(p=>p.urn));
+
   await page.unroute('**/in/jana/recent-activity/all/');
   await page.route('**/in/jana/recent-activity/all/', route =>
     route.fulfill({status:200,contentType:'text/html',body:fixtureHtml('Publicações',2)}));
@@ -142,8 +267,17 @@ try {
     route.fulfill({status:200,contentType:'text/html',body:fixtureHtml('Comentários')}));
   await page.reload();
   visualPosts = await scan();
-  check(!visualPosts.some(p=>p.urn.startsWith('ll-vcard:')),
-    'SDUI: filtro Comentários selecionado jamais autoriza cartão visual');
+  check(visualPosts.length === 1 && visualPosts[0].urn.startsWith('ll-vcard:jana:'),
+    'SDUI: cartão continua localizável sem autorização do filtro Publicações');
+
+  // Regressão dos diagnósticos reais: publicação em /all/ sem filtro de Posts.
+  await page.setContent('<main><div data-sdui-screen>' + fixtureCard() + '</div></main>');
+  visualPosts = await scan();
+  check(visualPosts.length === 1 && visualPosts[0].urn.startsWith('ll-vcard:jana:'),
+    'sem filtro ativo: post recebe vínculo visual para o botão');
+  visualGuard = await probe(visualPosts[0].urn);
+  check(visualGuard.guard && visualGuard.state === false,
+    'sem filtro ativo: curtida no mesmo cartão passa guarda de pixel');
 
   await page.setContent(
     '<main><div class="feed-shared-update-v2" data-urn="urn:li:activity:7001">' +
@@ -333,7 +467,8 @@ try {
     '</div></main>'
   );
   posts = await scan();
-  check(posts.length === 1 && posts[0].urn.startsWith('ll-idx-') &&
+  check(posts.length === 1 && posts[0].urn.startsWith('ll-vcard:') &&
+    posts[0].cardIdentity?.postUrn === null &&
     posts[0].cardIdentity?.identityStatus === 'PROVISIONAL' &&
     posts[0].cardIdentity?.embeddedPostUrn === 'urn:li:activity:7381234567890128401',
     'URN exclusivamente incorporada não é promovida à publicação principal', posts);
@@ -546,8 +681,8 @@ try {
     '<button aria-label="Like" aria-pressed="false">Like</button></article></main>');
   posts = await scan();
   check(posts.length === 1 && posts[0].cardIdentity?.identityStatus === 'PROVISIONAL' &&
-    posts[0].urn.startsWith('ll-idx-'),
-    'Fase 2: cartão visível sem autor, data ou URN permanece candidato provisório', posts);
+    posts[0].cardIdentity?.postUrn === null && posts[0].urn.startsWith('ll-vcard:'),
+    'Fase 2: cartão sem autor, data ou URL tem referência visual, mas idade continua incerta', posts);
 
   await page.setContent('<main><article data-testid="feed-post" data-urn="urn:li:ugcPost:7381234567890129871">' +
     '<div class="update-components-text">Publicação atual com mídia e sem hora.</div>' +

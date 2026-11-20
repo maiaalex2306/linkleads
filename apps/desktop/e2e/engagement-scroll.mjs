@@ -116,19 +116,19 @@ try {
   check(site.state.comments.length === 1 && site.state.deepLikes === 1,
     'nenhum efeito duplicado num segundo ciclo');
 
-  // 2 anos esta fora do limite de 365 dias: o executor deve concluir sem curtir.
-  site.state.deepAge = '2 a';
+  // 6 anos esta fora do novo limite de 5 anos: o executor deve concluir sem curtir.
+  site.state.deepAge = '6 a';
   site.state.deepLiked = false;
   await call('setCampaignActive', acc.id, campaignId, false);
-  const secondId = (await call('createBlankCampaign', acc.id, 'Idade limite 365 dias')).campaignId;
+  const secondId = (await call('createBlankCampaign', acc.id, 'Idade limite 5 anos')).campaignId;
   const second = await call('campaignDetail', acc.id, secondId);
   await call('updateCampaign', acc.id, { ...second, actions: [{ ...action, id: 'age-boundary-step' }] });
   await call('addCollectionToCampaign', acc.id, secondId, collection.collectionId);
   await call('setCampaignActive', acc.id, secondId, true);
   await call('runNow', acc.id);
   check(site.state.deepLikes === 1 && site.state.comments.length === 1,
-    'post de 2 anos fora do limite: nenhuma curtida ou comentario adicional');
-  console.log('E2E CURTIR E COMENTAR — SCROLL E 365 DIAS OK');
+    'post de 6 anos fora do limite: nenhuma curtida ou comentario adicional');
+  console.log('E2E CURTIR E COMENTAR — SCROLL E 5 ANOS OK');
 } catch (e) {
   console.error('FALHOU:', e?.stack ?? e);
   process.exitCode = 1;

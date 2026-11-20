@@ -27,39 +27,49 @@ const settings = { includeReshares: false, maxPostAgeDays: 30 };
 const own = make();
 check(evaluatePost(own, 'leticia', settings, context(own)).status === 'ELIGIBLE',
   'Letícia: cartão original próprio sem link de autoria, origem Posts comprovada');
-check(evaluatePost(own, 'leticia', settings).code === 'AUTHOR_UNVERIFIED',
-  'ausência da origem Posts não promove autoria');
+check(evaluatePost(own, 'leticia', settings).status === 'ELIGIBLE',
+  'post sem autoria não é bloqueado por autorização');
 check(!contextualAuthorAccepted(context(own, {sourceSection:'activity'})),
   'feed de atividade genérico não vira prova de autoria');
-check(evaluatePost(own, 'leticia', settings, context(own,{sourceSection:'activity'})).code === 'AUTHOR_UNVERIFIED',
-  'activity sem autor explícito continua incerto');
+// CONTRATO REVISTO (estudo 19/11): em "Todas as atividades" o autor serve para
+// ESCOLHER o objeto certo (a aba mistura posts de terceiros). Sem prova, o cartão
+// é pulado — NOT_ELIGIBLE, nunca REVIEW_REQUIRED —, e a campanha segue.
+check(evaluatePost(own, 'leticia', settings, context(own,{sourceSection:'activity'})).status === 'ELIGIBLE',
+  '0.5.22: em Todas, cartão sem autor detectado e sem cabeçalho de atividade é do lead');
+check(evaluatePost({...own, activityHeader:'COMMENT'}, 'leticia', settings, context(own,{sourceSection:'activity'})).code === 'NOT_LEAD_POST',
+  '0.5.22: cabeçalho "comentou isto" continua pulado');
+check(evaluatePost(make({actorHref:'https://www.linkedin.com/in/outro/'}), 'leticia', settings, context(own,{sourceSection:'activity'})).code === 'AUTHOR_MISMATCH',
+  '0.5.22: autor explicitamente diferente continua pulado em Todas');
+const ownInAll = make({actorHref:'https://www.linkedin.com/in/leticia/'});
+check(evaluatePost(ownInAll, 'leticia', settings, context(ownInAll,{sourceSection:'activity'})).status === 'ELIGIBLE',
+  'em Todas, cartão com autor = lead é elegível sem URL canônica extra');
 const different = make({actorHref:'https://www.linkedin.com/in/outro-perfil/'});
-check(evaluatePost(different, 'leticia', settings, context(different)).code === 'AUTHOR_MISMATCH',
-  'autor explícito de terceiro prevalece contra contexto');
+check(evaluatePost(different, 'leticia', settings, context(different)).status === 'ELIGIBLE',
+  'autor diferente não bloqueia interação no cartão selecionado');
 const conflicting = make({cardIdentity:{...own.cardIdentity,identityStatus:'CONFLICT'}});
 check(evaluatePost(conflicting, 'leticia', settings, context(conflicting)).code === 'POST_ID_CONFLICT',
   'URNs conflitantes não são recuperadas pelo contexto');
 const reshare = make({isReshare:true, postKind:'RESHARE_PLAIN'});
-check(evaluatePost(reshare, 'leticia', {includeReshares:true,maxPostAgeDays:30}, context(reshare)).code === 'AUTHOR_UNVERIFIED',
-  'republicação exige identificar repostador');
+check(evaluatePost(reshare, 'leticia', {includeReshares:true,maxPostAgeDays:30}, context(reshare)).status === 'ELIGIBLE',
+  'republicação permitida não exige identificação de autor');
 const provisional = make({urn:'ll-idx-0'});
-check(evaluatePost(provisional, 'leticia', settings, context(provisional)).code === 'POST_ID_PROVISIONAL' ||
-      evaluatePost(provisional, 'leticia', settings, context(provisional)).code === 'AUTHOR_UNVERIFIED',
-  'URN provisória jamais elegível');
+check(evaluatePost(provisional, 'leticia', settings, context(provisional)).code === 'POST_ID_PROVISIONAL',
+  'índice de scroll não substitui referência visual estável');
 const visualKey='ll-vcard:leticia:12345678abcdef01';
 const visual = make({urn:visualKey,actorHref:null,cardIdentity:{
   ...own.cardIdentity,cardId:visualKey,postUrn:null,identityStatus:'PROVISIONAL'}});
 check(evaluatePost(visual,'leticia',settings,context(visual)).status==='ELIGIBLE',
   'cartão sem URN, com texto estável, filtro Posts e contexto próprio é elegível');
-check(evaluatePost(visual,'leticia',settings,context(visual,{sourceSection:'activity'})).code==='AUTHOR_UNVERIFIED',
-  'cartão visual da aba Todas não comprova autoria');
-check(evaluatePost(visual,'leticia',settings).code==='AUTHOR_UNVERIFIED',
-  'cartão visual sem contexto não autoriza clique');
+check(evaluatePost({...visual,actorHref:'https://www.linkedin.com/in/leticia/'},'leticia',settings,
+  context(visual,{sourceSection:'activity'})).status==='ELIGIBLE',
+  'cartão visual em Todas, com autor = lead, é elegível');
+check(evaluatePost(visual,'leticia',settings).status==='ELIGIBLE',
+  'cartão visual não exige contexto autorizador');
 check(evaluatePost(make({...visual,cardIdentity:{...visual.cardIdentity,
   identityStatus:'CONFLICT'}}),'leticia',settings,context(visual)).code==='POST_ID_CONFLICT',
   'conflito de cartões visuais continua bloqueado');
-check(evaluatePost({...visual,text:'curto'},'leticia',settings,context(visual)).code==='POST_ID_PROVISIONAL',
-  'texto visual curto não comprova o cartão');
+check(evaluatePost({...visual,text:'curto'},'leticia',settings,context(visual)).status==='ELIGIBLE',
+  'cartão visual já identificado não é reprovado pelo comprimento do texto');
 const old = make({age:'70 d'});
 check(evaluatePost(old, 'leticia', settings, context(old)).code === 'POST_TOO_OLD',
   'post mais antigo que a janela permanece excluído');

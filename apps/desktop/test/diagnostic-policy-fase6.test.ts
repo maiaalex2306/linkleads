@@ -99,7 +99,7 @@ describe('Fase 6 — diagnóstico de cada cartão sem expor autoria ou conteúdo
       ...card().cardIdentity!, primaryActorUrl: null,
     } });
     expect(cardDecision(wrongActor, 1, evaluatePost(wrongActor, 'ana-silva')).code)
-      .toBe('AUTHOR_UNVERIFIED');
+      .toBe('POST_ELIGIBLE');
     const conflict = card({ cardIdentity: {
       ...card().cardIdentity!, identityStatus: 'CONFLICT',
     } });

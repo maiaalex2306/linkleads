@@ -1,4 +1,4 @@
-import type { ActionExecutor, BudgetKey, ExecutionContext, ExecutionResult } from '@linkleads/core';
+import { effectiveLikePostAgeDays, type ActionExecutor, type BudgetKey, type ExecutionContext, type ExecutionResult } from '@linkleads/core';
 import type { ExecutorDeps } from './linkedin/executors.js';
 import { likeLatestPost, commentWithAi } from './linkedin/executors.js';
 
@@ -39,7 +39,7 @@ export function likeAndComment(d: ExecutorDeps): ActionExecutor {
         ...ctx,
         action: { ...ctx.action, type: 'LikePosts',
           settings: {
-            maxPostAgeDays: settings.maxPostAgeDays ?? 365,
+            maxPostAgeDays: effectiveLikePostAgeDays(settings.maxPostAgeDays),
             includeReshares: settings.includeReshares === true,
             allowAlreadyLiked: false,
           } },

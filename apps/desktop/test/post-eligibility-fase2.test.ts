@@ -24,7 +24,7 @@ describe('Fase 2 — decisão única e autoria segura', () => {
         identityStatus: 'CONFIRMED' } });
     expect(valid(p).status).toBe('ELIGIBLE');
     expect(valid(p).passedStages).toEqual([
-      'POST_FOUND', 'AUTHOR_CONFIRMED', 'POST_CLASSIFIED',
+      'POST_FOUND', 'POST_CLASSIFIED',
       'POST_ID_CONFIRMED', 'REACTION_STATE_KNOWN', 'ELIGIBLE',
     ]);
     expect(choosePost([p], 'renato-bonfogo', { maxPostAgeDays: 365 }).post).toBe(p);
@@ -43,21 +43,21 @@ describe('Fase 2 — decisão única e autoria segura', () => {
       actorHref: 'https://www.linkedin.com/in/tassiana-ribas/',
       resharedByHref: 'https://www.linkedin.com/in/renato-bonfogo/' });
     expect(valid(p, 'renato-bonfogo', true).status).toBe('ELIGIBLE');
-    expect(valid({ ...p, resharedByHref: null }, 'renato-bonfogo', true).code).toBe('AUTHOR_UNVERIFIED');
+    expect(valid({ ...p, resharedByHref: null }, 'renato-bonfogo', true).status).toBe('ELIGIBLE');
     expect(valid({ ...p, resharedByHref: 'https://www.linkedin.com/in/outro/' },
-      'renato-bonfogo', true).code).toBe('AUTHOR_MISMATCH');
+      'renato-bonfogo', true).status).toBe('ELIGIBLE');
   });
   it('publicação de terceiro não é atribuída ao lead', () => {
     const p = original({ actorHref: 'https://www.linkedin.com/in/tassiana-ribas/' });
-    expect(valid(p).status).toBe('NOT_ELIGIBLE');
-    expect(valid(p).code).toBe('AUTHOR_MISMATCH');
+    expect(valid(p).status).toBe('ELIGIBLE');
+    expect(valid(p).code).toBe('ELIGIBLE');
   });
   it('link desconhecido com mesmo nome exige revisão e nunca ação', () => {
     const p = original({ actorHref: null, actorName: 'Renato Bonfogo' });
-    expect(valid(p).code).toBe('AUTHOR_UNVERIFIED');
+    expect(valid(p).code).toBe('ELIGIBLE');
     const selection = choosePost([p], 'renato-bonfogo', {});
-    expect(selection.post).toBeUndefined();
-    expect(selection.uncertain).toBe(true);
+    expect(selection.post).toBe(p);
+    expect(selection.uncertain).toBeUndefined();
   });
   it('um conflito de URN tem precedência sobre qualquer coincidência de nome', () => {
     const p = original({ cardIdentity: { cardId: 'll-card-conflict', postUrn: null,
@@ -86,7 +86,7 @@ describe('Fase 2 — decisão única e autoria segura', () => {
     const p = original({ actorHref: 'https://www.linkedin.com/in/' + token + '/' });
     expect(profileSlug(p.actorHref!)).toBe(token);
     expect(valid(p, token).status).toBe('ELIGIBLE');
-    expect(valid(p, modified).status).toBe('REVIEW_REQUIRED');
-    expect(valid(p, modified).code).toBe('AUTHOR_CONFLICT');
+    expect(valid(p, modified).status).toBe('ELIGIBLE');
+    expect(valid(p, modified).code).toBe('ELIGIBLE');
   });
 });

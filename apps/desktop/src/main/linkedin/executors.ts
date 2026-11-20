@@ -1,19 +1,19 @@
 import { createHash } from 'node:crypto';
 import type { ActionExecutor, BudgetKey, ExecutionContext, ExecutionResult, Person, PostSnapshot } from '@linkleads/core';
-import { detectJobChange, getActionDefinition, memberIdFromBasicOpaquePublicId, memberIdFromSalesHash, normalizeLinkedInPublicId, parseRelativeAgeDays, publicIdFromUrl } from '@linkleads/core';
+import { effectiveLikePostAgeDays, POST_LIKE_WINDOW_DAYS, detectJobChange, getActionDefinition, memberIdFromBasicOpaquePublicId, memberIdFromSalesHash, normalizeLinkedInPublicId, parseRelativeAgeDays, publicIdFromUrl } from '@linkleads/core';
 import type { CommentSettings, LlmClient, PostInterpreter } from '@linkleads/ai';
 import type { IntegrationCrm } from '@linkleads/db';
 import type { EnrichmentProvider } from '@linkleads/integrations';
-import { commentEditorPoint, commentSubmitPoint, commentEvidence, editorText, extractPosts, extractProfile, likeState, profileReady, type PostExtract } from './dom-scripts.js';
+import { commentEditorPoint, commentSubmitPoint, commentEvidence, editorText, extractPosts, extractProfile, likeState, profileReady, reactionLookupDiagnosis, loadMorePoint, type PostExtract } from './dom-scripts.js';
 import { BlockedError, type PageDriver } from './page-driver.js';
 import { isCanonicalPostUrn, isVisualPostKey, provisionalPostFingerprint, contextualAuthorAccepted, buildPostSelectionContext, matchHydratedPost, type PostSelectionContext } from './post-identity.js';
 import { evaluatePost, firstUnlikedCandidate, profileSlug, sameConfirmedPublicId, type PostEvaluationCode } from './post-evaluation.js';
 export { evaluatePost, firstUnlikedCandidate, profileSlug, sameConfirmedPublicId } from './post-evaluation.js';
 export type { PostEvaluation, PostEvaluationStatus, PostEvaluationStage, PostEvaluationCode } from './post-evaluation.js';
 import type { DiagnosisContext } from './diagnostics.js';
-import { cardDecision } from './diagnostics-policy.js';
+import { cardDecision, type CardDecision } from './diagnostics-policy.js';
 import { openPostsSection } from './posts-section.js';
-import { savePostSelectionProof, postSelectionProof, saveCommentDraftOnce } from '../phase56-store.js';
+import { savePostSelectionProof, saveCommentDraftOnce } from '../phase56-store.js';
 import { parseSalesSource, profileResolutionRoutes, samePersonCompany, samePersonName, type ProfileRoute } from './profile-resolver.js';
 
 /** LINKLEADS_TEST_BASE_URL aponta para o site falso dos testes e2e; nunca usar em produção. */
@@ -208,11 +208,13 @@ export function choosePost(
   if (count('ALREADY_LIKED')) return {
     why: 'Todas as publicações elegíveis já foram curtidas; nenhuma ação adicional necessária',
   };
-  const maxAge = Math.max(1, Math.min(365, settings.maxPostAgeDays ?? 365));
+  const maxAge = Math.max(1, Math.min(POST_LIKE_WINDOW_DAYS, settings.maxPostAgeDays ?? POST_LIKE_WINDOW_DAYS));
   const parts = [
     count('POST_TOO_OLD') && count('POST_TOO_OLD') + ' com mais de ' + maxAge + ' dias',
     count('RESHARE_EXCLUDED') && count('RESHARE_EXCLUDED') + ' compartilhado(s) de outras pessoas',
     count('AUTHOR_MISMATCH') && count('AUTHOR_MISMATCH') + ' de outro autor',
+    count('NOT_LEAD_POST') && count('NOT_LEAD_POST') + ' de terceiros (comentados/reagidos pelo lead)',
+    count('AUTHOR_NOT_PROVEN_IN_ALL') && count('AUTHOR_NOT_PROVEN_IN_ALL') + ' sem autor comprovado na aba Todas',
     count('EMPTY_CONTENT') && count('EMPTY_CONTENT') + ' sem texto ou mídia',
   ].filter(Boolean);
   return { why: 'Achei ' + posts.length + ' post(s), nenhum elegível: ' + parts.join(', ') };
@@ -235,12 +237,13 @@ async function discoverUnlikedPost(
   sourceSection: 'posts' | 'activity' = 'activity',
   personId: string = publicId,
 ): Promise<{ post?: PostExtract; posts: PostExtract[]; why: string; uncertain?: boolean;
-  diagnosticCode?: PostEvaluationCode | 'CARD_NOT_FOUND' }> {
+  diagnosticCode?: PostEvaluationCode | 'CARD_NOT_FOUND'; blockedOrdinal?: number | null;
+  blockedEvidence?: CardDecision['evidence'] }> {
   const seen = new Map<string, PostExtract>();
   const contextForPost = (post: PostExtract): PostSelectionContext =>
     buildPostSelectionContext(post, personId, publicId, sourceSection);
   const start = Date.now();
-  const ageLimit = Math.max(1, Math.min(365, settings.maxPostAgeDays ?? 365));
+  const ageLimit = Math.max(1, Math.min(POST_LIKE_WINDOW_DAYS, settings.maxPostAgeDays ?? POST_LIKE_WINDOW_DAYS));
   // Publicações antigas podem exigir várias cargas da timeline.
   const maxScrolls = Math.min(90, Math.max(20, Math.ceil(ageLimit / 5)));
   let stalled = 0;
@@ -265,6 +268,8 @@ async function discoverUnlikedPost(
     // Autor, estado, URN e data continuam sendo gates separados de interacao.
     const ordered = [...seen.values()].filter((p) => !ignoredUrns.has(p.urn));
     let candidate = firstUnlikedCandidate(ordered, publicId, personName, settings, contextForPost);
+    let blockedOrdinal: number | null = null;
+    let blockedEvidence: CardDecision['evidence'] | undefined;
     if (candidate.uncertain) {
       // Reidratação deve preservar o MESMO cartão por URN/conteúdo, não seu
       // índice: uma viewport virtualizada pode inserir/remover cartões entre
@@ -272,6 +277,11 @@ async function discoverUnlikedPost(
       const blockedIndex = ordered.findIndex((post) => post.liked !== true &&
         evaluatePost(post, publicId, settings, contextForPost(post)).status === 'REVIEW_REQUIRED');
       const original = blockedIndex >= 0 ? ordered[blockedIndex] : undefined;
+      blockedOrdinal = blockedIndex >= 0 ? blockedIndex + 1 : null;
+      if (original && blockedOrdinal !== null) {
+        const assessment = evaluatePost(original, publicId, settings, contextForPost(original));
+        blockedEvidence = cardDecision(original, blockedOrdinal, assessment).evidence;
+      }
       for (let retry = 0; retry < 4 && candidate.uncertain && original; retry++) {
         // Somente LEITURA: dar tempo à hidratação assíncrona sem navegar,
         // interagir nem transformar identidades provisórias em confirmadas.
@@ -294,7 +304,7 @@ async function discoverUnlikedPost(
         ? ' Abra a publicação pelo carimbo de data na janela do LINKLEADS e use a interação manual supervisionada. Não haverá clique automático nem tentativa repetida sem identidade comprovada.'
         : '';
       return { posts: ordered, why: candidate.why + '. Confirmação humana necessária.' + manual,
-        uncertain: true, diagnosticCode: candidate.code };
+        uncertain: true, diagnosticCode: candidate.code, blockedOrdinal, blockedEvidence };
     }
     if (candidate.post) {
       const post = candidate.post;
@@ -329,7 +339,15 @@ async function discoverUnlikedPost(
     // A detecção de novos cartões usa somente identidades canônicas.
     // Cartões provisórios repetidos não contam como nova publicação.
     const newPost = hasNewVerifiedPost(seen, next);
-    if (after.offset <= before.offset && after.height <= before.height && !newPost) stalled++;
+    if (after.offset <= before.offset && after.height <= before.height && !newPost) {
+      // 0.5.22: fim aparente do feed pode ser só o botão "Mostrar mais resultados".
+      const more = await d.driver.read(loadMorePoint).catch(() => null);
+      if (more) {
+        await d.driver.input.click(more.x, more.y);
+        await new Promise((resolve) => setTimeout(resolve, 1400));
+        stalled = 0;
+      } else stalled++;
+    }
     else stalled = 0;
     if (stalled >= 3) break; // fim do feed, sem movimento nem carga adicional
   }
@@ -346,17 +364,76 @@ async function discoverUnlikedPost(
   };
 }
 
+
+/** CORREÇÃO (estudo 19/11): abre a aba Publicações sempre que possível; "Todas as
+ * atividades" fica como último recurso. Usado na curtida, na releitura e no envio. */
+async function openPreferredPostsSection(d: ExecutorDeps, publicId: string) {
+  let section = await openPostsSection(d, publicId);
+  if (section.source === 'activity' && section.status !== 'POST_SECTION_EMPTY') {
+    const postsRoute = await openPostsSection(d, publicId, { recoverVerifiedPostsRoute: true });
+    if (postsRoute.source === 'posts' && postsRoute.status !== 'POST_SECTION_UNAVAILABLE') section = postsRoute;
+  }
+  return section;
+}
+
+function likeLookupText(code: string): string {
+  switch (code) {
+    case 'CARD_NOT_MOUNTED': return 'o LinkedIn retirou o cartão da página durante a rolagem';
+    case 'CARD_IDENTITY_CHANGED': return 'o cartão foi redesenhado e não pôde ser reconhecido como o mesmo post';
+    case 'DUPLICATE_CARD': return 'o mesmo post aparece duas vezes na página; não há como escolher com segurança';
+    case 'REACTION_NOT_FOUND': return 'o cartão está na tela, mas sem botão Gostei reconhecível';
+    case 'REACTION_AMBIGUOUS_BUTTONS': return 'o cartão tem mais de um botão de reação';
+    case 'REACTION_ZERO_SIZE': return 'o botão Gostei existe, mas está oculto';
+    default: return 'código ' + code;
+  }
+}
+
+/** 0.5.22 — Localiza o botão Gostei do post JÁ selecionado sem trocar de post.
+ * O LinkedIn (SDUI) monta, desmonta e re-hidrata cartões durante a rolagem; um
+ * único "não achei" deixava a campanha sem curtida. Agora: espera a hidratação,
+ * reencontra o MESMO post pelo conteúdo (matchHydratedPost) e rola de volta se
+ * o cartão saiu da tela. Nunca substitui por outro post. */
+export async function locateLikeTarget(
+  d: ExecutorDeps, selected: PostExtract, publicId: string, settings: LikeSettings,
+  context: (post: PostExtract) => PostSelectionContext,
+): Promise<{ point: { x: number; y: number }; post: PostExtract } | { point: null; code: string; post: PostExtract }> {
+  const sel = d.driver.sel as unknown as Record<string, readonly string[]>;
+  let post = selected;
+  let code = 'UNKNOWN';
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const point = await d.driver.scrollIntoView('likeButton', { urn: post.urn, containerKey: 'postItem' });
+    if (point) return { point, post };
+    const diag = await d.driver.read(reactionLookupDiagnosis, sel, post.urn).catch(() => null);
+    code = diag?.code ?? 'UNKNOWN';
+    if (code === 'DUPLICATE_CARD' || code === 'REACTION_AMBIGUOUS_BUTTONS') break; // nunca adivinhar entre dois alvos
+    if (code === 'CARD_NOT_MOUNTED' || code === 'CARD_IDENTITY_CHANGED') {
+      const fresh = await d.driver.read(extractPosts, sel, 150).catch(() => [] as PostExtract[]);
+      const same = matchHydratedPost(post, fresh);
+      if (same && same.urn !== post.urn && (isCanonicalPostUrn(same.urn) || isVisualPostKey(same.urn)) &&
+          evaluatePost(same, publicId, settings, context(same)).status === 'ELIGIBLE') {
+        post = same; // mesmo post (texto, idade e autor), nova chave após re-hidratação
+        continue;
+      }
+      if (!same && attempt >= 1) await d.driver.input.scroll(attempt % 2 ? -680 : 680); // cartão virtualizado
+    }
+    await new Promise((resolve) => setTimeout(resolve, 450 + 300 * attempt));
+  }
+  return { point: null, code, post };
+}
+
 export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
   return {
     type: 'LikePosts',
     execute: (ctx) =>
       d.withBrowser(() =>
         guard(async () => {
-          const s = ctx.action.settings as LikeSettings;
+          // Janela de 5 anos aplicada na execução; preservar parâmetro legado no banco.
+          const s = { ...(ctx.action.settings as LikeSettings),
+            maxPostAgeDays: effectiveLikePostAgeDays((ctx.action.settings as LikeSettings).maxPostAgeDays) };
           const diagnosisContext: DiagnosisContext = {
             expectedPublicId: ctx.person.publicId ?? ctx.person.id,
             includeReshares: s.includeReshares === true,
-            maxPostAgeDays: s.maxPostAgeDays ?? 365,
+            maxPostAgeDays: s.maxPostAgeDays ?? POST_LIKE_WINDOW_DAYS,
             personId: ctx.person.id,
           };
           const previous = d.crm.latestLikeAttempt(ctx.person.id, ctx.campaignId, ctx.action.id);
@@ -389,6 +466,15 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
                   (file ? ' Diagnóstico: ' + file : '') };
             }
           }
+          // CORREÇÃO (estudo 19/11): preferir SEMPRE a aba Publicações.
+          // "Todas as atividades" mistura comentários e reações do lead em posts
+          // de terceiros. Só permanecer em all/ se a rota Publicações não abrir.
+          if (postSection.source === 'activity' && postSection.status === 'POST_SECTION_READY') {
+            const postsRoute = await openPostsSection(
+              d, ctx.person.publicId ?? ctx.person.id, { recoverVerifiedPostsRoute: true });
+            if (postsRoute.source === 'posts' && postsRoute.status !== 'POST_SECTION_UNAVAILABLE')
+              postSection = postsRoute;
+          }
           diagnosisContext.sourceSection = postSection.source;
           if (postSection.status === 'POST_SECTION_EMPTY')
             return { ok: false, reason: 'NO_POST',
@@ -401,12 +487,10 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
             const found = await discoverUnlikedPost(d, ctx.person.publicId ?? ctx.person.id, s,
               [ctx.person.firstName, ctx.person.lastName].filter(Boolean).join(' '), ignored,
               postSection.source, ctx.person.id);
-            const post = found.post;
+            let post = found.post;
             if (!post) {
-              // Recuperar a rota de Publicacoes somente quando a primeira
-              // tentativa realmente falhou por falta de autoria no feed geral.
-              // Perfis com autor explicito continuam no caminho ja homologado.
-              if (found.diagnosticCode === 'AUTHOR_UNVERIFIED' &&
+              // Buscar outra rota somente quando o primeiro cartão não foi localizável.
+              if (found.diagnosticCode === 'POST_ID_PROVISIONAL' &&
                   postSection.source === 'activity') {
                 const recovered = await openPostsSection(
                   d, ctx.person.publicId ?? ctx.person.id, { recoverVerifiedPostsRoute: true });
@@ -425,8 +509,19 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
               if (empty && !found.posts.length)
                 return { ok: false, reason: 'NO_POST', message: 'A pessoa não tem publicações visíveis' };
               const unreadable = !found.posts.length;
+              // O JSON deve retratar o MOTIVO DA TENTATIVA selecionada,
+              // não substituir a falha por outro cartão da nova leitura.
+              const selectedAttemptContext: DiagnosisContext = {
+                ...diagnosisContext,
+                attempt: {
+                  stage: 'selection',
+                  code: found.diagnosticCode ?? (unreadable ? 'CARD_NOT_FOUND' : 'UNKNOWN'),
+                  ordinal: found.blockedOrdinal ?? null,
+                  evidence: found.blockedEvidence,
+                },
+              };
               const file = (unreadable || found.uncertain) ?
-                await d.reportUnrecognized?.(diagnosisContext).catch(() => undefined) : undefined;
+                await d.reportUnrecognized?.(selectedAttemptContext).catch(() => undefined) : undefined;
               if (unreadable || found.uncertain) {
                 // Código de seleção pré-interação; o ledger é a última barreira contra retry.
                 const code = found.diagnosticCode ?? (unreadable ? 'CARD_NOT_FOUND' : undefined);
@@ -442,14 +537,36 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
             }
             // O botão precisa aparecer na tela após o scroll. Conferir o estado
             // NOVAMENTE imediatamente antes do clique: nunca desfazer um like.
-            const point = await d.driver.scrollIntoView('likeButton', { urn: post.urn, containerKey: 'postItem' });
+            const located = await locateLikeTarget(d, post, ctx.person.publicId ?? ctx.person.id, s,
+              (p) => buildPostSelectionContext(p, ctx.person.id, ctx.person.publicId ?? ctx.person.id, postSection.source));
+            const point = located.point;
+            if (!point && (located.code === 'DUPLICATE_CARD' || located.code === 'REACTION_AMBIGUOUS_BUTTONS')) {
+              // Problema ESTRUTURAL deste cartão (se repete a cada leitura): nunca clicar
+              // num deles; seguir para o próximo post elegível do mesmo lead.
+              d.crm.recordEngagementEffect({
+                campaignId: ctx.campaignId, actionId: ctx.action.id, personId: ctx.person.id,
+                postUrl: post.urn, stage: 'selection', status: 'blocked', reason: 'LIKE_BUTTON_' + located.code,
+              });
+              ignored.add(post.urn);
+              continue;
+            }
             if (!point) {
               // Não substituir silenciosamente o PRIMEIRO post não curtido
               // por um cartão posterior porque o botão do alvo não apareceu.
-              await d.reportUnrecognized?.(diagnosisContext).catch(() => undefined);
+              const file = await d.reportUnrecognized?.({ ...diagnosisContext,
+                attempt: { stage: 'selection', code: located.code, ordinal: null, evidence: undefined } })
+                .catch(() => undefined);
+              d.crm.recordEngagementEffect({
+                campaignId: ctx.campaignId, actionId: ctx.action.id, personId: ctx.person.id,
+                postUrl: post.urn, stage: 'selection', status: 'blocked', reason: 'LIKE_BUTTON_' + located.code,
+              });
               return { ok: false, reason: 'NO_REAL_EFFECT',
-                message: 'Primeira publicação não curtida identificada, mas seu botão de reação não ficou acessível. Nenhum outro post selecionado.' };
+                message: 'Parou ANTES do clique: o post foi escolhido, mas o botão Gostei dele não foi localizado (' +
+                  likeLookupText(located.code) + '; código ' + located.code + '). Nenhum outro post foi curtido.' + (file ? ' Diagnóstico: ' + file : ''),
+                data: { post: post.urn, likeAttempted: false } };
             }
+            // Mesmo post, eventualmente com chave renovada após re-hidratação.
+            post = located.post;
             const state = await d.driver.read(likeState, d.driver.sel as unknown as Record<string, readonly string[]>, post.urn);
             if (state === true) { ignored.add(post.urn); continue; }
             if (state !== false) {
@@ -465,10 +582,8 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
             // ao mesmo post e pessoa após reinício, sem autorizar conflitos.
             const proof = buildPostSelectionContext(post, ctx.person.id,
               ctx.person.publicId ?? ctx.person.id, postSection.source);
-            if (contextualAuthorAccepted(proof) &&
-                !savePostSelectionProof(d.crm, post.urn, ctx.person.id, proof.confirmedPublicId))
-              return { ok: false, reason: 'NO_REAL_EFFECT',
-                message: 'Prova contextual de autoria não pôde ser preservada; nenhuma curtida enviada' };
+            if (contextualAuthorAccepted(proof))
+              savePostSelectionProof(d.crm, post.urn, ctx.person.id, proof.confirmedPublicId);
             d.crm.recordEngagementEffect({
               campaignId: ctx.campaignId, actionId: ctx.action.id, personId: ctx.person.id,
               postUrl: post.urn, stage: 'selection', status: 'confirmed',
@@ -564,14 +679,11 @@ async function hydratePostForComment(
       if (!owner?.publicId) return failure('Perfil do cartão visual não disponível no CRM');
       const navigated = await gotoProfile(d, owner, 'recent-activity/all/');
       if (navigated !== 'ok') return openFailed(navigated);
-      const section = await openPostsSection(d, owner.publicId);
-      if (section.status !== 'POST_SECTION_READY' || section.source !== 'posts')
-        return failure('Não foi possível validar Publicações no mesmo perfil para reler o texto');
+      const section = await openPreferredPostsSection(d, owner.publicId);
+      if (section.status !== 'POST_SECTION_READY')
+        return failure('Cartão da publicação indisponível na atividade do perfil');
       if (d.preflightPostContract && !(await d.preflightPostContract()))
         return failure('Pré-validação da seção Publicações bloqueada');
-      const proofs = postSelectionProof(d.crm, post.url);
-      if (!proofs || proofs.personId !== personId || proofs.publicId !== owner.publicId)
-        return failure('Prova contextual do cartão visual não coincide com o contato');
       const selectorMap = d.driver.sel as unknown as Record<string, readonly string[]>;
       const cards = await d.driver.read(extractPosts, selectorMap, 150);
       const matches = cards.filter((p) => p.urn === post.url &&
@@ -579,10 +691,25 @@ async function hydratePostForComment(
         p.cardIdentity.cardId === post.url && !p.isReshare);
       if (matches.length !== 1)
         return failure('Cartão visual mudou, desapareceu ou ficou ambíguo: IA não acionada');
-      const current = matches[0]!;
-      if (current.actorHref &&
-          !sameConfirmedPublicId(profileSlug(current.actorHref), owner.publicId))
-        return failure('Autor explícito contradiz o perfil selecionado');
+      let current = matches[0]!;
+      if (current.truncated) {
+        // Expandir exclusivamente o cartão cujo vínculo visual foi preservado.
+        // Após o React re-renderizar, reler novamente IDENTIDADE e AUTORIA.
+        if (!(await d.driver.clickVerifiedPostMore(post.url)))
+          return failure('O botão …mais não foi identificado univocamente no cartão visual');
+        const expanded = await d.driver.waitUntil(async () => {
+          const refreshed = await d.driver.read(extractPosts, selectorMap, 150);
+          const own = refreshed.filter((p) => p.urn === post.url &&
+            p.cardIdentity?.identityStatus === 'PROVISIONAL' &&
+            p.cardIdentity.cardId === post.url && !p.isReshare &&
+            p.urn === post.url);
+          if (own.length !== 1) return false;
+          current = own[0]!;
+          return !current.truncated && current.text.trim().length >= 24;
+        }, 8_000);
+        if (!expanded)
+          return failure('A expansão mudou ou tornou ambíguo o cartão visual; IA bloqueada');
+      }
       if (current.truncated || current.text.trim().length < 24)
         return failure('Texto visual incompleto: expandir e revisar antes de gerar IA');
       d.crm.savePost(personId, {url:post.url,text:current.text,
@@ -617,22 +744,8 @@ async function hydratePostForComment(
       }
       if (!current || current.truncated || !current.text.trim())
         return failure('Texto integral do post indisponível; revisão necessária antes da IA');
-      const owner = d.crm.getPerson(personId)?.publicId;
-      const actorUrl = current.isReshare ? current.resharedByHref : current.actorHref;
-      const explicit = Boolean(owner && actorUrl &&
-        sameConfirmedPublicId(profileSlug(actorUrl), owner));
-      const stored = !actorUrl ? postSelectionProof(d.crm, post.url) : undefined;
-      const contextual = Boolean(owner && stored &&
-        stored.personId === personId && stored.publicId === owner &&
-        stored.sourceSection === 'posts' && stored.postKind === 'original' &&
-        stored.authorEvidence === 'contextual' &&
-        !current.isReshare && !current.resharedByHref &&
-        (current.postKind === 'ORIGINAL' || current.postKind === 'ORIGINAL_WITH_ATTACHMENT') &&
-        current.cardIdentity?.identityStatus === 'CONFIRMED' &&
-        current.urn === post.url);
-      if (!explicit && !contextual)
-        return failure('Autoria do post no permalink não corresponde ao lead nem à prova contextual assinada na seleção; IA bloqueada');
-      // Somente após reler uma publicação canônica sem truncamento e com autoria comprovada.
+      // Após abrir a mesma publicação e reler seu conteúdo, continuar sem
+      // conferir identidade do autor como condição para comentar.
       d.crm.savePost(personId, {
         url: post.url, text: current.text,
         postedAt: current.age ?? post.postedAt, hasMedia: current.hasMedia,
@@ -657,14 +770,10 @@ export async function publishComment(
         message: 'Comentário visual exige pessoa confirmada da campanha' };
       const opened = await gotoProfile(d, owner, 'recent-activity/all/');
       if (opened !== 'ok') return openFailed(opened);
-      const section = await openPostsSection(d, owner.publicId);
-      if (section.status !== 'POST_SECTION_READY' || section.source !== 'posts')
+      const section = await openPreferredPostsSection(d, owner.publicId);
+      if (section.status !== 'POST_SECTION_READY')
         return {ok:false,reason:'NO_REAL_EFFECT',
-          message:'Seção Publicações não confirmada para comentário visual'};
-      const proof = postSelectionProof(d.crm, urn);
-      if (!proof || proof.personId !== personId || proof.publicId !== owner.publicId)
-        return {ok:false,reason:'NO_REAL_EFFECT',
-          message:'Prova contextual do comentário não corresponde ao contato'};
+          message:'Cartão da publicação não disponível na atividade para comentar'};
     } else {
       await d.driver.goto(postUrl(urn));
     }

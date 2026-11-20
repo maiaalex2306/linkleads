@@ -1,4 +1,4 @@
-import { ACTION_CATALOG, type ActionConfig, type Campaign } from '@linkleads/core';
+import { ACTION_CATALOG, POST_LIKE_WINDOW_DAYS, type ActionConfig, type Campaign } from '@linkleads/core';
 import { EXECUTABLE_TYPES } from './campaign-executors.js';
 export { EXECUTABLE_TYPES } from './campaign-executors.js';
 const executable = new Set<string>(EXECUTABLE_TYPES);
@@ -23,7 +23,7 @@ export const ACTION_FIELDS: Record<string, ConfigField[]> = {
     // quantidades maiores ou artigos até implementar navegação e verificação.
     n('likesPerProfile', 'Publicações para curtir por perfil (atual: 1)', 1, 1, 1),
     n('likeArticlesCount', 'Artigos para curtir (indisponível nesta versão)', 0, 0, 0),
-    n('maxPostAgeDays', 'Ignorar publicações mais antigas que (dias)', 1, 365, 365),
+    n('maxPostAgeDays', 'Publicações de até 5 anos (dias, política atual)', 1, POST_LIKE_WINDOW_DAYS, POST_LIKE_WINDOW_DAYS),
     c('includeReshares', 'Permitir repostagens do próprio autor', false),
     c('commentEnabled', 'Adicionar comentário após a curtida confirmada', true),
     select('commentMethod', 'Origem do comentário (IA homologada)', ['ai'], 'ai'),
@@ -43,7 +43,7 @@ export const ACTION_FIELDS: Record<string, ConfigField[]> = {
     n('maxChars', 'Máximo de caracteres', 100, 1250, 400),
     t('extraInstructions', 'Orientações adicionais da IA', 'textarea'),
   ],
-  LikePosts: [n('maxPostAgeDays', 'Idade máxima das publicações (dias)', 1, 365, 365),
+  LikePosts: [n('maxPostAgeDays', 'Publicações de até 5 anos (dias, política atual)', 1, POST_LIKE_WINDOW_DAYS, POST_LIKE_WINDOW_DAYS),
     c('includeReshares', 'Incluir compartilhamentos', false)],
   CommentPost: [select('mode', 'Aprovação de comentários', ['manual', 'auto'], 'manual'),
     t('goal', 'Objetivo específico do comentário', 'textarea'),
