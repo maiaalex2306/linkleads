@@ -4,7 +4,7 @@ import { effectiveLikePostAgeDays, POST_LIKE_WINDOW_DAYS, detectJobChange, getAc
 import type { CommentSettings, LlmClient, PostInterpreter } from '@linkleads/ai';
 import type { IntegrationCrm } from '@linkleads/db';
 import type { EnrichmentProvider } from '@linkleads/integrations';
-import { commentEditorPoint, commentSubmitPoint, commentEvidence, editorText, extractPosts, extractProfile, likeState, profileReady, type PostExtract } from './dom-scripts.js';
+import { commentEditorPoint, commentSubmitPoint, commentEvidence, editorText, extractPosts, extractProfile, likeState, profileReady, reactionLookupDiagnosis, loadMorePoint, type PostExtract } from './dom-scripts.js';
 import { BlockedError, type PageDriver } from './page-driver.js';
 import { isCanonicalPostUrn, isVisualPostKey, provisionalPostFingerprint, contextualAuthorAccepted, buildPostSelectionContext, matchHydratedPost, type PostSelectionContext } from './post-identity.js';
 import { evaluatePost, firstUnlikedCandidate, profileSlug, sameConfirmedPublicId, type PostEvaluationCode } from './post-evaluation.js';
@@ -339,7 +339,15 @@ async function discoverUnlikedPost(
     // A detecção de novos cartões usa somente identidades canônicas.
     // Cartões provisórios repetidos não contam como nova publicação.
     const newPost = hasNewVerifiedPost(seen, next);
-    if (after.offset <= before.offset && after.height <= before.height && !newPost) stalled++;
+    if (after.offset <= before.offset && after.height <= before.height && !newPost) {
+      // 0.5.22: fim aparente do feed pode ser só o botão "Mostrar mais resultados".
+      const more = await d.driver.read(loadMorePoint).catch(() => null);
+      if (more) {
+        await d.driver.input.click(more.x, more.y);
+        await new Promise((resolve) => setTimeout(resolve, 1400));
+        stalled = 0;
+      } else stalled++;
+    }
     else stalled = 0;
     if (stalled >= 3) break; // fim do feed, sem movimento nem carga adicional
   }
@@ -366,6 +374,51 @@ async function openPreferredPostsSection(d: ExecutorDeps, publicId: string) {
     if (postsRoute.source === 'posts' && postsRoute.status !== 'POST_SECTION_UNAVAILABLE') section = postsRoute;
   }
   return section;
+}
+
+function likeLookupText(code: string): string {
+  switch (code) {
+    case 'CARD_NOT_MOUNTED': return 'o LinkedIn retirou o cartão da página durante a rolagem';
+    case 'CARD_IDENTITY_CHANGED': return 'o cartão foi redesenhado e não pôde ser reconhecido como o mesmo post';
+    case 'DUPLICATE_CARD': return 'o mesmo post aparece duas vezes na página; não há como escolher com segurança';
+    case 'REACTION_NOT_FOUND': return 'o cartão está na tela, mas sem botão Gostei reconhecível';
+    case 'REACTION_AMBIGUOUS_BUTTONS': return 'o cartão tem mais de um botão de reação';
+    case 'REACTION_ZERO_SIZE': return 'o botão Gostei existe, mas está oculto';
+    default: return 'código ' + code;
+  }
+}
+
+/** 0.5.22 — Localiza o botão Gostei do post JÁ selecionado sem trocar de post.
+ * O LinkedIn (SDUI) monta, desmonta e re-hidrata cartões durante a rolagem; um
+ * único "não achei" deixava a campanha sem curtida. Agora: espera a hidratação,
+ * reencontra o MESMO post pelo conteúdo (matchHydratedPost) e rola de volta se
+ * o cartão saiu da tela. Nunca substitui por outro post. */
+export async function locateLikeTarget(
+  d: ExecutorDeps, selected: PostExtract, publicId: string, settings: LikeSettings,
+  context: (post: PostExtract) => PostSelectionContext,
+): Promise<{ point: { x: number; y: number }; post: PostExtract } | { point: null; code: string; post: PostExtract }> {
+  const sel = d.driver.sel as unknown as Record<string, readonly string[]>;
+  let post = selected;
+  let code = 'UNKNOWN';
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const point = await d.driver.scrollIntoView('likeButton', { urn: post.urn, containerKey: 'postItem' });
+    if (point) return { point, post };
+    const diag = await d.driver.read(reactionLookupDiagnosis, sel, post.urn).catch(() => null);
+    code = diag?.code ?? 'UNKNOWN';
+    if (code === 'DUPLICATE_CARD' || code === 'REACTION_AMBIGUOUS_BUTTONS') break; // nunca adivinhar entre dois alvos
+    if (code === 'CARD_NOT_MOUNTED' || code === 'CARD_IDENTITY_CHANGED') {
+      const fresh = await d.driver.read(extractPosts, sel, 150).catch(() => [] as PostExtract[]);
+      const same = matchHydratedPost(post, fresh);
+      if (same && same.urn !== post.urn && (isCanonicalPostUrn(same.urn) || isVisualPostKey(same.urn)) &&
+          evaluatePost(same, publicId, settings, context(same)).status === 'ELIGIBLE') {
+        post = same; // mesmo post (texto, idade e autor), nova chave após re-hidratação
+        continue;
+      }
+      if (!same && attempt >= 1) await d.driver.input.scroll(attempt % 2 ? -680 : 680); // cartão virtualizado
+    }
+    await new Promise((resolve) => setTimeout(resolve, 450 + 300 * attempt));
+  }
+  return { point: null, code, post };
 }
 
 export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
@@ -434,7 +487,7 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
             const found = await discoverUnlikedPost(d, ctx.person.publicId ?? ctx.person.id, s,
               [ctx.person.firstName, ctx.person.lastName].filter(Boolean).join(' '), ignored,
               postSection.source, ctx.person.id);
-            const post = found.post;
+            let post = found.post;
             if (!post) {
               // Buscar outra rota somente quando o primeiro cartão não foi localizável.
               if (found.diagnosticCode === 'POST_ID_PROVISIONAL' &&
@@ -484,14 +537,36 @@ export function likeLatestPost(d: ExecutorDeps): ActionExecutor {
             }
             // O botão precisa aparecer na tela após o scroll. Conferir o estado
             // NOVAMENTE imediatamente antes do clique: nunca desfazer um like.
-            const point = await d.driver.scrollIntoView('likeButton', { urn: post.urn, containerKey: 'postItem' });
+            const located = await locateLikeTarget(d, post, ctx.person.publicId ?? ctx.person.id, s,
+              (p) => buildPostSelectionContext(p, ctx.person.id, ctx.person.publicId ?? ctx.person.id, postSection.source));
+            const point = located.point;
+            if (!point && (located.code === 'DUPLICATE_CARD' || located.code === 'REACTION_AMBIGUOUS_BUTTONS')) {
+              // Problema ESTRUTURAL deste cartão (se repete a cada leitura): nunca clicar
+              // num deles; seguir para o próximo post elegível do mesmo lead.
+              d.crm.recordEngagementEffect({
+                campaignId: ctx.campaignId, actionId: ctx.action.id, personId: ctx.person.id,
+                postUrl: post.urn, stage: 'selection', status: 'blocked', reason: 'LIKE_BUTTON_' + located.code,
+              });
+              ignored.add(post.urn);
+              continue;
+            }
             if (!point) {
               // Não substituir silenciosamente o PRIMEIRO post não curtido
               // por um cartão posterior porque o botão do alvo não apareceu.
-              await d.reportUnrecognized?.(diagnosisContext).catch(() => undefined);
+              const file = await d.reportUnrecognized?.({ ...diagnosisContext,
+                attempt: { stage: 'selection', code: located.code, ordinal: null, evidence: undefined } })
+                .catch(() => undefined);
+              d.crm.recordEngagementEffect({
+                campaignId: ctx.campaignId, actionId: ctx.action.id, personId: ctx.person.id,
+                postUrl: post.urn, stage: 'selection', status: 'blocked', reason: 'LIKE_BUTTON_' + located.code,
+              });
               return { ok: false, reason: 'NO_REAL_EFFECT',
-                message: 'Primeira publicação não curtida identificada, mas seu botão de reação não ficou acessível. Nenhum outro post selecionado.' };
+                message: 'Parou ANTES do clique: o post foi escolhido, mas o botão Gostei dele não foi localizado (' +
+                  likeLookupText(located.code) + '; código ' + located.code + '). Nenhum outro post foi curtido.' + (file ? ' Diagnóstico: ' + file : ''),
+                data: { post: post.urn, likeAttempted: false } };
             }
+            // Mesmo post, eventualmente com chave renovada após re-hidratação.
+            post = located.post;
             const state = await d.driver.read(likeState, d.driver.sel as unknown as Record<string, readonly string[]>, post.urn);
             if (state === true) { ignored.add(post.urn); continue; }
             if (state !== false) {

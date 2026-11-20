@@ -34,8 +34,12 @@ check(!contextualAuthorAccepted(context(own, {sourceSection:'activity'})),
 // CONTRATO REVISTO (estudo 19/11): em "Todas as atividades" o autor serve para
 // ESCOLHER o objeto certo (a aba mistura posts de terceiros). Sem prova, o cartão
 // é pulado — NOT_ELIGIBLE, nunca REVIEW_REQUIRED —, e a campanha segue.
-check(evaluatePost(own, 'leticia', settings, context(own,{sourceSection:'activity'})).code === 'AUTHOR_NOT_PROVEN_IN_ALL',
-  'em Todas, cartão sem autor comprovado é pulado (não bloqueia a campanha)');
+check(evaluatePost(own, 'leticia', settings, context(own,{sourceSection:'activity'})).status === 'ELIGIBLE',
+  '0.5.22: em Todas, cartão sem autor detectado e sem cabeçalho de atividade é do lead');
+check(evaluatePost({...own, activityHeader:'COMMENT'}, 'leticia', settings, context(own,{sourceSection:'activity'})).code === 'NOT_LEAD_POST',
+  '0.5.22: cabeçalho "comentou isto" continua pulado');
+check(evaluatePost(make({actorHref:'https://www.linkedin.com/in/outro/'}), 'leticia', settings, context(own,{sourceSection:'activity'})).code === 'AUTHOR_MISMATCH',
+  '0.5.22: autor explicitamente diferente continua pulado em Todas');
 const ownInAll = make({actorHref:'https://www.linkedin.com/in/leticia/'});
 check(evaluatePost(ownInAll, 'leticia', settings, context(ownInAll,{sourceSection:'activity'})).status === 'ELIGIBLE',
   'em Todas, cartão com autor = lead é elegível sem URL canônica extra');

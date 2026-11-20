@@ -94,15 +94,17 @@ export function evaluatePost(
     return result('NOT_ELIGIBLE', 'POST_FOUND', 'NOT_LEAD_POST',
       'Cartão de atividade: post de outra pessoa em que o lead comentou/reagiu');
   if (selectionContext?.sourceSection === 'activity' && !isReshare) {
-    // Na aba geral, só é alvo o cartão cujo autor é comprovadamente o lead.
-    // Sem prova, o cartão é PULADO (NOT_ELIGIBLE) — não bloqueia a campanha:
-    // o executor segue para o próximo cartão ou para a rota Publicações.
+    // 0.5.22: em 2026 a página /recent-activity/all/ abre com o filtro
+    // Publicações selecionado por padrão, e o app nem sempre reconhece o chip.
+    // Na página de atividade do PRÓPRIO lead, um cartão sem cabeçalho de
+    // atividade ("comentou", "gostou", "republicou") é publicação dele.
+    // Só pular quando há prova POSITIVA de outro autor. Autor não detectado
+    // deixou de bloquear (caso Wallison: "2 sem autor comprovado na aba Todas").
     const observed = post.actorHref ? profileSlug(post.actorHref) : undefined;
-    if (!sameConfirmedPublicId(observed, publicId))
-      return result('NOT_ELIGIBLE', 'POST_FOUND',
-        observed ? 'AUTHOR_MISMATCH' : 'AUTHOR_NOT_PROVEN_IN_ALL',
-        observed ? 'Cartão de outro autor na aba Todas as atividades'
-          : 'Autor não comprovado na aba Todas as atividades; usar a aba Publicações');
+    const opaque = (id: string | undefined) => !!id && /^AC[owr][A-Za-z0-9_-]{20,}$/.test(id);
+    if (observed && !opaque(observed) && !opaque(publicId) && !sameConfirmedPublicId(observed, publicId))
+      return result('NOT_ELIGIBLE', 'POST_FOUND', 'AUTHOR_MISMATCH',
+        'Cartão de outro autor na página de atividade do lead');
   }
   passedStages.push('POST_CLASSIFIED');
   const visualBound = isVisualPostKey(post.urn) &&

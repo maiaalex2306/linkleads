@@ -134,7 +134,11 @@ export function matchHydratedPost<T extends {
     if (post.isReshare !== original.isReshare) return false;
     if (canonical) return post.urn === original.urn;
     if (sameText(post.text) !== expected) return false;
+    // Reassociar um cartão só pelo texto seria inseguro se idade ou autoria
+    // desaparecerem durante a hidratação. Não relaxar os metadados conhecidos.
+    if (Boolean(original.age) !== Boolean(post.age)) return false;
     if (original.age && post.age && original.age.trim() !== post.age.trim()) return false;
+    if (Boolean(original.actorHref) !== Boolean(post.actorHref)) return false;
     if (original.actorHref && post.actorHref &&
         norm(original.actorHref) !== norm(post.actorHref)) return false;
     return true;

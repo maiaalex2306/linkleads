@@ -32,12 +32,16 @@ describe('Seleção do post certo (estudo 19/11/2026)', () => {
     expect(evaluatePost(p, 'layout-novo', {}, inPosts(p)).code).toBe('NOT_LEAD_POST');
     expect(evaluatePost({ ...p, activityHeader: 'REACTION' }, 'layout-novo', {}, inAll(p)).status).toBe('NOT_ELIGIBLE');
   });
-  it('na aba Todas, autor desconhecido é PULADO (não bloqueia a campanha)', () => {
+  it('0.5.22: na aba Todas, autor não detectado e sem cabeçalho de atividade é post do lead', () => {
     const unknown = card({ urn: 'll-vcard:layout-novo:aaaaaaaaaaaaaaaa' });
-    const own = card({ urn: 'll-vcard:layout-novo:bbbbbbbbbbbbbbbb', actorHref: 'https://www.linkedin.com/in/layout-novo/' });
-    const r = firstUnlikedCandidate([unknown, own], 'layout-novo', '', {}, inAll);
+    const r = firstUnlikedCandidate([unknown], 'layout-novo', '', {}, inAll);
     expect(r.uncertain).toBeFalsy();
-    expect(r.post?.urn).toBe(own.urn);
+    expect(r.post?.urn).toBe(unknown.urn);
+  });
+  it('0.5.22: autor não detectado MAS com cabeçalho "comentou" continua pulado', () => {
+    const foreign = card({ urn: 'll-vcard:layout-novo:aaaaaaaaaaaaaaaa', activityHeader: 'COMMENT' });
+    const own = card({ urn: 'll-vcard:layout-novo:bbbbbbbbbbbbbbbb' });
+    expect(firstUnlikedCandidate([foreign, own], 'layout-novo', '', {}, inAll).post?.urn).toBe(own.urn);
   });
   it('E01/E02 continuam resolvidos: na aba Publicações, cartão visual sem URL e sem autor é elegível', () => {
     const p = card({ urn: 'll-vcard:layout-novo:0123456789abcdef' });

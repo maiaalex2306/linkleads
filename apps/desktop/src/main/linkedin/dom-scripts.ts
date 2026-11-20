@@ -390,6 +390,47 @@ declare function __llReactionTarget(card: Element, configured: readonly string[]
   element: HTMLElement | null; state: boolean | null; reason: string;
 };
 
+/** 0.5.22 — Algumas contas recebem o botão "Mostrar mais resultados" em vez de
+ * rolagem infinita. Devolve o centro do ÚNICO botão de paginação visível, fora de
+ * qualquer cartão de post; null se não houver ou se houver mais de um. */
+export function loadMorePoint(): { x: number; y: number } | null {
+  const LABEL = /^(?:mostrar mais resultados|exibir mais resultados|carregar mais|ver mais publica[cç][oõ]es|show more results|load more|see more posts)$/i;
+  const nodes = (Array.from(document.querySelectorAll('button, [role="button"]')) as HTMLElement[]).filter((b) => {
+    const label = (b.getAttribute('aria-label') || b.innerText || '').replace(/\s+/g, ' ').trim();
+    if (!LABEL.test(label) || b.closest('[data-urn], [componentkey] [contenteditable]')) return false;
+    let n: Element | null = b.parentElement;
+    for (let i = 0; n && i < 6; i++, n = n.parentElement)
+      if (Array.from(n.querySelectorAll('button')).some((x) => /situa[cç][aã]o do bot[aã]o de rea|reaction button state/i.test(x.getAttribute('aria-label') ?? ''))) return false;
+    const r = b.getBoundingClientRect();
+    return r.width > 0 && r.height > 0 && r.top >= 0 && r.bottom <= window.innerHeight;
+  });
+  if (nodes.length !== 1) return null;
+  const r = nodes[0]!.getBoundingClientRect();
+  return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
+}
+
+/** 0.5.22 — Diagnóstico somente-leitura de POR QUE o botão de reação do post
+ * selecionado não pôde ser localizado. Não clica, não rola e não grava texto.
+ */
+export function reactionLookupDiagnosis(
+  sel: Record<string, readonly string[]>, urn: string,
+): { code: string; cards: number; sameKey: number; accepted: number; buttonTop: number | null; viewport: number } {
+  const all = __llPostContainers({ postItem: sel.postItem!, likeButton: sel.likeButton! });
+  const same = all.filter((c) => c.urn === urn);
+  const accepted = same.filter((c) => c.identity.identityStatus === 'CONFIRMED' ||
+    (urn.startsWith('ll-vcard:') && c.identity.identityStatus === 'PROVISIONAL' && c.identity.cardId === urn));
+  const base = { cards: all.length, sameKey: same.length, accepted: accepted.length,
+    buttonTop: null as number | null, viewport: window.innerHeight };
+  if (!same.length) return { code: 'CARD_NOT_MOUNTED', ...base };
+  if (accepted.length > 1) return { code: 'DUPLICATE_CARD', ...base };
+  if (!accepted.length) return { code: 'CARD_IDENTITY_CHANGED', ...base };
+  const target = __llReactionTarget(accepted[0]!.el, sel.likeButton!);
+  if (!target.element) return { code: 'REACTION_' + target.reason, ...base };
+  const r = target.element.getBoundingClientRect();
+  if (!(r.width > 0 && r.height > 0)) return { code: 'REACTION_ZERO_SIZE', ...base, buttonTop: Math.round(r.top) };
+  return { code: 'OK', ...base, buttonTop: Math.round(r.top) };
+}
+
 /** Última barreira P1: o pixel de clique deve pertencer ao botão do MESMO post,
  * que ainda precisa apresentar estado NÃO CURTIDO imediatamente antes do mouseDown.
  */
@@ -931,8 +972,10 @@ export function extractPosts(sel: Record<string, readonly string[]>, limit: numb
     // CORREÇÃO (estudo 19/11): no SDUI o cabeçalho "Fulano comentou isto /
     // gostou / republicou" não tem classe. Ele fica ACIMA do link do autor
     // principal. Em "Todas as atividades" esse cartão é o post de OUTRA pessoa.
-    const COMMENT_RE = /\b(?:comentou|commented)\b/i;
-    const REACTION_RE = /\b(?:gostou|curtiu|reagiu|celebrou|apoiou|amou|achou (?:isso |isto )?(?:interessante|engra[cç]ado)|likes? this|liked|reacted|celebrates|supports|loves|finds this)\b/i;
+    // 0.5.22: verbos de atividade do LinkedIn PT/EN ampliados (comentários,
+    // respostas e as seis reações). Só valem no cabeçalho acima do autor.
+    const COMMENT_RE = /\b(?:comentou|respondeu|commented|replied)\b/i;
+    const REACTION_RE = /\b(?:gostou|curtiu|curte|reagiu|celebrou|celebra|parabenizou|apoiou|apoia|amou|ama|achou (?:isso |isto )?(?:interessante|engra[cç]ado|genial)|likes? this|liked|reacted|celebrates|supports|loves|finds this)\b/i;
     const authorAnchor = identity.primaryActorUrl
       ? (Array.from(it.querySelectorAll('a[href*="/in/"]')) as HTMLAnchorElement[])
           .find((a) => !inEmbedded(a) && a.href.replace(/\/$/, '') === identity.primaryActorUrl!.replace(/\/$/, '')) ?? null
@@ -1020,18 +1063,37 @@ export function likeState(sel: Record<string, readonly string[]>, urn: string): 
 export function llCommentControls(
   sel: Record<string, readonly string[]>, urn: string,
 ): { root: Element | null; editor: HTMLElement | null; submit: HTMLButtonElement | null; reason: string } {
-  const cards = __llPostContainers({ postItem: sel.postItem!, likeButton: sel.likeButton! })
+  const allCards = __llPostContainers({ postItem: sel.postItem!, likeButton: sel.likeButton! });
+  const cards = allCards
     .filter((c) => c.urn === urn && (c.identity.identityStatus === 'CONFIRMED' || (urn.startsWith('ll-vcard:') && c.identity.identityStatus === 'PROVISIONAL' && c.identity.cardId === urn)));
   if (cards.length !== 1) return { root: null, editor: null, submit: null, reason: 'CARD_UNVERIFIED' };
   const root = cards[0]!.el;
+  // 0.5.22: no SDUI a seção de comentários pode ser desenhada como IRMÃ do
+  // cartão (fora do contêiner do post). Regiões aceitas: irmãos seguintes do
+  // cartão, até 3 níveis acima, parando no próximo post (que tem Compartilhar).
+  const isOtherPost = (el: Element): boolean => {
+    if (allCards.some((c) => c.el !== root && (el === c.el || el.contains(c.el) || c.el.contains(el)))) return true;
+    const buttons = Array.from(el.querySelectorAll('button, [role="button"]'));
+    return buttons.some((b) => /situa[cç][aã]o do bot[aã]o de rea|reaction button state/i.test(b.getAttribute('aria-label') ?? '')) &&
+      buttons.some((b) => /^(?:compartilhar|share|repost|republicar)/i.test((b.getAttribute('aria-label') || (b as HTMLElement).innerText || '').trim()));
+  };
+  const regions: Element[] = [];
+  regionScan: for (let level: Element | null = root, up = 0; level && up < 3; up++, level = level.parentElement) {
+    for (let sib = level.nextElementSibling, n = 0; sib && n < 3; n++, sib = sib.nextElementSibling) {
+      if (isOtherPost(sib)) break regionScan;
+      regions.push(sib);
+    }
+    if (level.parentElement && Array.from(level.parentElement.children).some((c) => c !== level && isOtherPost(c))) break;
+  }
   const embedded = '.feed-shared-mini-update-v2, .update-components-mini-update-v2, .feed-shared-article, .update-components-article, [data-testid*="quoted"], [data-test-id*="reshared"]';
+  let scope: Element = root;
   const own = (node: Element): boolean => {
     let parent = node.parentElement;
-    while (parent && parent !== root) {
+    while (parent && parent !== scope) {
       if (parent.matches(embedded) || parent.matches('[data-urn], [data-activity-urn]')) return false;
       parent = parent.parentElement;
     }
-    return parent === root;
+    return parent === scope;
   };
   const visible = (node: Element): boolean => {
     const rect = node.getBoundingClientRect();
@@ -1050,29 +1112,36 @@ export function llCommentControls(
     // Continua restrito ao cartão único, visível e fora de comentários existentes.
     'div[contenteditable="true"]', '[contenteditable="true"]',
   ];
-  for (const selector of candidates) {
-    try {
-      for (const node of Array.from(root.querySelectorAll(selector))) {
-        if (!(node instanceof HTMLElement) ||
-          node.getAttribute('contenteditable') !== 'true' ||
-          node.closest('.comments-comment-entity, .comments-comment-item') ||
-          !own(node) || !visible(node)) continue;
-        editors.add(node);
-      }
-    } catch { /* configuração de seletor inválida: nunca ampliar o escopo */ }
-  }
+  const collect = (area: Element): void => {
+    scope = area;
+    for (const selector of candidates) {
+      try {
+        for (const node of Array.from(area.querySelectorAll(selector))) {
+          if (!(node instanceof HTMLElement) ||
+            node.getAttribute('contenteditable') !== 'true' ||
+            node.closest('.comments-comment-entity, .comments-comment-item') ||
+            !own(node) || !visible(node)) continue;
+          editors.add(node);
+        }
+      } catch { /* configuração de seletor inválida: nunca ampliar o escopo */ }
+    }
+  };
+  collect(root);
+  if (!editors.size) for (const area of regions) collect(area);
   if (editors.size !== 1) return { root, editor: null, submit: null,
     reason: editors.size ? 'MULTIPLE_EDITORS' : 'EDITOR_NOT_FOUND' };
   const editor = [...editors][0]!;
+  scope = root.contains(editor) ? root : regions.find((area) => area.contains(editor)) ?? root;
   let ancestor: Element | null = editor.closest('form') ??
     editor.closest('.comments-comment-box, [data-testid*="comment-box"], [data-test-id*="comment-box"]') ??
     editor.parentElement;
   // Para editores sem form, subir apenas até um envelope que possua botão
   // exclusivamente de envio, nunca escolher um botão global do cartão.
-  for (let depth = 0; ancestor && (ancestor === root || root.contains(ancestor)) && depth < 8;
+  for (let depth = 0; ancestor && (ancestor === scope || scope.contains(ancestor)) && depth < 8;
     depth++, ancestor = ancestor.parentElement) {
     // Sem <form> é aceitável um envelope de comentários, nunca o cartão
     // inteiro (que pode conter botões de publicação de outra funcionalidade).
+    // Numa região irmã (seção de comentários), a própria região é o envelope.
     if (!editor.closest('form') && ancestor === root) break;
     const isForm = ancestor.matches('form');
     const submits = new Set<HTMLButtonElement>();
@@ -1152,26 +1221,45 @@ export function commentEvidence(
 ): { count: number; ownedCount: number; editorEmpty: boolean; cardConfirmed: boolean } {
   const norm = (s: string): string => s.replace(/\s+/g, ' ').trim().toLocaleLowerCase();
   const expected = norm(commentText);
-  const cards = __llPostContainers({ postItem: sel.postItem!, likeButton: sel.likeButton! })
+  const allCards = __llPostContainers({ postItem: sel.postItem!, likeButton: sel.likeButton! });
+  const cards = allCards
     .filter((c) => c.urn === urn && (c.identity.identityStatus === 'CONFIRMED' || (urn.startsWith('ll-vcard:') && c.identity.identityStatus === 'PROVISIONAL' && c.identity.cardId === urn)));
   if (!expected || cards.length !== 1)
     return { count: 0, ownedCount: 0, editorEmpty: false, cardConfirmed: false };
   const root = cards[0]!.el;
-  const legacyRows = Array.from(root.querySelectorAll(
-    '.comments-comment-entity, .comments-comment-item, [data-testid="comment-item"], [data-test-id="comment-item"]'));
+  // 0.5.22: no SDUI a seção de comentários pode ser desenhada como IRMÃ do
+  // cartão (fora do contêiner do post). Regiões aceitas: irmãos seguintes do
+  // cartão, até 3 níveis acima, parando no próximo post (que tem Compartilhar).
+  const isOtherPost = (el: Element): boolean => {
+    if (allCards.some((c) => c.el !== root && (el === c.el || el.contains(c.el) || c.el.contains(el)))) return true;
+    const buttons = Array.from(el.querySelectorAll('button, [role="button"]'));
+    return buttons.some((b) => /situa[cç][aã]o do bot[aã]o de rea|reaction button state/i.test(b.getAttribute('aria-label') ?? '')) &&
+      buttons.some((b) => /^(?:compartilhar|share|repost|republicar)/i.test((b.getAttribute('aria-label') || (b as HTMLElement).innerText || '').trim()));
+  };
+  const regions: Element[] = [];
+  regionScan: for (let level: Element | null = root, up = 0; level && up < 3; up++, level = level.parentElement) {
+    for (let sib = level.nextElementSibling, n = 0; sib && n < 3; n++, sib = sib.nextElementSibling) {
+      if (isOtherPost(sib)) break regionScan;
+      regions.push(sib);
+    }
+    if (level.parentElement && Array.from(level.parentElement.children).some((c) => c !== level && isOtherPost(c))) break;
+  }
+  const scopes: Element[] = [root, ...regions];
+  const legacyRows = scopes.flatMap((area) => Array.from(area.querySelectorAll(
+    '.comments-comment-entity, .comments-comment-item, [data-testid="comment-item"], [data-test-id="comment-item"]')));
   // SDUI pode entregar comentários sem classes legadas. Buscar o texto EXATO
   // apenas dentro do post escolhido; localizar o MENOR ancestral próprio que
   // contenha também o cabeçalho do comentarista, sem a barra de ações do post.
   // Encontrar texto digitado no editor NUNCA conta como comentário publicado.
   const structuralRows = new Set<Element>();
   if (legacyRows.length === 0) {
-    const snippets = Array.from(root.querySelectorAll(
-      '[data-testid*="comment-text"], [data-test-id*="comment-text"], p, [dir="ltr"]'));
+    const snippets = scopes.flatMap((area) => Array.from(area.querySelectorAll(
+      '[data-testid*="comment-text"], [data-test-id*="comment-text"], p, [dir="ltr"]')));
     for (const snippet of snippets) {
       if (snippet.closest('[contenteditable="true"], .update-components-actor, .feed-shared-actor') ||
           norm((snippet as HTMLElement).innerText || snippet.textContent || '') !== expected) continue;
       let row: Element | null = snippet.parentElement;
-      for (let depth = 0; row && row !== root && depth < 8; depth++, row = row.parentElement) {
+      for (let depth = 0; row && !scopes.includes(row) && depth < 8; depth++, row = row.parentElement) {
         const links = Array.from(row.querySelectorAll('a[href*="/in/"]'))
           .filter((link) => !link.closest('[contenteditable="true"]'));
         if (links.length !== 1 ||
